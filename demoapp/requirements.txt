@@ -1,0 +1,7 @@
+fast-rtc==0.0.20
+gradio==5.1.0
+gradio-webrtc==0.0.31
+langchain-core==0.3.40
+langchain-community==0.2.5
+numpy==1.26.4
+soundfile==0.13.1
