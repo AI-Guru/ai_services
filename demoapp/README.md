@@ -2,6 +2,10 @@
 
 A real-time voice assistant using WebRTC, speech-to-text, LLM, and text-to-speech technologies.
 
+## About Demo App
+
+This application (demoapp) provides a simple web interface for real-time voice interactions with an AI assistant. It demonstrates the integration of various AI services into a cohesive conversational experience.
+
 ## Requirements
 
 - Python 3.10+
