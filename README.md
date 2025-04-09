@@ -1,5 +1,7 @@
 # AI Services
 
+![Background](background.png)
+
 A collection of useful AI services for AI sovereignty.
 
 ## Overview
