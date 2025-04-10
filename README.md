@@ -4,7 +4,7 @@
 
 A collection of useful AI services for AI sovereignty.
 
-![Video](video.mp4)
+![Video](./video.mp4)
 
 ## Overview
 
