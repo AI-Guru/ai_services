@@ -59,6 +59,19 @@ cd service_directory
 docker compose up -d
 ```
 
+## Kudos and Credits
+
+This project would not have been possible without the great works of many people who steadily contribute to the open source community!
+
+- https://canopylabs.ai/
+- https://github.com/Lex-au/Orpheus-FastAPI
+- https://github.com/richardr1126/LlamaCpp-Orpheus-FastAPI
+- https://github.com/freddyaboulton/fastrtc
+- https://huggingface.co/
+- https://ollama.com/
+- https://www.gradio.app/
+- https://www.langchain.com/
+
 ## System Requirements
 
 - Docker and Docker Compose
