@@ -4,7 +4,7 @@
 
 A collection of useful AI services for AI sovereignty.
 
-![Video](./video.mp4)
+[![Video](./video.mp4)](https://github.com/user-attachments/assets/bc656f0d-6071-4ce4-b66b-e0c447435c66)
 
 ## Overview
 
