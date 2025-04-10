@@ -4,6 +4,8 @@
 
 A collection of useful AI services for AI sovereignty.
 
+![Video](video.mp4)
+
 ## Overview
 
 This repository contains a set of containerized AI services that can be run locally to provide various AI capabilities without relying on external cloud providers. Each service is designed to be easy to deploy and use.
