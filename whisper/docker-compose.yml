@@ -6,7 +6,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "7999:8000"
     volumes:
       - .:/app
       - ./models_cache:/models_cache

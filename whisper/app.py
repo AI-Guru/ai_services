@@ -2,6 +2,8 @@ import io
 import os
 import torch
 import time
+import tempfile
+import subprocess
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware

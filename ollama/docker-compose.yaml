@@ -11,8 +11,8 @@ services:
       - 11434:11434
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
-      - OLLAMA_CONTEXT_LENGTH=32000
-      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_CONTEXT_LENGTH=48000
+      - OLLAMA_KEEP_ALIVE=1sh
     volumes:
       - ./ollama:/root/.ollama
     networks:
