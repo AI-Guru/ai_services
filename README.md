@@ -4,6 +4,8 @@
 
 A collection of useful AI services for AI sovereignty.
 
+[![Video](./video.mp4)](https://github.com/user-attachments/assets/bc656f0d-6071-4ce4-b66b-e0c447435c66)
+
 ## Overview
 
 This repository contains a set of containerized AI services that can be run locally to provide various AI capabilities without relying on external cloud providers. Each service is designed to be easy to deploy and use.
@@ -58,6 +60,19 @@ Each service has its own README.md with specific setup instructions and usage ex
 cd service_directory
 docker compose up -d
 ```
+
+## Kudos and Credits
+
+This project would not have been possible without the great works of many people who steadily contribute to the open source community!
+
+- https://canopylabs.ai/
+- https://github.com/Lex-au/Orpheus-FastAPI
+- https://github.com/richardr1126/LlamaCpp-Orpheus-FastAPI
+- https://github.com/freddyaboulton/fastrtc
+- https://huggingface.co/
+- https://ollama.com/
+- https://www.gradio.app/
+- https://www.langchain.com/
 
 ## System Requirements
 
