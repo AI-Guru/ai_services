@@ -115,6 +115,85 @@ class WhisperModelManager:
 # Create the model manager
 model_manager = WhisperModelManager()
 
+def convert_audio_to_wav(audio_bytes: bytes, original_filename: str) -> tuple:
+    """
+    Convert audio file to WAV format using ffmpeg if needed.
+
+    Args:
+        audio_bytes: Raw audio file bytes
+        original_filename: Original filename (used to determine format)
+
+    Returns:
+        Tuple of (audio_data, sample_rate)
+    """
+    # Extract file extension for logging and temp file creation
+    file_ext = os.path.splitext(original_filename)[1].lower() if original_filename else ''
+
+    try:
+        # First, try to read directly with soundfile
+        audio_buffer = io.BytesIO(audio_bytes)
+        data, samplerate = sf.read(audio_buffer)
+        logger.info(f"Successfully read audio directly with soundfile (file: {original_filename})")
+        return data, samplerate
+    except Exception as e:
+        logger.info(f"Direct read failed for {original_filename}: {e}. Attempting conversion with ffmpeg...")
+
+        # If direct read fails, use ffmpeg to convert
+        try:
+            # Use the original file extension if available, otherwise default to .audio
+            input_suffix = file_ext if file_ext else '.audio'
+
+            with tempfile.NamedTemporaryFile(suffix=input_suffix, delete=False) as input_file:
+                input_path = input_file.name
+                input_file.write(audio_bytes)
+
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as output_file:
+                output_path = output_file.name
+
+            # Convert using ffmpeg
+            # Note: ffmpeg will auto-detect format from extension and file content
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-ar', '16000',  # Resample to 16kHz (optimal for Whisper)
+                '-ac', '1',       # Convert to mono
+                '-f', 'wav',      # Output format
+                '-y',             # Overwrite output file
+                output_path
+            ]
+
+            logger.info(f"Converting {original_filename} ({file_ext or 'unknown format'}) to WAV using ffmpeg...")
+
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+
+            if result.returncode != 0:
+                logger.error(f"FFmpeg error for {original_filename}: {result.stderr}")
+                raise Exception(f"FFmpeg conversion failed for {original_filename}: {result.stderr}")
+
+            # Read the converted WAV file
+            data, samplerate = sf.read(output_path)
+            logger.info(f"Successfully converted {original_filename} ({file_ext}) with ffmpeg to 16kHz mono WAV")
+
+            # Clean up temporary files
+            try:
+                os.unlink(input_path)
+                os.unlink(output_path)
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to clean up temp files: {cleanup_error}")
+
+            return data, samplerate
+
+        except subprocess.TimeoutExpired:
+            raise Exception(f"Audio conversion timed out for {original_filename}")
+        except Exception as conversion_error:
+            logger.error(f"Audio conversion failed for {original_filename}: {conversion_error}")
+            raise Exception(f"Failed to process audio file {original_filename}: {conversion_error}")
+
 # Initialize the default model
 @app.on_event("startup")
 async def startup_event():
@@ -154,38 +233,37 @@ async def transcribe_audio(
 ):
     if not file:
         raise HTTPException(status_code=400, detail="No file provided")
-    
+
     try:
         # Get the appropriate model pipeline
         model_data = model_manager.get_model_pipeline(model_name)
         pipe = model_data["pipeline"]
         used_model = model_data["model_id"]
-        
+
         # Update last used timestamp
         model_data["last_used"] = time.time()
-        
+
         # Read the uploaded file
         contents = await file.read()
-        audio_bytes = io.BytesIO(contents)
-        
-        # Load audio using soundfile
-        data, samplerate = sf.read(audio_bytes)
-        
+
+        # Convert audio to WAV format if needed (handles .oga, .mp3, .m4a, etc.)
+        data, samplerate = convert_audio_to_wav(contents, file.filename or "audio.wav")
+
         # Calculate audio length in seconds
         audio_length_seconds = len(data) / samplerate
-        
+
         # Measure transcription time
         start_time = time.time()
-        
+
         # Process with Whisper
         result = pipe({"raw": data, "sampling_rate": samplerate})
-        
+
         # Calculate transcription duration
         transcription_duration = time.time() - start_time
-        
+
         # Calculate transcription speed (ratio of audio length to processing time)
         transcription_speed = audio_length_seconds / transcription_duration if transcription_duration > 0 else 0
-        
+
         return {
             "text": result["text"],
             "audio_length_seconds": round(audio_length_seconds, 2),
