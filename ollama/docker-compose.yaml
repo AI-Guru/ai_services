@@ -12,7 +12,7 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_CONTEXT_LENGTH=48000
-      - OLLAMA_KEEP_ALIVE=1sh
+      - OLLAMA_KEEP_ALIVE=1h
     volumes:
       - ./ollama:/root/.ollama
     networks:
