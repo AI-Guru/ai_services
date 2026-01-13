@@ -1,0 +1,135 @@
+
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.12.0
+    container_name: vllm-gpt-oss
+    restart: unless-stopped
+    
+    # GPU access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Critical for vLLM performance
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864  # 64MB stack for deep computation graphs
+    
+    ports:
+      - "11435:8000"
+    
+    volumes:
+      # Persist model weights (avoids re-download on restart)
+      - huggingface_cache:/root/.cache/huggingface
+      # Tiktoken encodings for offline operation
+      - ./encodings:/etc/encodings:ro
+    
+    environment:
+      # Hugging Face token (optional, for gated models)
+      - HF_TOKEN=${HF_TOKEN:-}
+      
+      # Blackwell-specific optimizations
+      - VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8=1
+      
+      # Offline operation (prevents runtime downloads)
+      - HF_HUB_OFFLINE=0  # Set to 1 after initial download
+      - TIKTOKEN_ENCODINGS_BASE=/etc/encodings
+      
+      # Logging
+      - VLLM_LOGGING_LEVEL=INFO
+      
+      # Memory optimization
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    
+    entrypoint: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+    command:
+      - --model
+      - openai/gpt-oss-20b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - "0.50"
+      - --max-model-len
+      - "32768"
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s  # Model loading takes time
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # Optional: Nginx reverse proxy with rate limiting
+  nginx:
+    image: nginx:alpine
+    container_name: vllm-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro  # For HTTPS
+    depends_on:
+      vllm:
+        condition: service_healthy
+    profiles:
+      - with-proxy
+
+  # Optional: Prometheus metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vllm-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+    profiles:
+      - with-monitoring
+
+  # Optional: Grafana dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vllm-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    profiles:
+      - with-monitoring
+
+volumes:
+  huggingface_cache:
+    name: vllm_huggingface_cache
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    name: vllm-network
