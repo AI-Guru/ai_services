@@ -1,14 +1,14 @@
 version: '3.8'
 
 services:
-  ollama:
-    image: docker.io/ollama/ollama:latest
-    container_name: ollama
+  ollama-prerelease:
+    image: docker.io/ollama/ollama:0.14.3-rc2
+    container_name: ollama-prerelease
     pull_policy: always
     tty: true
     restart: unless-stopped
     ports:
-      - 11434:11434
+      - 11435:11434
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_CONTEXT_LENGTH=48000
@@ -22,7 +22,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - ollama-network
+      - ollama-prerelease-network
     deploy:
       resources:
         reservations:
@@ -32,5 +32,5 @@ services:
               capabilities: [gpu]
 
 networks:
-  ollama-network:
+  ollama-prerelease-network:
     external: false
