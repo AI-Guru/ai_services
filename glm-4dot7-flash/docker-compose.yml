@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # Q4 quantization (4-bit, ~18GB, faster)
+  glm-q4:
+    profiles: ["q4"]
+    build: .
+    image: glm-4-7-flash:latest
+    container_name: glm-4-7-flash-server
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    ports:
+      - "11346:11346"
+    volumes:
+      - ./models:/app/models
+    command: ./start_server.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  # Q8 quantization (8-bit, ~35GB, higher quality)
+  glm-q8:
+    profiles: ["q8"]
+    build: .
+    image: glm-4-7-flash:latest
+    container_name: glm-4-7-flash-server
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    ports:
+      - "11346:11346"
+    volumes:
+      - ./models:/app/models
+    command: ./start_server_q8.sh
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
