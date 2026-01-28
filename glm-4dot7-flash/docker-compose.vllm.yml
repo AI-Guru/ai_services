@@ -1,0 +1,192 @@
+services:
+  # FP8-Dynamic quantized model (recommended - lower VRAM, faster)
+  glm-fp8:
+    profiles: ["fp8"]
+    # Build with vLLM nightly cu130 + CUDA 13.x for GLM-4.7 support
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM nvidia/cuda:13.1.1-devel-ubuntu22.04
+
+        # Install system dependencies
+        RUN apt-get update && apt-get install -y \
+            python3 python3-pip python3-venv git curl \
+            && rm -rf /var/lib/apt/lists/*
+
+        # Install uv for faster package management
+        RUN pip3 install uv
+
+        # Install vLLM nightly cu130 for GLM-4.7 support (requires CUDA 13.x)
+        RUN uv pip install --system vllm \
+            --extra-index-url https://wheels.vllm.ai/nightly/cu130
+        RUN uv pip install --system --upgrade --force-reinstall \
+            git+https://github.com/huggingface/transformers.git
+        RUN uv pip install --system numba
+
+        WORKDIR /app
+        ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+    image: vllm-glm47-cu130:latest
+    container_name: glm-4-7-flash-server
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Critical for vLLM performance
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11346:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=0
+      - VLLM_LOGGING_LEVEL=INFO
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False
+
+    command:
+      - --model
+      - zai-org/GLM-4.7-Flash
+      - --served-model-name
+      - unsloth/GLM-4.7-Flash
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - "0.95"
+      - --max-model-len
+      - "200000"
+      - --max_num_batched_tokens
+      - "16384"
+      - --dtype
+      - bfloat16
+      - --kv-cache-dtype
+      - fp8
+      - --seed
+      - "3407"
+      - --trust-remote-code
+      - --enforce-eager
+      - --tool-call-parser
+      - glm47
+      - --reasoning-parser
+      - glm45
+      - --enable-auto-tool-choice
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # BF16 full precision (higher quality, more VRAM)
+  glm-bf16:
+    profiles: ["bf16"]
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM nvidia/cuda:13.1.1-devel-ubuntu22.04
+
+        RUN apt-get update && apt-get install -y \
+            python3 python3-pip python3-venv git curl \
+            && rm -rf /var/lib/apt/lists/*
+
+        RUN pip3 install uv
+
+        # Install vLLM nightly cu130 for GLM-4.7 support (requires CUDA 13.x)
+        RUN uv pip install --system vllm \
+            --extra-index-url https://wheels.vllm.ai/nightly/cu130
+        RUN uv pip install --system --upgrade --force-reinstall \
+            git+https://github.com/huggingface/transformers.git
+        RUN uv pip install --system numba
+
+        WORKDIR /app
+        ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+    image: vllm-glm47-cu130:latest
+    container_name: glm-4-7-flash-server
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11346:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=0
+      - VLLM_LOGGING_LEVEL=INFO
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False
+
+    command:
+      - --model
+      - zai-org/GLM-4.7-Flash
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-model-len
+      - "131072"
+      - --max_num_batched_tokens
+      - "16384"
+      - --dtype
+      - bfloat16
+      - --seed
+      - "3407"
+      - --trust-remote-code
+      - --enforce-eager
+      - --tool-call-parser
+      - glm47
+      - --reasoning-parser
+      - glm45
+      - --enable-auto-tool-choice
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: glm_huggingface_cache

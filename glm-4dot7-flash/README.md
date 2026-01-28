@@ -1,15 +1,26 @@
 # GLM-4.7-Flash Server Setup
 
-Local server deployment for GLM-4.7-Flash model using llama.cpp with CUDA acceleration.
+Local server deployment for GLM-4.7-Flash model with two backend options:
+- **llama.cpp** - GGUF quantized models (Q4/Q8), lower VRAM, simpler setup
+- **vLLM** - FP8/BF16, better parallelization, higher throughput
 
 ## Overview
 
-- **Model**: GLM-4.7-Flash (Q4_K_XL quantization)
+- **Model**: GLM-4.7-Flash
 - **Architecture**: 30B MoE (uses ~3.6B active parameters)
-- **Context Window**: 202,752 tokens (full support)
+- **Context Window**: Up to 202,752 tokens
 - **Port**: 11346
 - **API**: OpenAI-compatible
-- **Backend**: llama.cpp with CUDA
+
+### Backend Comparison
+
+| Aspect | llama.cpp | vLLM |
+|--------|-----------|------|
+| Quantization | Q4_K_XL (~18GB), Q8_K_XL (~33GB) | FP8-Dynamic (~18GB), BF16 (~60GB) |
+| Parallelization | 4 fixed slots | Continuous batching |
+| Throughput | ~40-80 tok/s | ~250+ tok/s |
+| Concurrent requests | Limited | Scales with memory |
+| Setup complexity | Simple | Requires more VRAM headroom |
 
 ## Quick Start
 
@@ -106,11 +117,54 @@ docker compose up -d
 
 Server will be available at `http://127.0.0.1:11346/v1`
 
+## vLLM Deployment (Alternative)
+
+vLLM offers better parallelization and throughput for concurrent requests.
+
+### Start with vLLM
+
+```bash
+# FP8 quantized (recommended - lower VRAM, 200K context)
+docker compose -f docker-compose.vllm.yml --profile fp8 up -d
+
+# BF16 full precision (higher quality, more VRAM, 131K context)
+docker compose -f docker-compose.vllm.yml --profile bf16 up -d
+```
+
+### Test vLLM Server
+
+```bash
+./test_vllm.sh
+```
+
+### vLLM Configuration
+
+| Profile | Model | VRAM | Context |
+|---------|-------|------|---------|
+| fp8 | GLM-4.7-Flash-FP8-Dynamic | ~30GB | 200K |
+| bf16 | GLM-4.7-Flash | ~70GB | 131K |
+
+Both profiles use the same port (11346) - only one can run at a time.
+
+### Stop vLLM
+
+```bash
+docker compose -f docker-compose.vllm.yml --profile fp8 down
+```
+
 ## VRAM Requirements
 
-- **Quantized (Q4_K_XL)**: ~18GB VRAM
-- **Full Context (202K)**: Additional memory based on usage
-- **Recommended**: 24GB+ VRAM
+### llama.cpp
+| Model | Base | With 202K Context |
+|-------|------|-------------------|
+| Q4_K_XL | ~18GB | ~38GB |
+| Q8_K_XL | ~33GB | ~58GB |
+
+### vLLM
+| Profile | Estimated VRAM |
+|---------|----------------|
+| FP8 (200K ctx) | ~30GB |
+| BF16 (131K ctx) | ~70GB |
 
 Check current usage:
 ```bash
@@ -119,16 +173,18 @@ nvidia-smi
 
 ## Files
 
+### llama.cpp Backend
 - `build.sh` - Build llama.cpp with CUDA support
-- `download_model.sh` - Download GLM-4.7-Flash model using HuggingFace CLI
-- `start_server.sh` - Start llama-server
-- `test_server.sh` - Test server with curl (includes VRAM check)
-- `Dockerfile` - Docker container setup
-- `docker-compose.yml` - Docker Compose configuration
+- `download_model.sh` - Download GGUF models using HuggingFace CLI
+- `start_server.sh` - Start llama-server (Q4)
+- `start_server_q8.sh` - Start llama-server (Q8)
+- `test_server.sh` - Test llama.cpp server
+- `Dockerfile` - Docker container for llama.cpp
+- `docker-compose.yml` - Docker Compose (profiles: q4, q8)
 
-**Optional Python scripts** (if you prefer Python):
-- `download_model.py` - Python version of model downloader
-- `test_client.py` - Python test client with OpenAI library
+### vLLM Backend
+- `docker-compose.vllm.yml` - Docker Compose for vLLM (profiles: fp8, bf16)
+- `test_vllm.sh` - Test vLLM server
 
 ## Blackwell GPU Compatibility
 
