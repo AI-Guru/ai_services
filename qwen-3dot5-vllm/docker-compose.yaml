@@ -1,0 +1,371 @@
+# Qwen3.5-35B-A3B on NVIDIA DGX Spark (GB10/Blackwell)
+#
+# Source: https://github.com/adadrag/qwen3.5-dgx-spark
+#
+# Hardware target: NVIDIA DGX Spark with 128GB unified memory
+# Model: Qwen/Qwen3.5-35B-A3B  (~70GB BF16, ~28.6GB remaining for KV cache)
+# Image:  vllm/vllm-openai:cu130-nightly  (requires vLLM v0.16.0+ for Qwen3.5)
+#
+# Usage:
+#   Default (262K context):  docker compose up -d
+#   1M context override:     docker compose --profile extended-context up -d
+#   FP8 (GB10 native):       docker compose --profile fp8 up -d
+#
+# API endpoint: http://localhost:8000/v1
+# Model name served as: qwen3.5-35b
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Primary service — 262K native context window (recommended)
+  # GPU memory utilization 0.80 gives ~28.6 GB for KV cache
+  # ---------------------------------------------------------------------------
+  qwen35:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen35
+    restart: unless-stopped
+
+    # All NVIDIA GPUs (required — model needs full unified memory on DGX Spark)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Critical for vLLM shared-memory multiprocessing
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864  # 64 MB — handles deep MoE computation graphs
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Persist downloaded model weights across container restarts
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      # Hugging Face auth token (required only for gated/private models)
+      - HF_TOKEN=${HF_TOKEN:-}
+
+      # Set to 1 after first successful model download to prevent runtime fetches
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+
+      # Logging verbosity
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+
+      # PyTorch memory allocator — prevents fragmentation on long sessions
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    # vLLM OpenAI-compatible server entrypoint
+    command:
+      - Qwen/Qwen3.5-35B-A3B
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # Native context window (262,144 tokens)
+      - --max-model-len
+      - "262144"
+      # 0.80 is stable; raise to 0.85–0.90 for longer KV cache at the cost of
+      # OOM risk under heavy concurrent load
+      - --gpu-memory-utilization
+      - "0.80"
+      # Enable chain-of-thought / reasoning traces
+      - --reasoning-parser
+      - qwen3
+      # Function / tool calling
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # Prefix caching — improves throughput for repeated system-prompt prefixes
+      # Disable with --no-enable-prefix-caching if the Mamba warning is noisy
+      - --enable-prefix-caching
+      # Raise chunked-prefill budget from the default 2048 to reduce TTFT.
+      # Default 2048 forces long prompts through many sequential slices before
+      # the first token is generated. 16384 matches the attention block size
+      # and fits comfortably within GB10's memory bandwidth.
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Model loading (70 GB BF16) takes 3–5 minutes on first run
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Extended-context variant — up to ~1M tokens via YARN RoPE override
+  # Enable with: docker compose --profile extended-context up -d
+  #
+  # WARNING: requires significantly more KV cache memory; raise
+  # gpu-memory-utilization to 0.95 and ensure no other services are running.
+  # ---------------------------------------------------------------------------
+  qwen35-1m:
+    profiles: [extended-context]
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen35-1m
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Required to allow max-model-len beyond the model's native 262K
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+
+    command:
+      - Qwen/Qwen3.5-35B-A3B
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # 1,048,576 tokens — requires YARN RoPE override below
+      - --max-model-len
+      - "1048576"
+      - --gpu-memory-utilization
+      - "0.95"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # YARN RoPE parameters to extend context beyond 262K
+      # (mrope_interleaved, mrope_section, rope_type, rope_theta, etc.)
+      - --hf-overrides
+      - >-
+        {"text_config": {"rope_parameters": {
+          "mrope_interleaved": true,
+          "mrope_section": [11, 11, 10],
+          "rope_type": "yarn",
+          "rope_theta": 10000000,
+          "partial_rotary_factor": 0.25,
+          "factor": 4.0,
+          "original_max_position_embeddings": 262144
+        }}}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Text-only variant (vision encoder disabled)
+  # Enable with: docker compose --profile text-only up -d
+  # Frees ~2–3 GB of GPU memory; use when multimodal input is not needed
+  # ---------------------------------------------------------------------------
+  qwen35-text:
+    profiles: [text-only]
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen35-text
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - Qwen/Qwen3.5-35B-A3B
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      # Disables the vision encoder — text input only
+      - --language-model-only
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # FP8 variant — uses the official Qwen pre-quantized FP8 model
+  # Enable with: docker compose --profile fp8 up -d
+  #
+  # Uses Qwen/Qwen3.5-35B-A3B-FP8: fine-grained block-wise FP8 (block=128),
+  # quantized by the Qwen team — including Mamba layers — so no runtime
+  # quantization surprises. vLLM reads the quant config from the model directly.
+  #
+  # GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively.
+  # Weights: ~35 GB vs ~70 GB BF16 → ~87 GB free for KV cache at 0.90 util,
+  # roughly 3× more KV cache headroom for concurrency and longer contexts.
+  #
+  # Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with Mamba layers
+  # (vllm-project/vllm#26646); re-enable once upstream fix lands.
+  # ---------------------------------------------------------------------------
+  qwen35-fp8:
+    profiles: [fp8]
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen35-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      # Official Qwen FP8 model — quantization is detected automatically from config
+      - Qwen/Qwen3.5-35B-A3B-FP8
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      # 0.85 on a freshly booted system; swap pressure from prior runs can
+      # consume ~15 GB of unified memory, reducing the effective free pool.
+      # Raise back to 0.90 once swap has drained (check with: free -h).
+      - --gpu-memory-utilization
+      - "0.85"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # FP8 load is faster than BF16 (smaller model); 180s is usually sufficient
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  huggingface_cache:
+    # Shared across all three service variants so weights are only downloaded once
+    name: qwen35_huggingface_cache
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  default:
+    name: qwen35-network
