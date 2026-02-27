@@ -1,17 +1,16 @@
-# Qwen3.5-35B-A3B — BF16, 262K context (default)
+# Qwen3.5-35B-A3B — BF16, ~1M context via YARN RoPE override
 #
-# Hardware target: NVIDIA DGX Spark with 128GB unified memory
-# Model: Qwen/Qwen3.5-35B-A3B  (~70GB BF16, ~28.6GB remaining for KV cache)
-# Image:  vllm/vllm-openai:cu130-nightly  (requires vLLM v0.16.0+ for Qwen3.5)
+# WARNING: requires significantly more KV cache memory; gpu-memory-utilization
+# is set to 0.95 — ensure no other GPU services are running.
 #
-# Usage: docker compose up -d
+# Usage: docker compose -f docker-compose.1m.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 
 services:
-  qwen35:
+  qwen35-1m:
     image: vllm/vllm-openai:cu130-nightly
-    container_name: qwen35
+    container_name: qwen35-1m
     restart: unless-stopped
 
     deploy:
@@ -40,6 +39,7 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 
     command:
       - Qwen/Qwen3.5-35B-A3B
@@ -50,17 +50,25 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "262144"
+      - "1048576"
       - --gpu-memory-utilization
-      - "0.60"
+      - "0.95"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
+      - --hf-overrides
+      - >-
+        {"text_config": {"rope_parameters": {
+          "mrope_interleaved": true,
+          "mrope_section": [11, 11, 10],
+          "rope_type": "yarn",
+          "rope_theta": 10000000,
+          "partial_rotary_factor": 0.25,
+          "factor": 4.0,
+          "original_max_position_embeddings": 262144
+        }}}
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

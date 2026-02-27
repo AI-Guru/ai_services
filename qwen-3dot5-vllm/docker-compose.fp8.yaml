@@ -1,17 +1,24 @@
-# Qwen3.5-35B-A3B — BF16, 262K context (default)
+# Qwen3.5-35B-A3B-FP8 — official Qwen pre-quantized FP8 model
 #
-# Hardware target: NVIDIA DGX Spark with 128GB unified memory
-# Model: Qwen/Qwen3.5-35B-A3B  (~70GB BF16, ~28.6GB remaining for KV cache)
-# Image:  vllm/vllm-openai:cu130-nightly  (requires vLLM v0.16.0+ for Qwen3.5)
+# Uses Qwen/Qwen3.5-35B-A3B-FP8: fine-grained block-wise FP8 (block=128),
+# quantized by the Qwen team — including Mamba layers — so no runtime
+# quantization surprises. vLLM reads the quant config from the model directly.
 #
-# Usage: docker compose up -d
+# GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively.
+# Weights: ~35 GB vs ~70 GB BF16 → ~87 GB free for KV cache at 0.90 util,
+# roughly 3× more KV cache headroom for concurrency and longer contexts.
+#
+# Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with Mamba layers
+# (vllm-project/vllm#26646); re-enable once upstream fix lands.
+#
+# Usage: docker compose -f docker-compose.fp8.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 
 services:
-  qwen35:
+  qwen35-fp8:
     image: vllm/vllm-openai:cu130-nightly
-    container_name: qwen35
+    container_name: qwen35-fp8
     restart: unless-stopped
 
     deploy:
@@ -42,7 +49,7 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
     command:
-      - Qwen/Qwen3.5-35B-A3B
+      - Qwen/Qwen3.5-35B-A3B-FP8
       - --served-model-name
       - qwen3.5-35b
       - --host
@@ -52,7 +59,7 @@ services:
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
-      - "0.60"
+      - "0.6"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -67,7 +74,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 300s
+      start_period: 180s
 
     logging:
       driver: "json-file"

@@ -22,18 +22,18 @@ docker compose logs -f
 
 API is ready when logs show `Application startup complete`.
 
-## Service profiles
+## Service variants
 
-All profiles serve on **port 8000**. Only run one at a time.
+All variants serve on **port 8000**. Only run one at a time.
 
-| Profile | Command | Model | Weights | Notes |
+| Variant | Command | Model | Weights | Notes |
 |---|---|---|---|---|
-| _(default)_ | `docker compose up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Recommended starting point |
-| `extended-context` | `docker compose --profile extended-context up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | ~1M tokens via YARN RoPE override |
-| `text-only` | `docker compose --profile text-only up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Vision encoder disabled |
-| `fp8` | `docker compose --profile fp8 up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
+| Default | `docker compose up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Recommended starting point |
+| Extended context | `docker compose -f docker-compose.1m.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | ~1M tokens via YARN RoPE override |
+| Text-only | `docker compose -f docker-compose.text-only.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Vision encoder disabled |
+| FP8 | `docker compose -f docker-compose.fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
 
-All profiles share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
+All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
 ### FP8 notes
 

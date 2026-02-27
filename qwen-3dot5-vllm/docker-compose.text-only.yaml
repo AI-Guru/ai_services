@@ -1,17 +1,15 @@
-# Qwen3.5-35B-A3B — BF16, 262K context (default)
+# Qwen3.5-35B-A3B — BF16, 262K context, vision encoder disabled
 #
-# Hardware target: NVIDIA DGX Spark with 128GB unified memory
-# Model: Qwen/Qwen3.5-35B-A3B  (~70GB BF16, ~28.6GB remaining for KV cache)
-# Image:  vllm/vllm-openai:cu130-nightly  (requires vLLM v0.16.0+ for Qwen3.5)
+# Frees ~2–3 GB of GPU memory; use when multimodal input is not needed.
 #
-# Usage: docker compose up -d
+# Usage: docker compose -f docker-compose.text-only.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 
 services:
-  qwen35:
+  qwen35-text:
     image: vllm/vllm-openai:cu130-nightly
-    container_name: qwen35
+    container_name: qwen35-text
     restart: unless-stopped
 
     deploy:
@@ -52,15 +50,14 @@ services:
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
-      - "0.60"
+      - "0.85"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
       - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
+      - --language-model-only
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
