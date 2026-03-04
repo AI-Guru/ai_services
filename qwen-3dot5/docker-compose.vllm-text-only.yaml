@@ -2,7 +2,7 @@
 #
 # Frees ~2–3 GB of GPU memory; use when multimodal input is not needed.
 #
-# Usage: docker compose -f docker-compose.text-only.yaml up -d
+# Usage: docker compose -f docker-compose.vllm-text-only.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 

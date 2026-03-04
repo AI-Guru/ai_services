@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-Tool-calling test — verifies that vLLM correctly routes function calls.
+Tool-calling test — verifies that the model correctly routes function calls.
 
-Runs three scenarios:
+Runs four scenarios:
   1. Single tool call  — get current weather
   2. Parallel tool calls — fetch weather for two cities simultaneously
   3. Multi-turn        — tool result fed back; model produces a final answer
+  4. Multi-parallel    — 3+ mixed tool calls (weather + calculate) in one response
 
 Usage:
     python test_tools.py
@@ -241,14 +242,70 @@ def scenario_multi_tool(client: OpenAI, model: str) -> bool:
     return False
 
 
+def scenario_multi_parallel(client: OpenAI, model: str) -> bool:
+    header("Scenario 4 — multi-parallel: 3+ mixed tool calls in one response")
+
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "I need three things done at once: "
+                "get the weather in Tokyo, get the weather in London, "
+                "and calculate 42 * 17. Do all three simultaneously."
+            ),
+        }
+    ]
+
+    t0 = time.perf_counter()
+    resp = client.chat.completions.create(
+        model=model, messages=messages, tools=TOOLS, tool_choice="auto"
+    )
+    elapsed = time.perf_counter() - t0
+
+    msg = resp.choices[0].message
+    print(f"Finish reason : {resp.choices[0].finish_reason}  ({elapsed*1000:.0f} ms)")
+
+    if not msg.tool_calls:
+        print("FAIL — no tool calls returned")
+        if msg.content:
+            print(f"Model replied with text: {msg.content[:200]}")
+        return False
+
+    print(f"Tool calls    : {len(msg.tool_calls)}")
+    print_tool_calls(msg.tool_calls)
+
+    if len(msg.tool_calls) < 3:
+        print(f"WARN — expected 3 parallel calls, got {len(msg.tool_calls)}")
+
+    # Check that both tool types are present
+    called_fns = {tc.function.name for tc in msg.tool_calls}
+    if "get_weather" not in called_fns:
+        print("WARN — expected get_weather call")
+    if "calculate" not in called_fns:
+        print("WARN — expected calculate call")
+
+    messages.append(msg)
+    for tc in msg.tool_calls:
+        args   = json.loads(tc.function.arguments)
+        result = execute_tool(tc.function.name, args)
+        print(f"\n  Tool result ({tc.function.name}): {result}")
+        messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+    follow_up = client.chat.completions.create(model=model, messages=messages, tools=TOOLS)
+    final = follow_up.choices[0].message.content or ""
+    print(f"\nFinal answer:\n{textwrap.fill(final, width=72, initial_indent='  ', subsequent_indent='  ')}")
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 SCENARIO_MAP = {
-    "single":    scenario_single,
-    "parallel":  scenario_parallel,
-    "chained":   scenario_multi_tool,
+    "single":         scenario_single,
+    "parallel":       scenario_parallel,
+    "chained":        scenario_multi_tool,
+    "multi_parallel": scenario_multi_parallel,
 }
 
 
@@ -258,7 +315,7 @@ def main():
     parser.add_argument("--model",    default=DEFAULT_MODEL)
     parser.add_argument(
         "--scenario",
-        choices=["single", "parallel", "chained", "all"],
+        choices=["single", "parallel", "chained", "multi_parallel", "all"],
         default="all",
         help="Which scenario to run (default: all)",
     )

@@ -3,7 +3,7 @@
 # WARNING: requires significantly more KV cache memory; gpu-memory-utilization
 # is set to 0.95 — ensure no other GPU services are running.
 #
-# Usage: docker compose -f docker-compose.1m.yaml up -d
+# Usage: docker compose -f docker-compose.vllm-1m.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 

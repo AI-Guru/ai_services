@@ -4,7 +4,7 @@
 # Model: Qwen/Qwen3.5-35B-A3B  (~70GB BF16, ~28.6GB remaining for KV cache)
 # Image:  vllm/vllm-openai:cu130-nightly  (requires vLLM v0.16.0+ for Qwen3.5)
 #
-# Usage: docker compose up -d
+# Usage: docker compose -f docker-compose.vllm.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 

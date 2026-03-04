@@ -13,8 +13,11 @@ Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 ## Quick start
 
 ```bash
-# Default — BF16, 262K context, multimodal (port 8000)
-docker compose up -d
+# Default (vLLM) — BF16, 262K context, multimodal (port 8000)
+docker compose -f docker-compose.vllm.yaml up -d
+
+# SGLang FP8 — Blackwell SM120 (port 8000)
+docker compose -f docker-compose.sglang-fp8.yaml up -d
 
 # Watch startup (model load takes 3–5 min on first run)
 docker compose logs -f
@@ -28,10 +31,11 @@ All variants serve on **port 8000**. Only run one at a time.
 
 | Variant | Command | Model | Weights | Notes |
 |---|---|---|---|---|
-| Default | `docker compose up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Recommended starting point |
-| Extended context | `docker compose -f docker-compose.1m.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | ~1M tokens via YARN RoPE override |
-| Text-only | `docker compose -f docker-compose.text-only.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Vision encoder disabled |
-| FP8 | `docker compose -f docker-compose.fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
+| Default (vLLM) | `docker compose -f docker-compose.vllm.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Recommended starting point |
+| Extended context (vLLM) | `docker compose -f docker-compose.vllm-1m.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | ~1M tokens via YARN RoPE override |
+| Text-only (vLLM) | `docker compose -f docker-compose.vllm-text-only.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Vision encoder disabled |
+| FP8 (vLLM) | `docker compose -f docker-compose.vllm-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
+| FP8 (SGLang) | `docker compose -f docker-compose.sglang-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | Triton FP8 backend; SM120 Blackwell |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
@@ -44,6 +48,22 @@ The `fp8` profile uses the official Qwen pre-quantized model ([Qwen/Qwen3.5-35B-
 ### MXFP4
 
 No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is available ([noctrex/Qwen3.5-35B-A3B-MXFP4_MOE-GGUF](https://huggingface.co/noctrex/Qwen3.5-35B-A3B-MXFP4_MOE-GGUF), ~22 GB) but requires llama.cpp. Additionally, vLLM's native NVFP4 kernel support on GB10 (SM12.x) is still maturing ([vllm-project/vllm#31085](https://github.com/vllm-project/vllm/issues/31085)).
+
+## Performance (measured)
+
+### SGLang FP8 on RTX Pro 6000 Blackwell (96 GB GDDR7)
+
+| Metric | Value |
+|---|---|
+| VRAM used | ~83 GB of 96 GB |
+| VRAM free | ~12 GB |
+| KV cache tokens | ~2M tokens (bf16) |
+| Decode throughput | ~126 tok/s |
+| TTFT (with thinking) | ~16 s |
+| Tool call latency (single) | ~1.1 s |
+| Tool call latency (3 parallel mixed) | ~1.5 s |
+
+Measured with `test_chat.py` and `test_tools.py` against `docker-compose.sglang-fp8.yaml`, `mem-fraction-static=0.80`, speculative decoding (NEXTN) enabled.
 
 ## Memory layout (DGX Spark, 128 GB unified)
 
@@ -86,15 +106,16 @@ python test_chat.py
 python test_chat.py --runs 5
 python test_chat.py --prompt "Your prompt here" --base-url http://localhost:8000/v1
 
-# Tool calling — single, parallel, and chained scenarios
+# Tool calling — single, parallel, chained, and multi-parallel scenarios
 python test_tools.py
 python test_tools.py --scenario single
+python test_tools.py --scenario multi_parallel
 python test_tools.py --base-url http://localhost:8000/v1
 ```
 
 ## Environment variables
 
-Create a `.env` file alongside `docker-compose.yaml` to override defaults:
+Create a `.env` file alongside the compose files to override defaults:
 
 ```dotenv
 HF_TOKEN=hf_...              # required for gated models; not needed for Qwen3.5

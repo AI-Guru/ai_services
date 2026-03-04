@@ -7,10 +7,15 @@
 # only 10 layers carry a traditional KV cache (~20 KB/token in bf16). The
 # DeltaNet recurrent state is ~15 MB/request regardless of sequence length.
 #
-# Important: FP8 KV cache produces corrupt output with DeltaNet's linear
-# attention state — kv-cache-dtype is left as auto (bf16) intentionally.
+# Important: FP8 KV cache produces silent corrupt output (wrong answers, no
+# crash) when DeltaNet linear attention state interacts with FP8-quantized KV.
+# kv-cache-dtype is set explicitly to bf16. Do not change to fp8_e4m3 or
+# fp8_e5m2. mamba-ssm-dtype is also pinned to bf16 for DeltaNet state precision.
 #
 # SGLang has RadixAttention (prefix caching) enabled by default — no flag needed.
+# Note: only the 10 full-attention layers benefit from prefix caching. HiCache
+# (higher-order cache) is blocked by DeltaNet and will log a startup warning:
+# "HiRadixCache only supports MHA and MLA". This is expected and non-fatal.
 #
 # Multi-Token Prediction (MTP / NEXTN) is enabled for faster inference. Qwen3.5
 # natively supports MTP via its built-in draft heads. Disable the speculative
@@ -72,7 +77,11 @@ services:
       - --attention-backend
       - triton
       - --fp8-gemm-backend
-      - cutlass
+      - triton
+      - --kv-cache-dtype
+      - bf16
+      - --mamba-ssm-dtype
+      - bfloat16
       - --reasoning-parser
       - qwen3
       - --tool-call-parser

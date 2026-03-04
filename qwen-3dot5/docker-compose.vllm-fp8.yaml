@@ -11,7 +11,7 @@
 # Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with Mamba layers
 # (vllm-project/vllm#26646); re-enable once upstream fix lands.
 #
-# Usage: docker compose -f docker-compose.fp8.yaml up -d
+# Usage: docker compose -f docker-compose.vllm-fp8.yaml up -d
 # API endpoint: http://localhost:8000/v1
 # Model name served as: qwen3.5-35b
 
@@ -70,6 +70,7 @@ services:
       - --enable-prefix-caching
       - --max-num-batched-tokens
       - "16384"
+      - --enforce-eager
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
