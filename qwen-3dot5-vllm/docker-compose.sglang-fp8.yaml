@@ -1,0 +1,110 @@
+# Qwen3.5-35B-A3B-FP8 via SGLang — official Qwen pre-quantized FP8 model
+#
+# Uses Qwen/Qwen3.5-35B-A3B-FP8: block-wise FP8 (block=128) quantized by the
+# Qwen team. SGLang reads the quant config from the model directly.
+#
+# The hybrid architecture (30 Gated DeltaNet + 10 full-attention layers) means
+# only 10 layers carry a traditional KV cache (~20 KB/token in bf16). The
+# DeltaNet recurrent state is ~15 MB/request regardless of sequence length.
+#
+# Important: FP8 KV cache produces corrupt output with DeltaNet's linear
+# attention state — kv-cache-dtype is left as auto (bf16) intentionally.
+#
+# SGLang has RadixAttention (prefix caching) enabled by default — no flag needed.
+#
+# Multi-Token Prediction (MTP / NEXTN) is enabled for faster inference. Qwen3.5
+# natively supports MTP via its built-in draft heads. Disable the speculative
+# flags if you see instability.
+#
+# Usage: docker compose -f docker-compose.sglang-fp8.yaml up -d
+# API endpoint: http://localhost:8000/v1
+# Model name served as: qwen3.5-35b
+
+services:
+  qwen35-sglang-fp8:
+    image: lmsysorg/sglang:latest
+    container_name: qwen35-sglang-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - Qwen/Qwen3.5-35B-A3B-FP8
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --context-length
+      - "262144"
+      - --mem-fraction-static
+      - "0.80"
+      - --tp-size
+      - "1"
+      - --attention-backend
+      - triton
+      - --fp8-gemm-backend
+      - cutlass
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --max-running-requests
+      - "20"
+      - --speculative-algo
+      - NEXTN
+      - --speculative-num-steps
+      - "3"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "4"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+
+networks:
+  default:
+    name: qwen35-network

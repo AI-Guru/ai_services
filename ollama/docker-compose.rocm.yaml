@@ -1,0 +1,35 @@
+services:
+  ollama:
+    image: docker.io/ollama/ollama:rocm
+    container_name: ollama-rocm
+    pull_policy: always
+    tty: true
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c", "until test -r /dev/kfd; do echo 'Waiting for GPU...'; sleep 5; done && /bin/ollama serve"]
+    ports:
+      - 11434:11434
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_CONTEXT_LENGTH=64000
+      - OLLAMA_KEEP_ALIVE=1h
+      - HSA_OVERRIDE_GFX_VERSION=12.0.1
+    volumes:
+      - ./ollama:/root/.ollama
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - "44"    # video
+      - "992"   # render
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ollama-network
+
+networks:
+  ollama-network:
+    external: false
