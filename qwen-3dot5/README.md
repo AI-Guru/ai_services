@@ -1,23 +1,26 @@
-# Qwen3.5-35B-A3B on NVIDIA DGX Spark
+# Qwen3.5-35B-A3B on NVIDIA Blackwell GPUs
 
-Runs [Qwen/Qwen3.5-35B-A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) via vLLM on the DGX Spark (GB10/Blackwell, 128 GB unified memory), exposing an OpenAI-compatible API.
+Runs [Qwen/Qwen3.5-35B-A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) via vLLM or SGLang on NVIDIA Blackwell GPUs, exposing an OpenAI-compatible API.
 
 Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
 ## Requirements
 
-- NVIDIA DGX Spark (GB10, 128 GB unified memory)
+- NVIDIA Blackwell GPU (DGX Spark GB10 128 GB unified, or RTX PRO 6000 96 GB GDDR7)
 - Docker + NVIDIA Container Toolkit
-- `vllm/vllm-openai:cu130-nightly` — the standard NVIDIA container ships vLLM 0.13.0 which does not support Qwen3.5; the nightly build (v0.16.0+) is required
+- `vllm/vllm-openai:v0.17.0-cu130` or `lmsysorg/sglang:latest`
 
 ## Quick start
 
 ```bash
-# Default (vLLM) — BF16, 262K context, multimodal (port 8000)
+# DGX Spark — vLLM BF16, 262K context, multimodal (port 8000)
 docker compose -f docker-compose.vllm.yaml up -d
 
-# SGLang FP8 — Blackwell SM120 (port 8000)
+# DGX Spark — SGLang FP8 (port 8000)
 docker compose -f docker-compose.sglang-fp8.yaml up -d
+
+# RTX PRO 6000 — vLLM FP8 (port 8000)
+docker compose -f docker-compose.vllm-fp8-rtxpro.yml up -d
 
 # Watch startup (model load takes 3–5 min on first run)
 docker compose logs -f
@@ -36,6 +39,7 @@ All variants serve on **port 8000**. Only run one at a time.
 | Text-only (vLLM) | `docker compose -f docker-compose.vllm-text-only.yaml up -d` | `Qwen3.5-35B-A3B` | ~70 GB BF16 | Vision encoder disabled |
 | FP8 (vLLM) | `docker compose -f docker-compose.vllm-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
 | FP8 (SGLang) | `docker compose -f docker-compose.sglang-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | Triton FP8 backend; SM120 Blackwell |
+| FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-fp8-rtxpro.yml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | RTX PRO 6000 96 GB; vLLM v0.17.0 |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
@@ -51,21 +55,45 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 
 ## Performance (measured)
 
-### SGLang FP8 on RTX Pro 6000 Blackwell (96 GB GDDR7)
+### RTX PRO 6000 Blackwell (96 GB GDDR7)
+
+#### vLLM v0.17.0 FP8 (`docker-compose.vllm-fp8-rtxpro.yml`)
+
+| Metric | Value |
+|---|---|
+| VRAM used | ~50 GB of 96 GB |
+| KV cache memory | 46.3 GB |
+| KV cache capacity | 606,144 tokens |
+| Max concurrency (262K context) | ~9 parallel requests |
+| Max concurrency (4K context) | ~148 parallel requests |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~174 tok/s |
+| TTFT (with thinking) | ~8–9 s |
+
+#### SGLang FP8 (`docker-compose.sglang-fp8.yaml`)
 
 | Metric | Value |
 |---|---|
 | VRAM used | ~83 GB of 96 GB |
 | VRAM free | ~12 GB |
 | KV cache tokens | ~2M tokens (bf16) |
-| Decode throughput | ~126 tok/s |
-| TTFT (with thinking) | ~16 s |
+| Decode throughput | ~131 tok/s |
+| TTFT (with thinking) | ~9.5 s |
 | Tool call latency (single) | ~1.1 s |
 | Tool call latency (3 parallel mixed) | ~1.5 s |
 
-Measured with `test_chat.py` and `test_tools.py` against `docker-compose.sglang-fp8.yaml`, `mem-fraction-static=0.80`, speculative decoding (NEXTN) enabled.
+#### Backend comparison (RTX PRO 6000, 3-run average)
 
-## Memory layout (DGX Spark, 128 GB unified)
+| Backend | Avg TTFT | Avg tok/s |
+|---|---|---|
+| SGLang (speculative NEXTN) | 9,560 ms | 130.6 |
+| vLLM v0.17.0 | 9,601 ms | 156.8 (+20%) |
+
+Measured with `test_chat.py --warmup --runs 3`.
+
+## Memory layout
+
+### DGX Spark (128 GB unified)
 
 | Variant | Weights | `gpu_memory_utilization` | KV cache headroom |
 |---|---|---|---|
@@ -75,6 +103,12 @@ Measured with `test_chat.py` and `test_tools.py` against `docker-compose.sglang-
 | FP8 | ~35 GB | 0.90 | ~87 GB |
 
 On DGX Spark, CPU and GPU share the same physical memory pool. High RAM utilisation on the dashboard during model load is expected — the weights live in unified memory.
+
+### RTX PRO 6000 (96 GB GDDR7)
+
+| Variant | Weights | `gpu_memory_utilization` | KV cache headroom |
+|---|---|---|---|
+| FP8 (vLLM v0.17.0) | ~35 GB | 0.90 | ~46 GB |
 
 ## API
 
