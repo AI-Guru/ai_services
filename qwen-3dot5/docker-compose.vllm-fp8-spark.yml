@@ -17,7 +17,7 @@
 
 services:
   qwen35-fp8:
-    image: vllm/vllm-openai:cu130-nightly
+    image: vllm/vllm-openai:v0.17.0-cu130
     container_name: qwen35-fp8
     restart: unless-stopped
 

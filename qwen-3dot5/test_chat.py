@@ -117,6 +117,8 @@ def main():
     parser.add_argument("--prompt",   default=DEFAULT_PROMPT)
     parser.add_argument("--runs",     type=int, default=1,
                         help="Number of benchmark runs (results are averaged)")
+    parser.add_argument("--warmup",   action="store_true",
+                        help="Send a short warmup request before benchmarking")
     args = parser.parse_args()
 
     client = OpenAI(base_url=args.base_url, api_key="not-required")
@@ -125,6 +127,17 @@ def main():
     print(f"Model    : {args.model}")
     print(f"Prompt   : {args.prompt[:80]}{'…' if len(args.prompt) > 80 else ''}")
     print(f"Runs     : {args.runs}")
+
+    if args.warmup:
+        print("Warmup   : sending short request…", end="", flush=True)
+        t0 = time.perf_counter()
+        resp = client.chat.completions.create(
+            model=args.model,
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=1,
+        )
+        print(f" done ({time.perf_counter() - t0:.1f}s)")
+
     print()
 
     results = []
