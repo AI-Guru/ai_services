@@ -1,0 +1,99 @@
+# Qwen3.5-122B-A10B-GPTQ-Int4 — official Qwen 4-bit quantized MoE model
+#
+# Uses Qwen/Qwen3.5-122B-A10B-GPTQ-Int4: GPTQ 4-bit quantization by the
+# Qwen team. 122B total parameters, ~10B active per token (512 experts).
+# Hybrid Gated DeltaNet + MoE architecture (linear + full attention, 3:1).
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~68 GB GPTQ-Int4 → ~14 GB free for KV cache at 0.88 util.
+# Tight fit optimised for long context over concurrency.
+# Actual KV capacity is printed by vLLM at startup — adjust max-model-len
+# if it OOMs during KV cache profiling.
+#
+# --enforce-eager is required: CUDA graph capture fails on this hybrid
+# Mamba+MoE architecture with tight VRAM budget.
+#
+# Note: --kv-cache-dtype fp8_e4m3 is omitted — same Mamba layer bug as the
+# 35B-A3B variant (vllm-project/vllm#26646).
+#
+# Usage: docker compose -f docker-compose.vllm-122b-gptq-int4-rtxpro.yml up -d
+# API endpoint: http://localhost:8000/v1
+# Model name served as: qwen3.5-122b
+
+services:
+  qwen35-122b-gptq:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: qwen35-122b-gptq
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
+      - --served-model-name
+      - qwen3.5-122b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --dtype
+      - float16
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.88"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --enforce-eager
+      - --quantization
+      - gptq_marlin
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1500s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+
+networks:
+  default:
+    name: qwen35-network
