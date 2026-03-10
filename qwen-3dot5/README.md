@@ -1,6 +1,6 @@
-# Qwen3.5-35B-A3B on NVIDIA Blackwell GPUs
+# Qwen3.5 on NVIDIA Blackwell GPUs
 
-Runs [Qwen/Qwen3.5-35B-A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) via vLLM or SGLang on NVIDIA Blackwell GPUs, exposing an OpenAI-compatible API.
+Runs Qwen3.5 models via vLLM, SGLang, or llama.cpp on NVIDIA Blackwell GPUs, exposing an OpenAI-compatible API.
 
 Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
@@ -8,7 +8,7 @@ Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
 - NVIDIA Blackwell GPU (DGX Spark GB10 128 GB unified, or RTX PRO 6000 96 GB GDDR7)
 - Docker + NVIDIA Container Toolkit
-- `vllm/vllm-openai:v0.17.0-cu130` or `lmsysorg/sglang:latest`
+- `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, or `ghcr.io/ggml-org/llama.cpp:server-cuda`
 
 ## Quick start
 
@@ -30,7 +30,7 @@ API is ready when logs show `Application startup complete`.
 
 ## Service variants
 
-All variants serve on **port 8000**. Only run one at a time.
+vLLM/SGLang serve on **port 8000**, llama.cpp on **port 11435**. Only run one at a time per port.
 
 | Variant | Command | Model | Weights | Notes |
 |---|---|---|---|---|
@@ -40,8 +40,20 @@ All variants serve on **port 8000**. Only run one at a time.
 | FP8 (vLLM) | `docker compose -f docker-compose.vllm-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | 3× more KV cache; W8A8 on GB10 |
 | FP8 (SGLang) | `docker compose -f docker-compose.sglang-fp8.yaml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | Triton FP8 backend; SM120 Blackwell |
 | FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-fp8-rtxpro.yml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | RTX PRO 6000 96 GB; vLLM v0.17.0 |
+| 27B FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-27b-fp8-rtxpro.yml up -d` | `Qwen3.5-27B-FP8` | ~28 GB FP8 | Dense 27B; RTX PRO 6000 |
+| 122B GPTQ RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-122b-gptq-int4-rtxpro.yml up -d` | `Qwen3.5-122B-A10B-GPTQ-Int4` | ~68 GB GPTQ | 122B MoE; tight fit on 96 GB |
+| llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template; port 11435 |
+| llama.cpp Qwopus 27B | `docker compose -f docker-compose.llama-qwopus-27b.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | Opus reasoning distilled; port 11435 |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
+
+### llama.cpp notes
+
+> Based on findings by [@sudoingX](https://x.com/sudoingx) regarding the Qwen 3.5 jinja template crash with coding agents.
+
+The stock Qwen 3.5 chat template **crashes on the `developer` role** that coding agents (Claude Code, OpenCode, Cursor) send. The common workaround `--chat-template chatml` silently kills thinking mode. The `llama-35b` variant uses a [patched jinja template](qwen3.5_chat_template.jinja) that adds `developer` role handling while preserving `<think>` blocks. The `llama-qwopus-27b` variant is a [community fine-tune](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF) with Claude Opus 4.6 reasoning distilled in that handles the developer role natively (experimental, no formal benchmarks).
+
+Both llama.cpp variants auto-download their GGUF model on first start and serve on **port 11435**. For native builds instead of Docker, see `setup_and_serve.sh`.
 
 ### FP8 notes
 

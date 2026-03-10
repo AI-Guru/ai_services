@@ -4,9 +4,31 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LLAMA_CPP_DIR="$SCRIPT_DIR/llama.cpp"
 MODEL_DIR="$SCRIPT_DIR/models"
-MODEL_NAME="Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf"
+TEMPLATE_FILE="$SCRIPT_DIR/qwen3.5_chat_template.jinja"
+
+# --- Model selection ---
+# MODEL=qwen (default)  Qwen3.5-35B-A3B  + patched jinja template for developer role
+# MODEL=qwopus          Qwen3.5-27B with Claude Opus 4.6 reasoning distilled (no template patch needed)
+MODEL="${MODEL:-qwen}"
+
+case "$MODEL" in
+    qwen)
+        MODEL_NAME="Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf"
+        HF_REPO="unsloth/Qwen3.5-35B-A3B-GGUF"
+        NEEDS_TEMPLATE=true
+        ;;
+    qwopus)
+        MODEL_NAME="Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Q4_K_M.gguf"
+        HF_REPO="Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF"
+        NEEDS_TEMPLATE=false
+        ;;
+    *)
+        echo "Unknown MODEL: $MODEL (use 'qwen' or 'qwopus')"
+        exit 1
+        ;;
+esac
+
 MODEL_PATH="$MODEL_DIR/$MODEL_NAME"
-HF_REPO="unsloth/Qwen3.5-35B-A3B-GGUF"
 
 CUDA_ARCH="${CUDA_ARCH:-86}"
 NUM_JOBS="${NUM_JOBS:-$(nproc)}"
@@ -79,10 +101,21 @@ serve() {
     fi
 
     echo "=== Starting llama-server ==="
+    echo "Variant:  $MODEL"
     echo "Model:    $MODEL_PATH"
     echo "Context:  $CTX_SIZE"
     echo "Port:     $PORT"
     echo "GPU layers: $GPU_LAYERS"
+
+    TEMPLATE_ARGS=()
+    if [ "$NEEDS_TEMPLATE" = true ]; then
+        if [ ! -f "$TEMPLATE_FILE" ]; then
+            echo "ERROR: Template not found at $TEMPLATE_FILE"
+            exit 1
+        fi
+        TEMPLATE_ARGS=(--chat-template-file "$TEMPLATE_FILE")
+        echo "Template: $TEMPLATE_FILE"
+    fi
     echo ""
 
     exec "$LLAMA_SERVER" \
@@ -94,7 +127,8 @@ serve() {
         --cache-type-v q8_0 \
         -np "$PARALLEL" \
         --host "$HOST" \
-        --port "$PORT"
+        --port "$PORT" \
+        "${TEMPLATE_ARGS[@]}"
 }
 
 usage() {
@@ -105,6 +139,14 @@ usage() {
     echo "  download  Download the GGUF model from Hugging Face"
     echo "  serve     Start the llama-server"
     echo "  all       Build, download, and serve (default)"
+    echo ""
+    echo "Model selection (MODEL env var):"
+    echo "  MODEL=qwen    Qwen3.5-35B-A3B + patched template (default)"
+    echo "  MODEL=qwopus  Qwen3.5-27B Claude Opus reasoning distilled"
+    echo ""
+    echo "Examples:"
+    echo "  MODEL=qwen   $0 all     # Run Qwen3.5-35B with template fix"
+    echo "  MODEL=qwopus $0 all     # Run Qwopus distilled model"
     echo ""
     echo "Environment variables:"
     echo "  CUDA_ARCH   CUDA architecture (default: 86 for RTX 3090)"
