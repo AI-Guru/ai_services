@@ -6,7 +6,7 @@ Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
 ## Requirements
 
-- NVIDIA GPU — fully tested on DGX Spark GB10 (128 GB unified) and RTX PRO 6000 (96 GB GDDR7); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM (e.g. RTX 3090/4090/5090)
+- NVIDIA GPU — fully tested on DGX Spark GB10 (128 GB unified), RTX PRO 6000 (96 GB GDDR7), and RTX 3090 ×2 (48 GB total); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM
 - Docker + NVIDIA Container Toolkit
 - `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, `ghcr.io/ggml-org/llama.cpp:server-cuda` (x86_64), or `ghcr.io/ardge-labs/llama-cpp-dgx-spark:server` (aarch64)
 
@@ -52,10 +52,19 @@ Which GPU?
 │     ├─ Fastest ─────────────── llama-35b-devfix-rtx.yml (194 tok/s, 6.8s TTFT)
 │     └─ vLLM ────────────────── vllm-35b-fp8-rtx.yml (174 tok/s, 8.5s TTFT)
 │
-└─ Other NVIDIA GPU (24+ GB VRAM, e.g. RTX 3090/4090/5090)
-   ├─ Coding agent? ──────────── llama-27b-devfix-rtx.yml (17.6 GB Q4, 65 tok/s, patched template)
-   ├─ Smallest footprint? ────── llama-qwopus-27b-rtx.yml (16.5 GB Q4, fits 24 GB easily)
-   └─ General use ─────────────── llama-27b-devfix-rtx.yml (dense 27B, fits 24 GB with room)
+└─ RTX 3090 ×2 (48 GB total VRAM)
+   ├─ Want highest throughput?
+   │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+   │
+   ├─ Coding agent (Claude Code, Cursor, OpenCode)?
+   │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, patched template)
+   │
+   ├─ Want dense 27B model? (smarter per-token but slower)
+   │  ├─ llama.cpp ───────────── llama-27b-devfix-rtx.yml (39 tok/s, patched template)
+   │  └─ llama.cpp (Qwopus) ─── llama-qwopus-27b-rtx.yml (41 tok/s, Opus distilled)
+   │
+   └─ Otherwise
+      └─ Fastest ─────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
 ```
 
 > **Note:** llama.cpp variants auto-adjust to available VRAM. On 24 GB GPUs, reduce `-c` (context length) in the compose file to fit — e.g. `-c 8192` instead of `262144`.
@@ -84,6 +93,14 @@ Which GPU?
 | `llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 27B dense | 64.6 | ~21 s |
 | `vllm-27b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 27B dense | 34.3 | ~41 s |
 | `vllm-122b-gptq-int4-rtx.yml` | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 32.6 | ~49 s |
+
+#### RTX 3090 ×2 (48 GB total VRAM)
+
+| Compose file | Backend | Model | tok/s | TTFT |
+|---|---|---|---|---|
+| `llama-35b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 35B MoE (3B active) | **127.6** | ~10 s |
+| `llama-qwopus-27b-rtx.yml` | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 41.0 | ~15 s |
+| `llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 27B dense | 39.2 | ~31 s |
 
 Measured with `test_chat.py --warmup --runs 3`.
 
@@ -315,6 +332,45 @@ Measured with `test_chat.py --warmup --runs 3`.
 | llama.cpp Q4_K_XL | 27B dense | 21,189 ms | 64.6 |
 | vLLM v0.17.0 FP8 | 27B dense | 40,742 ms | 34.3 |
 | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 49,210 ms | 32.6 |
+
+Measured with `test_chat.py --warmup --runs 3`.
+
+### RTX 3090 ×2 (48 GB total VRAM)
+
+#### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix-rtx.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~21 GB Q4_K_XL |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~128 tok/s |
+| TTFT (with thinking) | ~10 s |
+
+#### llama.cpp 27B dense Q4_K_XL (`docker-compose.llama-27b-devfix-rtx.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~17.6 GB Q4_K_XL |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~39 tok/s |
+| TTFT (with thinking) | ~31 s |
+
+#### llama.cpp Qwopus 27B Q4_K_M (`docker-compose.llama-qwopus-27b-rtx.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~16.5 GB Q4_K_M |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~41 tok/s |
+| TTFT (with thinking) | ~15 s |
+
+#### Backend comparison (RTX 3090 ×2, 3-run average)
+
+| Backend | Model | Avg TTFT | Avg tok/s |
+|---|---|---|---|
+| llama.cpp Q4_K_XL | 35B MoE (3B active) | 10,328 ms | 127.6 |
+| llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 14,958 ms | 41.0 |
+| llama.cpp Q4_K_XL | 27B dense | 30,908 ms | 39.2 |
 
 Measured with `test_chat.py --warmup --runs 3`.
 
