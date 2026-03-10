@@ -7,8 +7,9 @@ Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 ## Requirements
 
 - NVIDIA GPU — fully tested on DGX Spark GB10 (128 GB unified), RTX PRO 6000 (96 GB GDDR7), and RTX 3090 ×2 (48 GB total); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM
-- Docker + NVIDIA Container Toolkit
-- `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, `ghcr.io/ggml-org/llama.cpp:server-cuda` (x86_64), or `ghcr.io/ardge-labs/llama-cpp-dgx-spark:server` (aarch64)
+- AMD GPU — llama.cpp Vulkan variants tested on AMD Radeon AI PRO R9700 (32 GB GDDR6); requires 24+ GB VRAM
+- Docker + NVIDIA Container Toolkit (CUDA) or standard AMD driver stack with `/dev/kfd` + `/dev/dri` (Vulkan)
+- `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, `ghcr.io/ggml-org/llama.cpp:server-cuda` (x86_64), `ghcr.io/ggml-org/llama.cpp:server-vulkan` (AMD/Vulkan), or `ghcr.io/ardge-labs/llama-cpp-dgx-spark:server` (aarch64)
 
 ## Which variant should I use?
 
@@ -52,19 +53,32 @@ Which GPU?
 │     ├─ Fastest ─────────────── llama-35b-devfix-rtx.yml (194 tok/s, 6.8s TTFT)
 │     └─ vLLM ────────────────── vllm-35b-fp8-rtx.yml (174 tok/s, 8.5s TTFT)
 │
-└─ RTX 3090 ×2 (48 GB total VRAM)
+├─ RTX 3090 ×2 (48 GB total VRAM)
+│  ├─ Want highest throughput?
+│  │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+│  │
+│  ├─ Coding agent (Claude Code, Cursor, OpenCode)?
+│  │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, patched template)
+│  │
+│  ├─ Want dense 27B model? (smarter per-token but slower)
+│  │  ├─ llama.cpp ───────────── llama-27b-devfix-rtx.yml (39 tok/s, patched template)
+│  │  └─ llama.cpp (Qwopus) ─── llama-qwopus-27b-rtx.yml (41 tok/s, Opus distilled)
+│  │
+│  └─ Otherwise
+│     └─ Fastest ─────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+│
+└─ AMD GPU / Vulkan (tested: R9700 32 GB)
    ├─ Want highest throughput?
-   │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+   │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
    │
    ├─ Coding agent (Claude Code, Cursor, OpenCode)?
-   │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (128 tok/s, patched template)
+   │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, patched template)
    │
    ├─ Want dense 27B model? (smarter per-token but slower)
-   │  ├─ llama.cpp ───────────── llama-27b-devfix-rtx.yml (39 tok/s, patched template)
-   │  └─ llama.cpp (Qwopus) ─── llama-qwopus-27b-rtx.yml (41 tok/s, Opus distilled)
+   │  └─ llama.cpp ───────────── llama-27b-devfix-vulkan.yml (22 tok/s, patched template)
    │
    └─ Otherwise
-      └─ Fastest ─────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+      └─ Fastest ─────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
 ```
 
 > **Note:** llama.cpp variants auto-adjust to available VRAM. On 24 GB GPUs, reduce `-c` (context length) in the compose file to fit — e.g. `-c 8192` instead of `262144`.
@@ -101,6 +115,13 @@ Which GPU?
 | `llama-35b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 35B MoE (3B active) | **127.6** | ~10 s |
 | `llama-qwopus-27b-rtx.yml` | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 41.0 | ~15 s |
 | `llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 27B dense | 39.2 | ~31 s |
+
+#### AMD Radeon AI PRO R9700 / Vulkan (32 GB GDDR6)
+
+| Compose file | Backend | Model | tok/s | TTFT |
+|---|---|---|---|---|
+| `llama-35b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | 35B MoE (3B active) | **79.9** | ~17 s |
+| `llama-27b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | 27B dense | 21.9 | ~56 s |
 
 Measured with `test_chat.py --warmup --runs 3`.
 
@@ -151,6 +172,9 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | llama.cpp 35B Spark | `docker compose -f docker-compose.llama-35b-devfix-spark.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | DGX Spark ARM64; patched template |
 | llama.cpp 27B Spark | `docker compose -f docker-compose.llama-27b-devfix-spark.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | DGX Spark ARM64; patched template |
 | llama.cpp Qwopus 27B Spark | `docker compose -f docker-compose.llama-qwopus-27b-spark.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | DGX Spark ARM64; Opus distilled |
+| llama.cpp 35B Vulkan | `docker compose -f docker-compose.llama-35b-devfix-vulkan.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | AMD GPU via Vulkan; patched template; no CUDA required |
+| llama.cpp 27B Vulkan | `docker compose -f docker-compose.llama-27b-devfix-vulkan.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | AMD GPU via Vulkan; patched template |
+| llama.cpp Qwopus 27B Vulkan | `docker compose -f docker-compose.llama-qwopus-27b-vulkan.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | AMD GPU via Vulkan; Opus distilled |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
@@ -160,7 +184,17 @@ All variants share the same named Docker volume (`qwen35_huggingface_cache`) so 
 
 The stock Qwen 3.5 chat template **crashes on the `developer` role** that coding agents (Claude Code, OpenCode, Cursor) send. The common workaround `--chat-template chatml` silently kills thinking mode. The `llama-35b` variant uses a [patched jinja template](qwen3.5_chat_template.jinja) that adds `developer` role handling while preserving `<think>` blocks. The `llama-qwopus-27b` variant is a [community fine-tune](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF) with Claude Opus 4.6 reasoning distilled in that handles the developer role natively (experimental, no formal benchmarks).
 
-All llama.cpp variants auto-download their GGUF model on first start. The `-rtx` variants use the official x86_64 image (`ghcr.io/ggml-org/llama.cpp:server-cuda`); the `-spark` variants use a community ARM64 CUDA image (`ghcr.io/ardge-labs/llama-cpp-dgx-spark:server`) for DGX Spark's aarch64 architecture.
+All llama.cpp variants auto-download their GGUF model on first start. The `-rtx` variants use the official x86_64 image (`ghcr.io/ggml-org/llama.cpp:server-cuda`); the `-spark` variants use a community ARM64 CUDA image (`ghcr.io/ardge-labs/llama-cpp-dgx-spark:server`) for DGX Spark's aarch64 architecture; the `-vulkan` variants use the official Vulkan image (`ghcr.io/ggml-org/llama.cpp:server-vulkan`) which works on AMD GPUs without ROCm.
+
+### Vulkan notes
+
+The `-vulkan` variants use `ghcr.io/ggml-org/llama.cpp:server-vulkan` and rely on the standard AMD GPU driver stack — no CUDA or ROCm installation required. GPU access is provided by passing `/dev/kfd` and `/dev/dri` into the container with the host video (GID 44) and render (GID 992) groups.
+
+> **Note:** `radv is not a conformant Vulkan implementation` is printed at startup by the RADV Mesa driver — this is a warning only, not an error. The model runs correctly.
+
+Vulkan throughput for the 35B MoE model on the R9700 (79.9 tok/s) exceeds the DGX Spark (58.4 tok/s) but trails the dual RTX 3090 (127.6 tok/s). The 27B dense model is significantly slower on Vulkan (21.9 tok/s) than on CUDA due to the higher memory-bandwidth demands of a dense model and less mature Vulkan kernel optimizations for that workload.
+
+If the container fails to start, try removing `-fa on` (flash attention) — support varies across Vulkan implementations.
 
 ### FP8 notes
 
@@ -371,6 +405,35 @@ Measured with `test_chat.py --warmup --runs 3`.
 | llama.cpp Q4_K_XL | 35B MoE (3B active) | 10,328 ms | 127.6 |
 | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 14,958 ms | 41.0 |
 | llama.cpp Q4_K_XL | 27B dense | 30,908 ms | 39.2 |
+
+Measured with `test_chat.py --warmup --runs 3`.
+
+### AMD Radeon AI PRO R9700 / Vulkan (32 GB GDDR6)
+
+#### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix-vulkan.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~21 GB Q4_K_XL |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~80 tok/s |
+| TTFT (with thinking) | ~17 s |
+
+#### llama.cpp 27B dense Q4_K_XL (`docker-compose.llama-27b-devfix-vulkan.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~17.6 GB Q4_K_XL |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~22 tok/s |
+| TTFT (with thinking) | ~56 s |
+
+#### Backend comparison (AMD R9700 Vulkan, 3-run average)
+
+| Backend | Model | Avg TTFT | Avg tok/s |
+|---|---|---|---|
+| llama.cpp Q4_K_XL Vulkan | 35B MoE (3B active) | 16,640 ms | 79.9 |
+| llama.cpp Q4_K_XL Vulkan | 27B dense | 56,090 ms | 21.9 |
 
 Measured with `test_chat.py --warmup --runs 3`.
 
