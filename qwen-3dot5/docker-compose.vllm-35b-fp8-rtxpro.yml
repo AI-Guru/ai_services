@@ -4,20 +4,20 @@
 # quantized by the Qwen team — including Mamba layers — so no runtime
 # quantization surprises. vLLM reads the quant config from the model directly.
 #
-# GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively.
-# Weights: ~35 GB vs ~70 GB BF16 → ~87 GB free for KV cache at 0.90 util,
+# RTX PRO 6000 Blackwell (96 GB, SM 120) runs block-wise FP8 as W8A8 natively.
+# Weights: ~35 GB vs ~70 GB BF16 → ~61 GB free for KV cache at 0.90 util,
 # roughly 3× more KV cache headroom for concurrency and longer contexts.
 #
 # Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with Mamba layers
 # (vllm-project/vllm#26646); re-enable once upstream fix lands.
 #
-# Usage: docker compose -f docker-compose.vllm-fp8.yaml up -d
+# Usage: docker compose -f docker-compose.vllm-35b-fp8-rtxpro.yml up -d
 # API endpoint: http://localhost:11435/v1
 # Model name served as: qwen3.5-35b
 
 services:
   qwen35-fp8:
-    image: vllm/vllm-openai:cu130-nightly
+    image: vllm/vllm-openai:v0.17.0-cu130
     container_name: qwen35-fp8
     restart: unless-stopped
 
@@ -61,7 +61,7 @@ services:
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
-      - "0.5"
+      - "0.90"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -70,7 +70,6 @@ services:
       - --enable-prefix-caching
       - --max-num-batched-tokens
       - "16384"
-      - --enforce-eager
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11435/health"]

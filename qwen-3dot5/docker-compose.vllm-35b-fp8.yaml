@@ -1,0 +1,94 @@
+# Qwen3.5-35B-A3B-FP8 — official Qwen pre-quantized FP8 model
+#
+# Uses Qwen/Qwen3.5-35B-A3B-FP8: fine-grained block-wise FP8 (block=128),
+# quantized by the Qwen team — including Mamba layers — so no runtime
+# quantization surprises. vLLM reads the quant config from the model directly.
+#
+# GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively.
+# Weights: ~35 GB vs ~70 GB BF16 → ~87 GB free for KV cache at 0.90 util,
+# roughly 3× more KV cache headroom for concurrency and longer contexts.
+#
+# Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with Mamba layers
+# (vllm-project/vllm#26646); re-enable once upstream fix lands.
+#
+# Usage: docker compose -f docker-compose.vllm-35b-fp8.yaml up -d
+# API endpoint: http://localhost:11435/v1
+# Model name served as: qwen3.5-35b
+
+services:
+  qwen35-fp8:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen35-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.5-35B-A3B-FP8
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.5"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --enforce-eager
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+
+networks:
+  default:
+    name: qwen35-network

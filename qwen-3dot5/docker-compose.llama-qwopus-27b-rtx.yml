@@ -1,0 +1,76 @@
+# Qwen3.5-27B Claude Opus 4.6 Reasoning Distilled (dense, 27B) via llama.cpp
+#
+# Community fine-tune with Claude Opus reasoning traces distilled in.
+# Handles developer role natively — no template patch needed.
+# Experimental: no formal benchmarks published.
+#
+# The GGUF model is downloaded automatically on first start (~16.5 GB).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-qwopus-27b-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen35-llama-qwopus-27b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
+      - --hf-file
+      - Qwen3.5-27B.Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -a
+      - qwen3.5-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true

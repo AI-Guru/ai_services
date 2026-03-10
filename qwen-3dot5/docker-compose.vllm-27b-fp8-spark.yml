@@ -1,0 +1,92 @@
+# Qwen3.5-27B-FP8 — official Qwen pre-quantized FP8 dense model
+#
+# Uses Qwen/Qwen3.5-27B-FP8: fine-grained block-wise FP8 (block=128),
+# quantized by the Qwen team. All 27B parameters are active per token
+# (dense architecture, NOT MoE). Higher quality than 35B-A3B but slower.
+#
+# GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively.
+# Weights: ~28 GB FP8 → ~36 GB free for KV cache at 0.50 util on 128 GB.
+#
+# Dense model — no MoE/Mamba KV cache dtype bugs, so fp8_e4m3 KV cache
+# could be enabled here if desired (unlike the 35B-A3B MoE variant).
+#
+# Usage: docker compose -f docker-compose.vllm-27b-fp8-spark.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.5-27b
+
+services:
+  qwen35-27b-fp8:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: qwen35-27b-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.5-27B-FP8
+      - --served-model-name
+      - qwen3.5-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.50"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+
+networks:
+  default:
+    name: qwen35-network

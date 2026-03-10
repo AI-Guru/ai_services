@@ -1,18 +1,18 @@
-# Qwen3.5-35B-A3B (MoE, 3B active) via llama.cpp — with patched jinja template
+# Qwen3.5-27B (dense, 27B) via llama.cpp — with patched jinja template
 #
 # Fixes the developer role crash that affects coding agents (Claude Code,
 # OpenCode, Cursor) while preserving thinking mode (<think> blocks).
 #
-# The GGUF model is downloaded automatically on first start (~21 GB).
+# The GGUF model is downloaded automatically on first start (~17.6 GB).
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
-# Usage: docker compose -f docker-compose.llama-35b-devfix.yml up -d
-# API endpoint: http://localhost:11435/v1
+# Usage: docker compose -f docker-compose.llama-27b-devfix-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
 
 services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: qwen35-llama-35b
+    container_name: qwen35-llama-27b
     restart: unless-stopped
 
     deploy:
@@ -24,7 +24,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11435:11435"
+      - "11436:11436"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -35,9 +35,9 @@ services:
 
     command:
       - --hf-repo
-      - unsloth/Qwen3.5-35B-A3B-GGUF
+      - unsloth/Qwen3.5-27B-GGUF
       - --hf-file
-      - Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+      - Qwen3.5-27B-UD-Q4_K_XL.gguf
       - -ngl
       - "99"
       - -c
@@ -53,14 +53,14 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11435"
+      - "11436"
       - --chat-template-file
       - /template.jinja
       - -a
-      - qwen3.5-35b
+      - qwen3.5-27b
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
       interval: 30s
       timeout: 10s
       retries: 5
