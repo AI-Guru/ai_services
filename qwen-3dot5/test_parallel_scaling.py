@@ -113,7 +113,7 @@ def test_n(client: OpenAI, n: int) -> dict:
 
 
 def main():
-    client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-required")
+    client = OpenAI(base_url="http://localhost:11435/v1", api_key="not-required")
     targets = [2, 4, 8, 16, 32]
     results = []
 

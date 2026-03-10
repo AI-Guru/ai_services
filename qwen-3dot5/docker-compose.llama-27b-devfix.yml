@@ -1,19 +1,18 @@
-# Qwen3.5-27B Claude Opus 4.6 Reasoning Distilled (dense, 27B) via llama.cpp
+# Qwen3.5-27B (dense, 27B) via llama.cpp — with patched jinja template
 #
-# Community fine-tune with Claude Opus reasoning traces distilled in.
-# Handles developer role natively — no template patch needed.
-# Experimental: no formal benchmarks published.
+# Fixes the developer role crash that affects coding agents (Claude Code,
+# OpenCode, Cursor) while preserving thinking mode (<think> blocks).
 #
-# The GGUF model is downloaded automatically on first start (~16.5 GB).
+# The GGUF model is downloaded automatically on first start (~17.6 GB).
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
-# Usage: docker compose -f docker-compose.llama-qwopus-27b.yml up -d
+# Usage: docker compose -f docker-compose.llama-27b-devfix.yml up -d
 # API endpoint: http://localhost:11436/v1
 
 services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: qwen35-llama-qwopus-27b
+    container_name: qwen35-llama-27b
     restart: unless-stopped
 
     deploy:
@@ -29,15 +28,16 @@ services:
 
     volumes:
       - model_cache:/root/.cache/huggingface
+      - ./qwen3.5_chat_template.jinja:/template.jinja:ro
 
     environment:
       - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
 
     command:
       - --hf-repo
-      - Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF
+      - unsloth/Qwen3.5-27B-GGUF
       - --hf-file
-      - Qwen3.5-27B.Q4_K_M.gguf
+      - Qwen3.5-27B-UD-Q4_K_XL.gguf
       - -ngl
       - "99"
       - -c
@@ -50,12 +50,14 @@ services:
       - q8_0
       - --cache-type-v
       - q8_0
-      - -a
-      - qwen3.5-27b
       - --host
       - "0.0.0.0"
       - --port
       - "11436"
+      - --chat-template-file
+      - /template.jinja
+      - -a
+      - qwen3.5-27b
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11436/health"]

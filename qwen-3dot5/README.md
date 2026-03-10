@@ -6,20 +6,65 @@ Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
 ## Requirements
 
-- NVIDIA Blackwell GPU (DGX Spark GB10 128 GB unified, or RTX PRO 6000 96 GB GDDR7)
+- NVIDIA GPU — fully tested on DGX Spark GB10 (128 GB unified) and RTX PRO 6000 (96 GB GDDR7); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM (e.g. RTX 3090/4090/5090)
 - Docker + NVIDIA Container Toolkit
 - `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, or `ghcr.io/ggml-org/llama.cpp:server-cuda`
+
+## Which variant should I use?
+
+```
+Which GPU?
+├─ DGX Spark (128 GB unified)
+│  ├─ Need multimodal (vision)?
+│  │  └─ Yes ─────────────────── vllm.yaml (BF16, 262K context)
+│  │
+│  ├─ Need ~1M context?
+│  │  └─ Yes ─────────────────── vllm-1m.yaml (BF16, YARN RoPE)
+│  │
+│  ├─ Need max concurrency?
+│  │  └─ Yes ─────────────────── vllm-fp8.yaml (3× more KV cache)
+│  │
+│  └─ Otherwise
+│     ├─ vLLM ────────────────── vllm-fp8.yaml (best balance)
+│     └─ SGLang ──────────────── sglang-fp8.yaml (alternative backend)
+│
+├─ RTX PRO 6000 (96 GB GDDR7)
+│  ├─ Coding agent (Claude Code, Cursor, OpenCode)?
+│  │  └─ Yes ─────────────────── llama-35b-devfix.yml (194 tok/s, patched template)
+│  │
+│  ├─ Want highest throughput?
+│  │  └─ Yes ─────────────────── llama-35b-devfix.yml (194 tok/s, fastest)
+│  │
+│  ├─ Want largest model (122B)?
+│  │  └─ Yes ─────────────────── vllm-122b-gptq-int4-rtxpro.yml (26 tok/s, 119K ctx)
+│  │
+│  ├─ Want dense 27B model? (65 tok/s, smarter per-token but slower)
+│  │  ├─ vLLM ────────────────── vllm-27b-fp8-rtxpro.yml (FP8)
+│  │  ├─ llama.cpp ───────────── llama-27b-devfix.yml (Q4, patched template)
+│  │  └─ llama.cpp (Qwopus) ─── llama-qwopus-27b.yml (Opus reasoning distilled)
+│  │
+│  └─ Otherwise
+│     ├─ Fastest ─────────────── llama-35b-devfix.yml (194 tok/s, 6.8s TTFT)
+│     └─ vLLM ────────────────── vllm-fp8-rtxpro.yml (174 tok/s, 8.5s TTFT)
+│
+└─ Other NVIDIA GPU (24+ GB VRAM, e.g. RTX 3090/4090/5090)
+   ├─ Coding agent? ──────────── llama-27b-devfix.yml (17.6 GB Q4, 65 tok/s, patched template)
+   ├─ Smallest footprint? ────── llama-qwopus-27b.yml (16.5 GB Q4, fits 24 GB easily)
+   └─ General use ─────────────── llama-27b-devfix.yml (dense 27B, fits 24 GB with room)
+```
+
+> **Note:** llama.cpp variants auto-adjust to available VRAM. On 24 GB GPUs, reduce `-c` (context length) in the compose file to fit — e.g. `-c 8192` instead of `262144`.
 
 ## Quick start
 
 ```bash
-# DGX Spark — vLLM BF16, 262K context, multimodal (port 8000)
+# DGX Spark — vLLM BF16, 262K context, multimodal (port 11435)
 docker compose -f docker-compose.vllm.yaml up -d
 
-# DGX Spark — SGLang FP8 (port 8000)
+# DGX Spark — SGLang FP8 (port 11435)
 docker compose -f docker-compose.sglang-fp8.yaml up -d
 
-# RTX PRO 6000 — vLLM FP8 (port 8000)
+# RTX PRO 6000 — vLLM FP8 (port 11435)
 docker compose -f docker-compose.vllm-fp8-rtxpro.yml up -d
 
 # Watch startup (model load takes 3–5 min on first run)
@@ -30,7 +75,13 @@ API is ready when logs show `Application startup complete`.
 
 ## Service variants
 
-vLLM/SGLang serve on **port 8000**, llama.cpp on **port 11435**. Only run one at a time per port.
+Ports are assigned by model size — you can run a 35B and 27B side by side:
+
+| Model size | Port |
+|---|---|
+| 35B | 11435 |
+| 27B | 11436 |
+| 122B | 11437 |
 
 | Variant | Command | Model | Weights | Notes |
 |---|---|---|---|---|
@@ -42,8 +93,9 @@ vLLM/SGLang serve on **port 8000**, llama.cpp on **port 11435**. Only run one at
 | FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-fp8-rtxpro.yml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | RTX PRO 6000 96 GB; vLLM v0.17.0 |
 | 27B FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-27b-fp8-rtxpro.yml up -d` | `Qwen3.5-27B-FP8` | ~28 GB FP8 | Dense 27B; RTX PRO 6000 |
 | 122B GPTQ RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-122b-gptq-int4-rtxpro.yml up -d` | `Qwen3.5-122B-A10B-GPTQ-Int4` | ~68 GB GPTQ | 122B MoE; tight fit on 96 GB |
-| llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template; port 11435 |
-| llama.cpp Qwopus 27B | `docker compose -f docker-compose.llama-qwopus-27b.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | Opus reasoning distilled; port 11435 |
+| llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template |
+| llama.cpp 27B | `docker compose -f docker-compose.llama-27b-devfix.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | Dense 27B; patched template; fits 24 GB |
+| llama.cpp Qwopus 27B | `docker compose -f docker-compose.llama-qwopus-27b.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | Opus reasoning distilled |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
@@ -53,7 +105,7 @@ All variants share the same named Docker volume (`qwen35_huggingface_cache`) so 
 
 The stock Qwen 3.5 chat template **crashes on the `developer` role** that coding agents (Claude Code, OpenCode, Cursor) send. The common workaround `--chat-template chatml` silently kills thinking mode. The `llama-35b` variant uses a [patched jinja template](qwen3.5_chat_template.jinja) that adds `developer` role handling while preserving `<think>` blocks. The `llama-qwopus-27b` variant is a [community fine-tune](https://huggingface.co/Jackrong/Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-GGUF) with Claude Opus 4.6 reasoning distilled in that handles the developer role natively (experimental, no formal benchmarks).
 
-Both llama.cpp variants auto-download their GGUF model on first start and serve on **port 11435**. For native builds instead of Docker, see `setup_and_serve.sh`.
+Both llama.cpp variants auto-download their GGUF model on first start.
 
 ### FP8 notes
 
@@ -94,12 +146,68 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 | Tool call latency (single) | ~1.1 s |
 | Tool call latency (3 parallel mixed) | ~1.5 s |
 
+#### vLLM v0.17.0 27B FP8 (`docker-compose.vllm-27b-fp8-rtxpro.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~28 GB FP8 |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~34 tok/s |
+| TTFT (with thinking) | ~41 s |
+
+#### vLLM v0.17.0 122B GPTQ-Int4 (`docker-compose.vllm-122b-gptq-int4-rtxpro.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~68 GB GPTQ-Int4 |
+| VRAM used | ~89 GB of 96 GB |
+| KV cache memory | 11.3 GB |
+| KV cache capacity | 121,568 tokens |
+| Context length | 131,072 tokens (128K) |
+| Decode throughput | ~33 tok/s |
+| TTFT (with thinking) | ~49 s |
+
+#### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~21 GB Q4_K_XL |
+| KV cache memory | 2,720 MiB (q8_0) |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~194 tok/s |
+| TTFT (with thinking) | ~6.8 s |
+
+#### llama.cpp 27B dense Q4_K_XL (`docker-compose.llama-27b-devfix.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~17.6 GB Q4_K_XL |
+| VRAM used | ~26 GB of 96 GB |
+| KV cache memory | 8,704 MiB (q8_0) |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~65 tok/s |
+| TTFT (with thinking) | ~21 s |
+
+#### llama.cpp Qwopus 27B Q4_K_M (`docker-compose.llama-qwopus-27b.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~16.5 GB Q4_K_M |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~68 tok/s |
+| TTFT (with thinking) | ~13 s |
+
 #### Backend comparison (RTX PRO 6000, 3-run average)
 
-| Backend | Avg TTFT | Avg tok/s |
-|---|---|---|
-| SGLang (speculative NEXTN) | 9,560 ms | 130.6 |
-| vLLM v0.17.0 | 9,601 ms | 156.8 (+20%) |
+| Backend | Model | Avg TTFT | Avg tok/s |
+|---|---|---|---|
+| llama.cpp Q4_K_XL | 35B MoE (3B active) | 6,792 ms | 193.5 |
+| vLLM v0.17.0 FP8 | 35B MoE (3B active) | 9,601 ms | 156.8 |
+| SGLang FP8 | 35B MoE (3B active) | 9,560 ms | 130.6 |
+| llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 12,854 ms | 68.4 |
+| llama.cpp Q4_K_XL | 27B dense | 21,189 ms | 64.6 |
+| vLLM v0.17.0 FP8 | 27B dense | 40,742 ms | 34.3 |
+| vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 49,210 ms | 32.6 |
 
 Measured with `test_chat.py --warmup --runs 3`.
 
@@ -124,13 +232,22 @@ On DGX Spark, CPU and GPU share the same physical memory pool. High RAM utilisat
 
 ## API
 
-All profiles expose an OpenAI-compatible API. The model is served as `qwen3.5-35b`.
+All profiles expose an OpenAI-compatible API. Port depends on model size (see table above).
 
 ```bash
-curl http://localhost:8000/v1/chat/completions \
+# 35B model (port 11435)
+curl http://localhost:11435/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "qwen3.5-35b",
+    "messages": [{"role": "user", "content": "Hello"}]
+  }'
+
+# 27B model (port 11436)
+curl http://localhost:11436/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.5-27b",
     "messages": [{"role": "user", "content": "Hello"}]
   }'
 ```
@@ -138,8 +255,8 @@ curl http://localhost:8000/v1/chat/completions \
 Other useful endpoints:
 
 ```bash
-curl http://localhost:8000/health          # liveness
-curl http://localhost:8000/v1/models       # confirm model name
+curl http://localhost:11435/health          # liveness (35B)
+curl http://localhost:11436/v1/models       # confirm model name (27B)
 ```
 
 ## Test scripts
@@ -150,13 +267,13 @@ pip install openai
 # Chat latency — TTFT and tokens/sec
 python test_chat.py
 python test_chat.py --runs 5
-python test_chat.py --prompt "Your prompt here" --base-url http://localhost:8000/v1
+python test_chat.py --prompt "Your prompt here" --base-url http://localhost:11435/v1
 
 # Tool calling — single, parallel, chained, and multi-parallel scenarios
 python test_tools.py
 python test_tools.py --scenario single
 python test_tools.py --scenario multi_parallel
-python test_tools.py --base-url http://localhost:8000/v1
+python test_tools.py --base-url http://localhost:11435/v1
 ```
 
 ## Environment variables

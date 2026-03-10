@@ -12,7 +12,7 @@
 services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: qwen35-llama-server
+    container_name: qwen35-llama-35b
     restart: unless-stopped
 
     deploy:

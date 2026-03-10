@@ -17,7 +17,7 @@
 # 35B-A3B variant (vllm-project/vllm#26646).
 #
 # Usage: docker compose -f docker-compose.vllm-122b-gptq-int4-rtxpro.yml up -d
-# API endpoint: http://localhost:8000/v1
+# API endpoint: http://localhost:11437/v1
 # Model name served as: qwen3.5-122b
 
 services:
@@ -42,7 +42,7 @@ services:
       stack: 67108864
 
     ports:
-      - "8000:8000"
+      - "11437:11437"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -60,7 +60,7 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "8000"
+      - "11437"
       - --dtype
       - float16
       - --max-model-len
@@ -78,7 +78,7 @@ services:
       - gptq_marlin
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -4,7 +4,7 @@ Chat API benchmark — measures time to first token (TTFT) and tokens per second
 
 Usage:
     python test_chat.py
-    python test_chat.py --base-url http://localhost:8000/v1 --prompt "Explain MoE in one paragraph"
+    python test_chat.py --base-url http://localhost:11435/v1 --prompt "Explain MoE in one paragraph"
     python test_chat.py --runs 5
 """
 
@@ -18,7 +18,7 @@ except ImportError:
     sys.exit("openai package required: pip install openai")
 
 
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_BASE_URL = "http://localhost:11435/v1"
 DEFAULT_MODEL    = "qwen3.5-35b"
 DEFAULT_PROMPT   = (
     "Explain the key differences between mixture-of-experts and dense transformer "

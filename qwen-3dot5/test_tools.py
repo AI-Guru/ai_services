@@ -10,7 +10,7 @@ Runs four scenarios:
 
 Usage:
     python test_tools.py
-    python test_tools.py --base-url http://localhost:8000/v1 --scenario single
+    python test_tools.py --base-url http://localhost:11435/v1 --scenario single
 """
 
 import argparse
@@ -25,7 +25,7 @@ except ImportError:
     sys.exit("openai package required: pip install openai")
 
 
-DEFAULT_BASE_URL = "http://localhost:8000/v1"
+DEFAULT_BASE_URL = "http://localhost:11435/v1"
 DEFAULT_MODEL    = "qwen3.5-35b"
 
 # ---------------------------------------------------------------------------
