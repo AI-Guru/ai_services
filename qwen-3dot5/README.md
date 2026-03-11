@@ -325,7 +325,7 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~33 tok/s |
 | TTFT (with thinking) | ~49 s |
 
-#### llama.cpp 0.8B dense Q4_K_XL (`docker-compose.llama-0.8b.yml`)
+#### llama.cpp 0.8B dense Q4_K_XL (`docker-compose.llama-0.8b-devfix-rtx.yml`)
 
 | Metric | Value |
 |---|---|
@@ -334,7 +334,7 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~576 tok/s |
 | Notes | Loops in thinking on complex prompts — too small for reasoning tasks |
 
-#### llama.cpp 2B dense Q4_K_XL (`docker-compose.llama-2b.yml`)
+#### llama.cpp 2B dense Q4_K_XL (`docker-compose.llama-2b-devfix-rtx.yml`)
 
 | Metric | Value |
 |---|---|
@@ -343,7 +343,7 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~381 tok/s |
 | TTFT (with thinking) | ~6.0 s |
 
-#### llama.cpp 4B dense Q4_K_XL (`docker-compose.llama-4b.yml`)
+#### llama.cpp 4B dense Q4_K_XL (`docker-compose.llama-4b-devfix-rtx.yml`)
 
 | Metric | Value |
 |---|---|
@@ -352,7 +352,7 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~228 tok/s |
 | TTFT (with thinking) | ~7.0 s |
 
-#### llama.cpp 9B dense Q4_K_XL (`docker-compose.llama-9b.yml`)
+#### llama.cpp 9B dense Q4_K_XL (`docker-compose.llama-9b-devfix-rtx.yml`)
 
 | Metric | Value |
 |---|---|

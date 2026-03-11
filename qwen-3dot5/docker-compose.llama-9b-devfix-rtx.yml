@@ -7,7 +7,7 @@
 # The GGUF model is downloaded automatically on first start (~6 GB).
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
-# Usage: docker compose -f docker-compose.llama-9b.yml up -d
+# Usage: docker compose -f docker-compose.llama-9b-devfix-rtx.yml up -d
 # API endpoint: http://localhost:11433/v1
 
 services:
