@@ -26,7 +26,8 @@ DEFAULT_PROMPT   = (
 )
 
 
-def benchmark(client: OpenAI, model: str, prompt: str, verbose: bool = True) -> dict:
+def benchmark(client: OpenAI, model: str, prompt: str, verbose: bool = True,
+              max_tokens: int | None = None, no_think: bool = False) -> dict:
     messages = [{"role": "user", "content": prompt}]
 
     t_start = time.perf_counter()
@@ -35,12 +36,18 @@ def benchmark(client: OpenAI, model: str, prompt: str, verbose: bool = True) -> 
     think_chunks: list[str] = []
     answer_chunks: list[str] = []
 
-    stream = client.chat.completions.create(
+    kwargs = dict(
         model=model,
         messages=messages,
         stream=True,
         stream_options={"include_usage": True},
     )
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if no_think:
+        kwargs["extra_body"] = {"enable_thinking": False}
+
+    stream = client.chat.completions.create(**kwargs)
 
     if verbose:
         print()
@@ -117,6 +124,10 @@ def main():
     parser.add_argument("--prompt",   default=DEFAULT_PROMPT)
     parser.add_argument("--runs",     type=int, default=1,
                         help="Number of benchmark runs (results are averaged)")
+    parser.add_argument("--max-tokens", type=int, default=None,
+                        help="Maximum tokens to generate per request")
+    parser.add_argument("--no-think",  action="store_true",
+                        help="Disable thinking/reasoning (sets enable_thinking=false)")
     parser.add_argument("--warmup",   action="store_true",
                         help="Send a short warmup request before benchmarking")
     args = parser.parse_args()
@@ -147,7 +158,8 @@ def main():
         if args.runs > 1:
             print(f"\nRun {i}/{args.runs}", flush=True)
         try:
-            r = benchmark(client, args.model, args.prompt, verbose=verbose)
+            r = benchmark(client, args.model, args.prompt, verbose=verbose,
+                         max_tokens=args.max_tokens, no_think=args.no_think)
             results.append(r)
             ttft_ms  = r["ttft_s"]  * 1000 if r["ttft_s"]  else float("nan")
             think_ms = r["think_s"] * 1000 if r["think_s"] else 0

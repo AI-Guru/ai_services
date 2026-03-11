@@ -1,0 +1,78 @@
+# Qwen3.5-0.8B (dense, 0.8B) via llama.cpp — with patched jinja template
+#
+# Smallest model in the Qwen 3.5 family. Hybrid Gated DeltaNet + Attention
+# architecture (linear + full attention, 3:1 ratio). All parameters active.
+#
+# The GGUF model is downloaded automatically on first start (~559 MB).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-0.8b.yml up -d
+# API endpoint: http://localhost:11430/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen35-llama-0.8b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11430:11430"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+      - ./qwen3.5_chat_template.jinja:/template.jinja:ro
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.5-0.8B-GGUF
+      - --hf-file
+      - Qwen3.5-0.8B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11430"
+      - --chat-template-file
+      - /template.jinja
+      - -a
+      - qwen3.5-0.8b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11430/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true
