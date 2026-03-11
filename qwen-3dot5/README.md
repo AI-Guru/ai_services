@@ -49,6 +49,11 @@ Which GPU?
 │  │  ├─ llama.cpp ───────────── llama-27b-devfix-rtx.yml (Q4, patched template)
 │  │  └─ llama.cpp (Qwopus) ─── llama-qwopus-27b-rtx.yml (Opus reasoning distilled)
 │  │
+│  ├─ Want a small/edge model?
+│  │  ├─ 9B dense ───────────── llama-9b-devfix-rtx.yml (166 tok/s, 10s TTFT)
+│  │  ├─ 4B dense ───────────── llama-4b-devfix-rtx.yml (228 tok/s, 7s TTFT)
+│  │  └─ 2B dense ───────────── llama-2b-devfix-rtx.yml (381 tok/s, 6s TTFT)
+│  │
 │  └─ Otherwise
 │     ├─ Fastest ─────────────── llama-35b-devfix-rtx.yml (194 tok/s, 6.8s TTFT)
 │     └─ vLLM ────────────────── vllm-35b-fp8-rtx.yml (174 tok/s, 8.5s TTFT)
@@ -100,13 +105,19 @@ Which GPU?
 
 | Compose file | Backend | Model | tok/s | TTFT |
 |---|---|---|---|---|
+| `llama-0.8b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 0.8B dense | 576.4 | N/A* |
+| `llama-2b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 2B dense | 380.6 | ~6.0 s |
+| `llama-4b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 4B dense | 228.4 | ~7.0 s |
 | `llama-35b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 35B MoE (3B active) | **193.5** | ~6.8 s |
+| `llama-9b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 9B dense | 165.9 | ~10.3 s |
 | `vllm-35b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 35B MoE (3B active) | 156.8 | ~9.6 s |
 | `sglang-fp8.yaml` | SGLang FP8 | 35B MoE (3B active) | 130.6 | ~9.6 s |
 | `llama-qwopus-27b-rtx.yml` | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 68.4 | ~13 s |
 | `llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 27B dense | 64.6 | ~21 s |
 | `vllm-27b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 27B dense | 34.3 | ~41 s |
 | `vllm-122b-gptq-int4-rtx.yml` | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 32.6 | ~49 s |
+
+\* 0.8B loops in thinking on complex prompts — too small for reasoning tasks.
 
 #### RTX 3090 ×2 (48 GB total VRAM)
 
