@@ -42,7 +42,8 @@ Which GPU?
 │  │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (194 tok/s, fastest)
 │  │
 │  ├─ Want largest model (122B)?
-│  │  └─ Yes ─────────────────── vllm-122b-gptq-int4-rtx.yml (26 tok/s, 119K ctx)
+│  │  ├─ llama.cpp (fast) ────── llama-122b-devfix-rtx.yml (106 tok/s, 12s TTFT)
+│  │  └─ vLLM GPTQ ─────────── vllm-122b-gptq-int4-rtx.yml (33 tok/s, 49s TTFT)
 │  │
 │  ├─ Want dense 27B model? (65 tok/s, smarter per-token but slower)
 │  │  ├─ vLLM ────────────────── vllm-27b-fp8-rtx.yml (FP8)
@@ -112,6 +113,7 @@ Which GPU?
 | `llama-9b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 9B dense | 165.9 | ~10.3 s |
 | `vllm-35b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 35B MoE (3B active) | 156.8 | ~9.6 s |
 | `sglang-fp8.yaml` | SGLang FP8 | 35B MoE (3B active) | 130.6 | ~9.6 s |
+| `llama-122b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 122B MoE (10B active) | 105.5 | ~12 s |
 | `llama-qwopus-27b-rtx.yml` | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 68.4 | ~13 s |
 | `llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 27B dense | 64.6 | ~21 s |
 | `vllm-27b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 27B dense | 34.3 | ~41 s |
@@ -177,6 +179,7 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-35b-fp8-rtx.yml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | RTX PRO 6000 96 GB; vLLM v0.17.0 |
 | 27B FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-27b-fp8-rtx.yml up -d` | `Qwen3.5-27B-FP8` | ~28 GB FP8 | Dense 27B; RTX PRO 6000 |
 | 122B GPTQ RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-122b-gptq-int4-rtx.yml up -d` | `Qwen3.5-122B-A10B-GPTQ-Int4` | ~68 GB GPTQ | 122B MoE; tight fit on 96 GB |
+| llama.cpp 122B | `docker compose -f docker-compose.llama-122b-devfix-rtx.yml up -d` | `qwen3.5-122b` | ~68 GB Q4 | 122B MoE; patched template; 128K ctx |
 | llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix-rtx.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template |
 | llama.cpp 27B | `docker compose -f docker-compose.llama-27b-devfix-rtx.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | Dense 27B; patched template; fits 24 GB |
 | llama.cpp Qwopus 27B | `docker compose -f docker-compose.llama-qwopus-27b-rtx.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | Opus reasoning distilled |
@@ -336,6 +339,17 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~33 tok/s |
 | TTFT (with thinking) | ~49 s |
 
+#### llama.cpp 122B MoE Q4_K_XL (`docker-compose.llama-122b-devfix-rtx.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~68 GB Q4_K_XL (3 shards) |
+| VRAM used | ~75 GB of 96 GB |
+| Context length | 131,072 tokens (128K) |
+| KV cache type | q8_0 |
+| Decode throughput | ~106 tok/s |
+| TTFT (with thinking) | ~12 s |
+
 #### llama.cpp 0.8B dense Q4_K_XL (`docker-compose.llama-0.8b-devfix-rtx.yml`)
 
 | Metric | Value |
@@ -415,6 +429,7 @@ Measured with `test_chat.py --warmup --runs 3`.
 | SGLang FP8 | 35B MoE (3B active) | 9,560 ms | 130.6 |
 | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 12,854 ms | 68.4 |
 | llama.cpp Q4_K_XL | 27B dense | 21,189 ms | 64.6 |
+| llama.cpp Q4_K_XL | 122B MoE (10B active) | 12,034 ms | 105.5 |
 | vLLM v0.17.0 FP8 | 27B dense | 40,742 ms | 34.3 |
 | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 49,210 ms | 32.6 |
 

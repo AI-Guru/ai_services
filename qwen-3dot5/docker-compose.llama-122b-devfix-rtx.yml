@@ -1,0 +1,80 @@
+# Qwen3.5-122B-A10B (MoE, 10B active) via llama.cpp — with patched jinja template
+#
+# 122B total parameters, ~10B active per token (512 experts, top-8 routing).
+# Hybrid Gated DeltaNet + MoE architecture (linear + full attention, 3:1).
+#
+# The GGUF model is downloaded automatically on first start (~68 GB, 3 shards).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# RTX PRO 6000 (96 GB GDDR7): tight fit — 128K context with q8_0 KV cache.
+#
+# Usage: docker compose -f docker-compose.llama-122b-devfix-rtx.yml up -d
+# API endpoint: http://localhost:11437/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen35-llama-122b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11437:11437"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+      - ./qwen3.5_chat_template.jinja:/template.jinja:ro
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.5-122B-A10B-GGUF
+      - --hf-file
+      - UD-Q4_K_XL/Qwen3.5-122B-A10B-UD-Q4_K_XL-00001-of-00003.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "131072"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11437"
+      - --chat-template-file
+      - /template.jinja
+      - -a
+      - qwen3.5-122b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1800s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true
