@@ -1,0 +1,119 @@
+# Qwen3.5-35B-A3B-FP8 — with Prometheus metrics
+#
+# Adds a Prometheus scraping target alongside the vLLM service.
+# vLLM exposes metrics at /metrics on the same port (11435).
+#
+# Prometheus scrapes vLLM every 15s and retains data for 15 days.
+# Data is persisted in a named volume: prometheus_data
+#
+# Usage:  docker compose -f docker-compose.vllm-35b-fp8-rtx-tracing.yml up -d
+# vLLM API:          http://localhost:11435/v1
+# vLLM metrics:      http://localhost:11435/metrics
+# Prometheus UI:     http://localhost:9090
+
+services:
+  qwen35-fp8:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: qwen35-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.5-35B-A3B-FP8
+      - --served-model-name
+      - qwen3.5-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: qwen35-prometheus
+    restart: unless-stopped
+
+    ports:
+      - "9090:9090"
+
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+
+    depends_on:
+      qwen35-fp8:
+        condition: service_healthy
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+  prometheus_data:
+    name: qwen35_prometheus_data
+
+networks:
+  default:
+    name: qwen35-network

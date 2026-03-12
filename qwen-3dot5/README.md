@@ -1,4 +1,4 @@
-# Qwen3.5 on NVIDIA Blackwell GPUs
+# Qwen3.5 Self-Hosted Inference
 
 Runs Qwen3.5 models via vLLM, SGLang, or llama.cpp on NVIDIA Blackwell GPUs, exposing an OpenAI-compatible API.
 
@@ -53,7 +53,11 @@ Which GPU?
 │  ├─ Want a small/edge model?
 │  │  ├─ 9B dense ───────────── llama-9b-devfix-rtx.yml (166 tok/s, 10s TTFT)
 │  │  ├─ 4B dense ───────────── llama-4b-devfix-rtx.yml (228 tok/s, 7s TTFT)
-│  │  └─ 2B dense ───────────── llama-2b-devfix-rtx.yml (381 tok/s, 6s TTFT)
+│  │  ├─ 2B dense ───────────── llama-2b-devfix-rtx.yml (381 tok/s, 6s TTFT)
+│  │  └─ 0.8B dense ──────────── llama-0.8b-devfix-rtx.yml (576 tok/s) ⚠ loops on complex prompts
+│  │
+│  ├─ Want Prometheus metrics?
+│  │  └─ Yes ─────────────────── vllm-35b-fp8-rtx-tracing.yml (vLLM FP8 + Prometheus on :9090)
 │  │
 │  └─ Otherwise
 │     ├─ Fastest ─────────────── llama-35b-devfix-rtx.yml (194 tok/s, 6.8s TTFT)
@@ -72,6 +76,9 @@ Which GPU?
 │  │
 │  └─ Otherwise
 │     └─ Fastest ─────────────── llama-35b-devfix-rtx.yml (128 tok/s, 10s TTFT)
+│
+├─ RTX 3090 ×2 — uses the same `-rtx` compose files as RTX PRO 6000; VRAM (48 GB total) is the constraint
+│  (see RTX PRO 6000 branch above)
 │
 └─ AMD GPU / Vulkan (tested: R9700 32 GB)
    ├─ Want highest throughput?
@@ -162,6 +169,10 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 
 | Model size | Port |
 |---|---|
+| 0.8B | 11430 |
+| 2B | 11431 |
+| 4B | 11432 |
+| 9B | 11433 |
 | 35B | 11435 |
 | 27B | 11436 |
 | 122B | 11437 |
@@ -189,6 +200,11 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | llama.cpp 35B Vulkan | `docker compose -f docker-compose.llama-35b-devfix-vulkan.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | AMD GPU via Vulkan; patched template; no CUDA required |
 | llama.cpp 27B Vulkan | `docker compose -f docker-compose.llama-27b-devfix-vulkan.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | AMD GPU via Vulkan; patched template |
 | llama.cpp Qwopus 27B Vulkan | `docker compose -f docker-compose.llama-qwopus-27b-vulkan.yml up -d` | `qwen3.5-27b` | ~16.5 GB Q4 | AMD GPU via Vulkan; Opus distilled |
+| llama.cpp 9B RTX | `docker compose -f docker-compose.llama-9b-devfix-rtx.yml up -d` | `qwen3.5-9b` | ~6 GB Q4 | 166 tok/s; port 11433 |
+| llama.cpp 4B RTX | `docker compose -f docker-compose.llama-4b-devfix-rtx.yml up -d` | `qwen3.5-4b` | ~2.9 GB Q4 | 228 tok/s; port 11432 |
+| llama.cpp 2B RTX | `docker compose -f docker-compose.llama-2b-devfix-rtx.yml up -d` | `qwen3.5-2b` | ~1.3 GB Q4 | 381 tok/s; port 11431 |
+| llama.cpp 0.8B RTX | `docker compose -f docker-compose.llama-0.8b-devfix-rtx.yml up -d` | `qwen3.5-0.8b` | ~559 MB Q4 | 576 tok/s; port 11430; loops on complex prompts |
+| FP8 RTX PRO + Prometheus | `docker compose -f docker-compose.vllm-35b-fp8-rtx-tracing.yml up -d` | `qwen3.5-35b` | ~35 GB FP8 | vLLM FP8 + Prometheus scraping; API :11435, Prometheus UI :9090 |
 
 All variants share the same named Docker volume (`qwen35_huggingface_cache`) so weights are only downloaded once per model variant.
 
@@ -215,6 +231,16 @@ If the container fails to start, try removing `-fa on` (flash attention) — sup
 The `fp8` profile uses the official Qwen pre-quantized model ([Qwen/Qwen3.5-35B-A3B-FP8](https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8)) rather than on-the-fly quantization. GB10 (Blackwell, CC 12.1) runs block-wise FP8 as W8A8 natively with no throughput penalty. Halving the weight footprint from ~70 GB to ~35 GB leaves ~87 GB available for KV cache at 0.90 utilisation — roughly 3× more than the BF16 default.
 
 `--kv-cache-dtype fp8_e4m3` is intentionally omitted: Qwen3.5's hybrid MoE+Mamba architecture triggers a vLLM bug at runtime ([vllm-project/vllm#26646](https://github.com/vllm-project/vllm/issues/26646)). Weight-only FP8 already provides the main memory saving.
+
+### Tracing / Prometheus
+
+The `-tracing` variant (`docker-compose.vllm-35b-fp8-rtx-tracing.yml`) adds a Prometheus sidecar alongside the vLLM FP8 service. vLLM exposes metrics at `/metrics` on the same port (11435); Prometheus scrapes it every 15 s and retains data for 15 days.
+
+- **API**: `http://localhost:11435/v1`
+- **Metrics endpoint**: `http://localhost:11435/metrics`
+- **Prometheus UI**: `http://localhost:9090`
+
+Requires `prometheus.yml` alongside the compose file (included in this directory). Metric data is persisted in a named Docker volume (`qwen35_prometheus_data`). The Prometheus container only starts after vLLM passes its healthcheck.
 
 ### MXFP4
 
@@ -277,19 +303,6 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 | Context length | 262,144 tokens (256K) |
 | Decode throughput | ~11.5 tok/s |
 | TTFT (with thinking) | ~52 s |
-
-#### Backend comparison (DGX Spark, 3-run average)
-
-| Backend | Model | Avg TTFT | Avg tok/s |
-|---|---|---|---|
-| llama.cpp Q4_K_XL | 35B MoE (3B active) | 22,797 ms | 58.4 |
-| vLLM v0.17.0 FP8 | 35B MoE (3B active) | 29,045 ms | 47.9 |
-| vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 103,945 ms | 13.0 |
-| llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 52,079 ms | 11.5 |
-| llama.cpp Q4_K_XL | 27B dense | 130,339 ms | 11.0 |
-| vLLM v0.17.0 FP8 | 27B dense | 173,347 ms | 7.6 |
-
-Measured with `test_chat.py --warmup --runs 3`.
 
 ### RTX PRO 6000 Blackwell (96 GB GDDR7)
 
@@ -416,25 +429,6 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~68 tok/s |
 | TTFT (with thinking) | ~13 s |
 
-#### Backend comparison (RTX PRO 6000, 3-run average)
-
-| Backend | Model | Avg TTFT | Avg tok/s |
-|---|---|---|---|
-| llama.cpp Q4_K_XL | 0.8B dense | N/A (loops) | 576.4 |
-| llama.cpp Q4_K_XL | 2B dense | 5,989 ms | 380.6 |
-| llama.cpp Q4_K_XL | 4B dense | 7,034 ms | 228.4 |
-| llama.cpp Q4_K_XL | 9B dense | 10,250 ms | 165.9 |
-| llama.cpp Q4_K_XL | 35B MoE (3B active) | 6,792 ms | 193.5 |
-| vLLM v0.17.0 FP8 | 35B MoE (3B active) | 9,601 ms | 156.8 |
-| SGLang FP8 | 35B MoE (3B active) | 9,560 ms | 130.6 |
-| llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 12,854 ms | 68.4 |
-| llama.cpp Q4_K_XL | 27B dense | 21,189 ms | 64.6 |
-| llama.cpp Q4_K_XL | 122B MoE (10B active) | 12,034 ms | 105.5 |
-| vLLM v0.17.0 FP8 | 27B dense | 40,742 ms | 34.3 |
-| vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 49,210 ms | 32.6 |
-
-Measured with `test_chat.py --warmup --runs 3`.
-
 ### RTX 3090 ×2 (48 GB total VRAM)
 
 #### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix-rtx.yml`)
@@ -464,16 +458,6 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Decode throughput | ~41 tok/s |
 | TTFT (with thinking) | ~15 s |
 
-#### Backend comparison (RTX 3090 ×2, 3-run average)
-
-| Backend | Model | Avg TTFT | Avg tok/s |
-|---|---|---|---|
-| llama.cpp Q4_K_XL | 35B MoE (3B active) | 10,328 ms | 127.6 |
-| llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 14,958 ms | 41.0 |
-| llama.cpp Q4_K_XL | 27B dense | 30,908 ms | 39.2 |
-
-Measured with `test_chat.py --warmup --runs 3`.
-
 ### AMD Radeon AI PRO R9700 / Vulkan (32 GB GDDR6)
 
 #### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix-vulkan.yml`)
@@ -493,15 +477,6 @@ Measured with `test_chat.py --warmup --runs 3`.
 | Context length | 262,144 tokens (256K) |
 | Decode throughput | ~22 tok/s |
 | TTFT (with thinking) | ~56 s |
-
-#### Backend comparison (AMD R9700 Vulkan, 3-run average)
-
-| Backend | Model | Avg TTFT | Avg tok/s |
-|---|---|---|---|
-| llama.cpp Q4_K_XL Vulkan | 35B MoE (3B active) | 16,640 ms | 79.9 |
-| llama.cpp Q4_K_XL Vulkan | 27B dense | 56,090 ms | 21.9 |
-
-Measured with `test_chat.py --warmup --runs 3`.
 
 ## Memory layout
 

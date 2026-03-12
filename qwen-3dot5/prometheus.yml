@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: vllm
+    static_configs:
+      - targets: ["qwen35-fp8:11435"]
+    metrics_path: /metrics
