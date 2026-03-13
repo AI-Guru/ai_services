@@ -1,13 +1,14 @@
 # Qwen3.5 Self-Hosted Inference
 
-Runs Qwen3.5 models via vLLM, SGLang, or llama.cpp on NVIDIA Blackwell GPUs, exposing an OpenAI-compatible API.
+Runs Qwen3.5 models via vLLM, SGLang, llama.cpp, or MLX, exposing an OpenAI-compatible API.
 
 Based on: https://github.com/adadrag/qwen3.5-dgx-spark
 
 ## Requirements
 
-- NVIDIA GPU — fully tested on DGX Spark GB10 (128 GB unified), RTX PRO 6000 (96 GB GDDR7), and RTX 3090 ×2 (48 GB total); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM
-- AMD GPU — llama.cpp Vulkan variants tested on AMD Radeon AI PRO R9700 (32 GB GDDR6); requires 24+ GB VRAM
+- **NVIDIA GPU** — fully tested on DGX Spark GB10 (128 GB unified), RTX PRO 6000 (96 GB GDDR7), and RTX 3090 ×2 (48 GB total); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM
+- **AMD GPU** — llama.cpp Vulkan variants tested on AMD Radeon AI PRO R9700 (32 GB GDDR6); requires 24+ GB VRAM
+- **Apple Silicon** — MLX variant tested on M-series Macs; requires 24+ GB unified memory for 35B model (32+ GB recommended)
 - Docker + NVIDIA Container Toolkit (CUDA) or standard AMD driver stack with `/dev/kfd` + `/dev/dri` (Vulkan)
 - `vllm/vllm-openai:v0.17.0-cu130`, `lmsysorg/sglang:latest`, `ghcr.io/ggml-org/llama.cpp:server-cuda` (x86_64), `ghcr.io/ggml-org/llama.cpp:server-vulkan` (AMD/Vulkan), or `ghcr.io/ardge-labs/llama-cpp-dgx-spark:server` (aarch64)
 
@@ -80,18 +81,21 @@ Which GPU?
 ├─ RTX 3090 ×2 — uses the same `-rtx` compose files as RTX PRO 6000; VRAM (48 GB total) is the constraint
 │  (see RTX PRO 6000 branch above)
 │
-└─ AMD GPU / Vulkan (tested: R9700 32 GB)
-   ├─ Want highest throughput?
-   │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
-   │
-   ├─ Coding agent (Claude Code, Cursor, OpenCode)?
-   │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, patched template)
-   │
-   ├─ Want dense 27B model? (smarter per-token but slower)
-   │  └─ llama.cpp ───────────── llama-27b-devfix-vulkan.yml (22 tok/s, patched template)
-   │
-   └─ Otherwise
-      └─ Fastest ─────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
+├─ AMD GPU / Vulkan (tested: R9700 32 GB)
+│  ├─ Want highest throughput?
+│  │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
+│  │
+│  ├─ Coding agent (Claude Code, Cursor, OpenCode)?
+│  │  └─ Yes ─────────────────── llama-35b-devfix-vulkan.yml (80 tok/s, patched template)
+│  │
+│  ├─ Want dense 27B model? (smarter per-token but slower)
+│  │  └─ llama.cpp ───────────── llama-27b-devfix-vulkan.yml (22 tok/s, patched template)
+│  │
+│  └─ Otherwise
+│     └─ Fastest ─────────────── llama-35b-devfix-vulkan.yml (80 tok/s, 17s TTFT)
+│
+└─ Apple Silicon (tested: M-series 24+ GB)
+   └─ run-qwen-mlx.sh ────────── MLX 4-bit (75 tok/s, 350ms TTFT, patched template)
 ```
 
 > **Note:** llama.cpp variants auto-adjust to available VRAM. On 24 GB GPUs, reduce `-c` (context length) in the compose file to fit — e.g. `-c 8192` instead of `262144`.
@@ -143,9 +147,17 @@ Which GPU?
 | `llama-35b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | 35B MoE (3B active) | **79.9** | ~17 s |
 | `llama-27b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | 27B dense | 21.9 | ~56 s |
 
+### Apple Silicon (M-series, 24+ GB unified memory)
+
+| Script | Backend | Model | tok/s | TTFT |
+|---|---|---|---|---|
+| `run-qwen-mlx.sh` | mlx-openai-server 4-bit | 35B MoE (3B active) | **74.7** | ~350 ms |
+
 Measured with `test_chat.py --warmup --runs 3`.
 
 ## Quick start
+
+### Docker (NVIDIA / AMD)
 
 ```bash
 # DGX Spark — vLLM BF16, 262K context, multimodal (port 11435)
@@ -162,6 +174,24 @@ docker compose logs -f
 ```
 
 API is ready when logs show `Application startup complete`.
+
+### Apple Silicon (MLX)
+
+MLX requires native Metal GPU access — no Docker. The `run-qwen-mlx.sh` script manages a conda environment.
+
+```bash
+# One-time setup (creates conda env, installs mlx-openai-server)
+./run-qwen-mlx.sh --install
+
+# Start server (downloads ~18 GB model on first run)
+./run-qwen-mlx.sh --serve
+
+# Other commands
+./run-qwen-mlx.sh --upgrade    # Upgrade MLX packages
+./run-qwen-mlx.sh --uninstall  # Remove conda env
+```
+
+Requires: conda (Miniconda or Anaconda), 24+ GB unified memory (32+ GB recommended).
 
 ## Service variants
 
@@ -477,6 +507,19 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 | Context length | 262,144 tokens (256K) |
 | Decode throughput | ~22 tok/s |
 | TTFT (with thinking) | ~56 s |
+
+### Apple Silicon (M-series, 24+ GB unified memory)
+
+#### MLX 35B MoE 4-bit (`run-qwen-mlx.sh`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~18 GB 4-bit |
+| Context length | 262,144 tokens (256K) |
+| Decode throughput | ~75 tok/s |
+| TTFT (with thinking) | ~350 ms |
+
+> **Note:** MLX is ~2× faster than llama.cpp on Apple Silicon due to native Metal optimization. The extremely low TTFT (~350 ms vs 6–17 s on GPU backends) is because MLX streams tokens immediately without waiting for the full thinking phase to complete.
 
 ## Memory layout
 

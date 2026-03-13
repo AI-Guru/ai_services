@@ -1,0 +1,207 @@
+#!/bin/bash
+#
+# Qwen3.5-35B-A3B on Apple Silicon via MLX
+#
+# Usage:
+#   ./run-qwen-mlx.sh --install    # Create conda env and install packages
+#   ./run-qwen-mlx.sh --uninstall  # Remove conda env
+#   ./run-qwen-mlx.sh --upgrade    # Upgrade packages in conda env
+#   ./run-qwen-mlx.sh --serve      # Start the OpenAI-compatible server
+#
+# Requirements: conda (Miniconda or Anaconda)
+
+set -e
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+ENV_NAME="qwen-mlx"
+PYTHON_VERSION="3.11"
+PORT="11435"
+CONTEXT_LENGTH="262144"  # 256K tokens (model maximum)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_PATH="${SCRIPT_DIR}/qwen3.5_chat_template.jinja"
+
+# =============================================================================
+# Model selection — uncomment ONE model
+# =============================================================================
+
+# 35B MoE (3B active) — default, ~18 GB, requires 24+ GB unified memory
+MODEL="mlx-community/Qwen3.5-35B-A3B-4bit"
+# MODEL="mlx-community/Qwen3.5-35B-A3B-8bit"      # ~38 GB, better quality
+
+# 27B dense — smarter per-token but slower, ~17 GB
+# MODEL="mlx-community/Qwen3.5-27B-4bit"
+
+# 122B MoE (10B active) — largest, ~70 GB, requires 96+ GB unified memory
+# MODEL="mlx-community/Qwen3.5-122B-A10B-4bit"
+
+# Small models — faster, lower quality
+# MODEL="mlx-community/Qwen3.5-9B-MLX-4bit"      # ~6 GB
+# MODEL="mlx-community/Qwen3.5-4B-MLX-4bit"      # ~3 GB
+# MODEL="mlx-community/Qwen3.5-2B-MLX-4bit"      # ~1.5 GB
+# MODEL="mlx-community/Qwen3.5-0.8B-MLX-4bit"    # ~0.5 GB (loops on complex prompts)
+
+# =============================================================================
+# Helper functions
+# =============================================================================
+
+info() {
+    echo "[INFO] $*"
+}
+
+error() {
+    echo "[ERROR] $*" >&2
+    exit 1
+}
+
+check_conda() {
+    if ! command -v conda &> /dev/null; then
+        error "conda not found. Install Miniconda or Anaconda first:
+
+  # Miniconda (recommended):
+  brew install miniconda
+
+  # Or download from:
+  https://docs.conda.io/en/latest/miniconda.html"
+    fi
+}
+
+env_exists() {
+    conda env list | grep -q "^${ENV_NAME} "
+}
+
+activate_env() {
+    # Source conda for script context
+    eval "$(conda shell.bash hook)"
+    conda activate "$ENV_NAME"
+}
+
+# =============================================================================
+# Commands
+# =============================================================================
+
+cmd_install() {
+    check_conda
+
+    if env_exists; then
+        info "Environment '${ENV_NAME}' already exists. Use --upgrade to update packages."
+        exit 0
+    fi
+
+    info "Creating conda environment '${ENV_NAME}' with Python ${PYTHON_VERSION}..."
+    conda create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
+
+    info "Installing mlx-openai-server..."
+    activate_env
+    pip install mlx-openai-server
+
+    info "Installation complete!"
+    info ""
+    info "Next steps:"
+    info "  ./run-qwen-mlx.sh --serve"
+    info ""
+    info "The model (~18GB) will download on first serve."
+}
+
+cmd_uninstall() {
+    check_conda
+
+    if ! env_exists; then
+        info "Environment '${ENV_NAME}' does not exist."
+        exit 0
+    fi
+
+    info "Removing conda environment '${ENV_NAME}'..."
+    conda env remove -n "$ENV_NAME" -y
+
+    info "Environment removed."
+    info ""
+    info "Note: Cached models remain in ~/.cache/huggingface"
+    info "To remove them: rm -rf ~/.cache/huggingface/hub/models--mlx-community--Qwen3.5-35B-A3B-4bit"
+}
+
+cmd_upgrade() {
+    check_conda
+
+    if ! env_exists; then
+        error "Environment '${ENV_NAME}' does not exist. Run --install first."
+    fi
+
+    info "Upgrading packages in '${ENV_NAME}'..."
+    activate_env
+    pip install --upgrade mlx-openai-server mlx-lm mlx
+
+    info "Upgrade complete!"
+}
+
+cmd_serve() {
+    check_conda
+
+    if ! env_exists; then
+        error "Environment '${ENV_NAME}' does not exist. Run --install first."
+    fi
+
+    if [[ ! -f "$TEMPLATE_PATH" ]]; then
+        error "Chat template not found: ${TEMPLATE_PATH}"
+    fi
+
+    info "Starting Qwen3.5-35B-A3B server on port ${PORT}..."
+    info "Model: ${MODEL}"
+    info "Context: ${CONTEXT_LENGTH} tokens (256K)"
+    info "Template: ${TEMPLATE_PATH}"
+    info ""
+    info "API endpoint: http://localhost:${PORT}/v1"
+    info "Press Ctrl+C to stop"
+    info ""
+
+    activate_env
+    exec mlx-openai-server launch \
+        --model-path "$MODEL" \
+        --model-type lm \
+        --chat-template-file "$TEMPLATE_PATH" \
+        --context-length "$CONTEXT_LENGTH" \
+        --port "$PORT"
+}
+
+show_usage() {
+    echo "Usage: $0 <command>"
+    echo ""
+    echo "Commands:"
+    echo "  --install    Create conda environment and install packages"
+    echo "  --uninstall  Remove conda environment"
+    echo "  --upgrade    Upgrade packages in conda environment"
+    echo "  --serve      Start the OpenAI-compatible server"
+    echo ""
+    echo "Configuration (edit script to change):"
+    echo "  Environment: ${ENV_NAME}"
+    echo "  Model:       ${MODEL}"
+    echo "  Port:        ${PORT}"
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+case "${1:-}" in
+    --install)
+        cmd_install
+        ;;
+    --uninstall)
+        cmd_uninstall
+        ;;
+    --upgrade)
+        cmd_upgrade
+        ;;
+    --serve)
+        cmd_serve
+        ;;
+    --help|-h)
+        show_usage
+        ;;
+    *)
+        show_usage
+        exit 1
+        ;;
+esac
