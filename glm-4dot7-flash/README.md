@@ -24,6 +24,61 @@ Local server deployment for GLM-4.7-Flash model with two backend options:
 
 ## Quick Start
 
+### 0. Prerequisites
+
+If you are in a freshly setup environment (like a rented dedicated server with Ubuntu), make sure the necessary software is installed:
+
+Install Huggingface-cli (in a virtual environment):
+
+First install `python3-venv`and `pip`:
+```bash
+sudo apt install python3.12-venv
+sudo apt install python3-pip
+```
+
+Now install huggingface:
+```bash
+python3 -m venv hf-env
+source hf-env/bin/activate
+pip install --upgrade pip
+pip install -U huggingface_hub
+```
+
+Quick sanity check:
+
+```bash
+hf version
+```
+
+Install `cmake`:
+```bash
+sudo apt update
+sudo apt install -y cmake
+```
+
+Verify `cmake`:
+```bash
+cmake --version
+```
+
+Install NVDIA CUDA Toolkit:
+
+```bash
+sudo apt update
+sudo apt install nvidia-cuda-toolkit
+```
+
+Verify NVDIA CUDA Toolkit installation:
+```bash
+nvcc --version
+```
+
+Install `jq` - commandline JSON processor:
+```bash
+sudo apt update
+sudo apt install jq
+```
+
 ### 1. Download Model (~18GB)
 
 ```bash
@@ -32,10 +87,22 @@ Local server deployment for GLM-4.7-Flash model with two backend options:
 
 This downloads the model to `models/` directory using HuggingFace CLI.
 
+If you want to try the largest model (and your machine meets the necessary requirements), download the BF16 version instead (~60GB):
+
+```bash
+./download_model_bf16.sh
+```
+
 ### 2. Start Server
 
 ```bash
 ./start_server.sh
+```
+
+Alternatively, if you have downloaded the BF16 model and want to run it:
+
+```bash
+./start_server_bf16.sh
 ```
 
 Server will be available at `http://127.0.0.1:11346/v1`
