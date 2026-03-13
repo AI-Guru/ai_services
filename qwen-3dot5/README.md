@@ -2,8 +2,6 @@
 
 Runs Qwen3.5 models via vLLM, SGLang, llama.cpp, or MLX, exposing an OpenAI-compatible API.
 
-Based on: https://github.com/adadrag/qwen3.5-dgx-spark
-
 ## Requirements
 
 - **NVIDIA GPU** — fully tested on DGX Spark GB10 (128 GB unified), RTX PRO 6000 (96 GB GDDR7), and RTX 3090 ×2 (48 GB total); llama.cpp variants work on any CUDA GPU with 24+ GB VRAM
