@@ -35,7 +35,8 @@ Which GPU?
 │
 ├─ RTX PRO 6000 (96 GB GDDR7)
 │  ├─ Coding agent (Claude Code, Cursor, OpenCode)?
-│  │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (194 tok/s, patched template)
+│  │  └─ Yes ─────────────────── llama-coder-next-rtx.yml (164 tok/s, coding-specialist, no template patch needed)
+│  │                              llama-35b-devfix-rtx.yml (194 tok/s, general MoE, patched template)
 │  │
 │  ├─ Want highest throughput?
 │  │  └─ Yes ─────────────────── llama-35b-devfix-rtx.yml (194 tok/s, fastest)
@@ -54,6 +55,9 @@ Which GPU?
 │  │  ├─ 4B dense ───────────── llama-4b-devfix-rtx.yml (228 tok/s, 7s TTFT)
 │  │  ├─ 2B dense ───────────── llama-2b-devfix-rtx.yml (381 tok/s, 6s TTFT)
 │  │  └─ 0.8B dense ──────────── llama-0.8b-devfix-rtx.yml (576 tok/s) ⚠ loops on complex prompts
+│  │
+│  ├─ Want Qwen3-Coder-Next (coding specialist, 80B/3B active)?
+│  │  └─ Yes ─────────────────── llama-coder-next-rtx.yml (164 tok/s, 262K ctx, port 11438)
 │  │
 │  ├─ Want Prometheus metrics?
 │  │  └─ Yes ─────────────────── vllm-35b-fp8-rtx-tracing.yml (vLLM FP8 + Prometheus on :9090)
@@ -119,6 +123,7 @@ Which GPU?
 | `llama-2b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 2B dense | 380.6 | ~6.0 s |
 | `llama-4b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 4B dense | 228.4 | ~7.0 s |
 | `llama-35b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 35B MoE (3B active) | **193.5** | ~6.8 s |
+| `llama-coder-next-rtx.yml` | llama.cpp UD-Q4_K_XL | Qwen3-Coder-Next 80B MoE (3B active) | **164.5** | ~75–610 ms† |
 | `llama-9b-devfix-rtx.yml` | llama.cpp Q4_K_XL | 9B dense | 165.9 | ~10.3 s |
 | `vllm-35b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | 35B MoE (3B active) | 156.8 | ~9.6 s |
 | `sglang-fp8.yaml` | SGLang FP8 | 35B MoE (3B active) | 130.6 | ~9.6 s |
@@ -129,6 +134,7 @@ Which GPU?
 | `vllm-122b-gptq-int4-rtx.yml` | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 32.6 | ~49 s |
 
 \* 0.8B loops in thinking on complex prompts — too small for reasoning tasks.
+† Qwen3-Coder-Next TTFT is 75–150 ms warm (KV cache hot) and ~610 ms cold. No thinking preamble observed at default settings.
 
 #### RTX 3090 ×2 (48 GB total VRAM)
 
@@ -204,6 +210,7 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | 35B | 11435 |
 | 27B | 11436 |
 | 122B | 11437 |
+| Qwen3-Coder-Next | 11438 |
 
 | Variant | Command | Model | Weights | Notes |
 |---|---|---|---|---|
@@ -218,6 +225,7 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-35b-fp8-rtx.yml up -d` | `Qwen3.5-35B-A3B-FP8` | ~35 GB FP8 | RTX PRO 6000 96 GB; vLLM v0.17.0 |
 | 27B FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-27b-fp8-rtx.yml up -d` | `Qwen3.5-27B-FP8` | ~28 GB FP8 | Dense 27B; RTX PRO 6000 |
 | 122B GPTQ RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-122b-gptq-int4-rtx.yml up -d` | `Qwen3.5-122B-A10B-GPTQ-Int4` | ~68 GB GPTQ | 122B MoE; tight fit on 96 GB |
+| llama.cpp Qwen3-Coder-Next | `docker compose -f docker-compose.llama-coder-next-rtx.yml up -d` | `qwen3-coder-next` | ~50 GB UD-Q4_K_XL | 80B/3B-active MoE; coding specialist; 262K ctx; port 11438 |
 | llama.cpp 122B | `docker compose -f docker-compose.llama-122b-devfix-rtx.yml up -d` | `qwen3.5-122b` | ~68 GB Q4 | 122B MoE; patched template; 128K ctx |
 | llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix-rtx.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template |
 | llama.cpp 27B | `docker compose -f docker-compose.llama-27b-devfix-rtx.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | Dense 27B; patched template; fits 24 GB |
@@ -426,6 +434,19 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 | Context length | 262,144 tokens (256K) |
 | Decode throughput | ~166 tok/s |
 | TTFT (with thinking) | ~10.3 s |
+
+#### llama.cpp Qwen3-Coder-Next 80B MoE UD-Q4_K_XL (`docker-compose.llama-coder-next-rtx.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~50 GB UD-Q4_K_XL (single file) |
+| VRAM used | ~47 GB of 96 GB |
+| Context length | 262,144 tokens (256K) |
+| KV cache type | q8_0 |
+| Batch size | 4096 / ubatch 2048 |
+| Decode throughput | ~164 tok/s (warm) |
+| TTFT | ~75–150 ms (warm) / ~610 ms (cold) |
+| Notes | Coding specialist (70.6% SWE-bench Verified); no template patch needed; `--jinja` enabled |
 
 #### llama.cpp 35B MoE Q4_K_XL (`docker-compose.llama-35b-devfix-rtx.yml`)
 
