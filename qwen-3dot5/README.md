@@ -21,6 +21,9 @@ Which GPU?
 │  ├─ Coding agent (Claude Code, Cursor, OpenCode)?
 │  │  └─ Yes ─────────────────── llama-35b-devfix-spark.yml (58 tok/s, patched template)
 │  │
+│  ├─ Coding agent (Qwen3-Coder-Next)?
+│  │  └─ Yes ─────────────────── llama-coder-next-spark.yml (49 tok/s, coding-specialist, no template patch needed)
+│  │
 │  ├─ Want largest model (122B)?
 │  │  └─ Yes ─────────────────── vllm-122b-gptq-int4-spark.yml (13 tok/s, 104s TTFT)
 │  │
@@ -109,6 +112,7 @@ Which GPU?
 | Compose file | Backend | Model | tok/s | TTFT |
 |---|---|---|---|---|
 | `llama-35b-devfix-spark.yml` | llama.cpp Q4_K_XL | 35B MoE (3B active) | **58.4** | ~23 s |
+| `llama-coder-next-spark.yml` | llama.cpp UD-Q4_K_XL | Qwen3-Coder-Next 80B MoE (3B active) | 49.1 | ~243 ms |
 | `vllm-35b-fp8-spark.yml` | vLLM v0.17.0 FP8 | 35B MoE (3B active) | 47.9 | ~29 s |
 | `vllm-122b-gptq-int4-spark.yml` | vLLM v0.17.0 GPTQ-Int4 | 122B MoE (10B active) | 13.0 | ~104 s |
 | `llama-qwopus-27b-spark.yml` | llama.cpp Q4_K_M | 27B Qwopus (Opus distilled) | 11.5 | ~52 s |
@@ -226,6 +230,7 @@ Ports are assigned by model size — you can run a 35B and 27B side by side:
 | 27B FP8 RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-27b-fp8-rtx.yml up -d` | `Qwen3.5-27B-FP8` | ~28 GB FP8 | Dense 27B; RTX PRO 6000 |
 | 122B GPTQ RTX PRO (vLLM) | `docker compose -f docker-compose.vllm-122b-gptq-int4-rtx.yml up -d` | `Qwen3.5-122B-A10B-GPTQ-Int4` | ~68 GB GPTQ | 122B MoE; tight fit on 96 GB |
 | llama.cpp Qwen3-Coder-Next | `docker compose -f docker-compose.llama-coder-next-rtx.yml up -d` | `qwen3-coder-next` | ~50 GB UD-Q4_K_XL | 80B/3B-active MoE; coding specialist; 262K ctx; port 11438 |
+| llama.cpp Qwen3-Coder-Next Spark | `docker compose -f docker-compose.llama-coder-next-spark.yml up -d` | `qwen3-coder-next` | ~50 GB UD-Q4_K_XL | DGX Spark ARM64; coding specialist; 262K ctx; port 11438 |
 | llama.cpp 122B | `docker compose -f docker-compose.llama-122b-devfix-rtx.yml up -d` | `qwen3.5-122b` | ~68 GB Q4 | 122B MoE; patched template; 128K ctx |
 | llama.cpp 35B | `docker compose -f docker-compose.llama-35b-devfix-rtx.yml up -d` | `qwen3.5-35b` | ~21 GB Q4 | llama.cpp; patched template |
 | llama.cpp 27B | `docker compose -f docker-compose.llama-27b-devfix-rtx.yml up -d` | `qwen3.5-27b` | ~17.6 GB Q4 | Dense 27B; patched template; fits 24 GB |
@@ -339,6 +344,17 @@ No vLLM-compatible MXFP4 checkpoint exists for this model yet. A GGUF variant is
 | Context length | 262,144 tokens (256K) |
 | Decode throughput | ~11.5 tok/s |
 | TTFT (with thinking) | ~52 s |
+
+#### llama.cpp Qwen3-Coder-Next 80B MoE UD-Q4_K_XL (`docker-compose.llama-coder-next-spark.yml`)
+
+| Metric | Value |
+|---|---|
+| Weights | ~50 GB UD-Q4_K_XL (single file) |
+| Context length | 262,144 tokens (256K) |
+| KV cache type | q8_0 |
+| Decode throughput | ~49 tok/s |
+| TTFT | ~148–420 ms (avg 243 ms) |
+| Notes | Coding specialist (70.6% SWE-bench Verified); no template patch needed; `--jinja` enabled |
 
 ### RTX PRO 6000 Blackwell (96 GB GDDR7)
 

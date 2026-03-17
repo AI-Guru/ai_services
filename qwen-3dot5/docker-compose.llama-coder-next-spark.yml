@@ -1,0 +1,81 @@
+# Qwen3-Coder-Next (80B total / 3B active MoE) via llama.cpp
+#
+# DGX Spark (aarch64) variant using ardge-labs ARM64 CUDA image.
+#
+# Coding-specialized MoE model with 262K context. Only 3B params
+# are active per forward pass → very high throughput despite 80B total.
+# Benchmarks: 70.6–71.3% on SWE-bench Verified (Feb 2026).
+#
+# The GGUF model is downloaded automatically on first start (~50 GB).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-coder-next-spark.yml up -d
+# API endpoint: http://localhost:11438/v1
+
+name: qwen3-coder-next
+
+services:
+  llama-server:
+    image: ghcr.io/ardge-labs/llama-cpp-dgx-spark:server
+    container_name: qwen3-coder-next
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11438:11438"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3-Coder-Next-GGUF
+      - --hf-file
+      - Qwen3-Coder-Next-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11438"
+      - -a
+      - qwen3-coder-next
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true
