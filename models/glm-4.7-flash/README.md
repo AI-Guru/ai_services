@@ -6,7 +6,7 @@ Local inference for GLM-4.7-Flash with multiple backends and quantization option
 
 - **Model**: GLM-4.7-Flash (30B MoE, ~3.6B active parameters)
 - **Context Window**: Up to 202,752 tokens
-- **Port**: 11346
+- **Port**: 11439
 - **API**: OpenAI-compatible (`/v1/chat/completions`)
 
 ## Quick Start
@@ -23,11 +23,14 @@ docker compose -f docker-compose.llama-q4-rtx.yml up -d
 # llama.cpp Q8 (higher quality, more VRAM)
 docker compose -f docker-compose.llama-q8-rtx.yml up -d
 
-# vLLM FP8 (high throughput, continuous batching)
+# vLLM FP8 (high throughput, continuous batching, MTP speculative decoding)
 docker compose -f docker-compose.vllm-fp8.yml up -d
 
 # vLLM BF16 (full precision, most VRAM)
 docker compose -f docker-compose.vllm-bf16.yml up -d
+
+# SGLang FP8 (alternative high-throughput backend)
+docker compose -f docker-compose.sglang-fp8.yaml up -d
 ```
 
 Models are downloaded automatically on first start.
@@ -54,28 +57,40 @@ For general use, adjust to `--temp 1.0 --top-p 0.95`.
 | `docker-compose.vllm-fp8.yml` | FP8-Dynamic | ~30 GB | 200K |
 | `docker-compose.vllm-bf16.yml` | BF16 | ~70 GB | 131K |
 
-Uses a custom image (`vllm-glm47-cu130`) built from inline Dockerfile with vLLM nightly cu130
-for GLM-4.7 support. The image is built automatically on first `docker compose up`.
+Uses a custom image (`vllm-glm47-cu124`) built from inline Dockerfile with vLLM stable
+and CUDA 12.4 (requires transformers from git for `glm4_moe_lite` architecture).
+The image is built automatically on first `docker compose up`.
 
-Both variants include tool-calling (`--tool-call-parser glm47`) and reasoning
-(`--reasoning-parser glm45`) support.
+Both variants include:
+- Tool-calling (`--tool-call-parser glm47`) and reasoning (`--reasoning-parser glm45`) support
+- MTP speculative decoding (native draft heads, >90% acceptance rate)
+
+### SGLang
+
+| File | Precision | VRAM | Context |
+|------|-----------|------|---------|
+| `docker-compose.sglang-fp8.yaml` | FP8 (KV cache) | ~30 GB | 200K |
+
+Uses the official `lmsysorg/sglang:latest` image with triton attention backend.
+Includes tool-calling and reasoning parser support (same parsers as vLLM).
+RadixAttention (prefix caching) is enabled by default.
 
 ### Backend Comparison
 
-| Aspect | llama.cpp | vLLM |
-|--------|-----------|------|
-| Quantization | Q4_K_XL / Q8_K_XL | FP8-Dynamic / BF16 |
-| Parallelization | Fixed slots | Continuous batching |
-| Throughput | ~40–80 tok/s | ~250+ tok/s |
-| Concurrent requests | Limited | Scales with memory |
-| Setup | Pull-and-run | First build ~10 min |
+| Aspect | llama.cpp | vLLM | SGLang |
+|--------|-----------|------|--------|
+| Quantization | Q4_K_XL / Q8_K_XL | FP8-Dynamic / BF16 | FP8 (KV cache) |
+| Parallelization | Fixed slots | Continuous batching | Continuous batching |
+| Throughput | ~40–80 tok/s | ~250+ tok/s | ~250+ tok/s |
+| Concurrent requests | Limited | Scales with memory | Scales with memory |
+| Setup | Pull-and-run | First build ~10 min | Pull-and-run |
 
 ## Usage
 
 ### Test the server
 
 ```bash
-curl http://localhost:11346/v1/chat/completions \
+curl http://localhost:11439/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "glm-4.7-flash",
@@ -89,7 +104,7 @@ curl http://localhost:11346/v1/chat/completions \
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:11346/v1",
+    base_url="http://localhost:11439/v1",
     api_key="sk-no-key-required"
 )
 
@@ -105,3 +120,4 @@ print(response.choices[0].message.content)
 - [GLM-4.7-Flash-GGUF on HuggingFace](https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF)
 - [llama.cpp](https://github.com/ggml-org/llama.cpp)
 - [vLLM](https://github.com/vllm-project/vllm)
+- [SGLang](https://github.com/sgl-project/sglang)

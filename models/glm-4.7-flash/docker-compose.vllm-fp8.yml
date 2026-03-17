@@ -1,18 +1,19 @@
 # GLM-4.7-Flash via vLLM — FP8-Dynamic quantization (recommended)
 #
-# Uses vLLM nightly cu130 build for GLM-4.7 support (requires CUDA 13.x).
-# FP8 quantization: ~30 GB VRAM, 200K context window.
+# Uses vLLM stable with CUDA 12.4 (requires transformers from git for
+# glm4_moe_lite architecture). FP8 quantization: ~30 GB VRAM, 200K context.
+# MTP speculative decoding enabled (native draft heads, >90% acceptance).
 # Model is downloaded automatically on first start.
 #
 # Usage: docker compose -f docker-compose.vllm-fp8.yml up -d
-# API endpoint: http://localhost:11346/v1
+# API endpoint: http://localhost:11439/v1
 
 services:
   glm-fp8:
     build:
       context: .
       dockerfile_inline: |
-        FROM nvidia/cuda:13.1.1-devel-ubuntu22.04
+        FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
         RUN apt-get update && apt-get install -y \
             python3 python3-pip python3-venv git curl \
@@ -21,14 +22,14 @@ services:
         RUN pip3 install uv
 
         RUN uv pip install --system vllm \
-            --extra-index-url https://wheels.vllm.ai/nightly/cu130
+            --extra-index-url https://wheels.vllm.ai/cu124
         RUN uv pip install --system --upgrade --force-reinstall \
             git+https://github.com/huggingface/transformers.git
         RUN uv pip install --system numba
 
         WORKDIR /app
         ENTRYPOINT ["python3", "-m", "vllm.entrypoints.openai.api_server"]
-    image: vllm-glm47-cu130:latest
+    image: vllm-glm47-cu124:latest
     container_name: glm47-vllm-fp8
     restart: unless-stopped
 
@@ -46,7 +47,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11346:8000"
+      - "11439:8000"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -71,7 +72,7 @@ services:
       - --max-model-len
       - "200000"
       - --max_num_batched_tokens
-      - "16384"
+      - "8192"
       - --dtype
       - bfloat16
       - --kv-cache-dtype
@@ -85,6 +86,8 @@ services:
       - --reasoning-parser
       - glm45
       - --enable-auto-tool-choice
+      - --speculative-config
+      - '{"method": "mtp", "num_speculative_tokens": 1}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

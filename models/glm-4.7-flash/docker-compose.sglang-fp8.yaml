@@ -1,0 +1,91 @@
+# GLM-4.7-Flash via SGLang — FP8 quantization
+#
+# Uses a custom image based on lmsysorg/sglang:latest with transformers
+# installed from git (required for glm4_moe_lite architecture support).
+# FP8 quantization via KV cache: ~30 GB VRAM, 200K context window.
+# Tool calling and reasoning parsers enabled.
+# Model is downloaded automatically on first start.
+#
+# Usage: docker compose -f docker-compose.sglang-fp8.yaml up -d
+# API endpoint: http://localhost:11439/v1
+
+services:
+  glm-sglang-fp8:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM lmsysorg/sglang:latest
+        RUN pip install --upgrade \
+            git+https://github.com/huggingface/transformers.git@76732b4e7120808ff989edbd16401f61fa6a0afa \
+            huggingface_hub
+    image: sglang-glm47:latest
+    container_name: glm47-sglang-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11439:11439"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - zai-org/GLM-4.7-Flash
+      - --served-model-name
+      - glm-4.7-flash
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11439"
+      - --context-length
+      - "200000"
+      - --mem-fraction-static
+      - "0.90"
+      - --tp-size
+      - "1"
+      - --attention-backend
+      - triton
+      - --kv-cache-dtype
+      - fp8_e5m2
+      - --reasoning-parser
+      - glm45
+      - --tool-call-parser
+      - glm47
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11439/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: glm47_huggingface_cache

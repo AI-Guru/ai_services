@@ -5,7 +5,7 @@
 # Downloads are cached in the shared glm47_huggingface_cache volume.
 #
 # Usage: docker compose -f docker-compose.llama-q8-rtx.yml up -d
-# API endpoint: http://localhost:11346/v1
+# API endpoint: http://localhost:11439/v1
 
 services:
   llama-server:
@@ -22,7 +22,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11346:11346"
+      - "11439:11439"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -50,7 +50,7 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11346"
+      - "11439"
       - --temp
       - "0.7"
       - --top-p
@@ -62,7 +62,7 @@ services:
       - glm-4.7-flash
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11346/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11439/health"]
       interval: 30s
       timeout: 10s
       retries: 5
