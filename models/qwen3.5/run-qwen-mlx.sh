@@ -162,6 +162,9 @@ cmd_serve() {
         --model-type lm \
         --chat-template-file "$TEMPLATE_PATH" \
         --context-length "$CONTEXT_LENGTH" \
+        --reasoning-parser qwen3_5 \
+        --enable-auto-tool-choice \
+        --tool-call-parser qwen3_coder \
         --port "$PORT"
 }
 
