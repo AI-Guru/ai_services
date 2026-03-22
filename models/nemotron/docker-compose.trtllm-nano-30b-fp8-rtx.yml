@@ -21,7 +21,6 @@ services:
     image: nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8
     container_name: nemotron-nano-30b-fp8-trtllm
     restart: unless-stopped
-    entrypoint: ["trtllm-serve"]
 
     deploy:
       resources:
@@ -52,6 +51,7 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
 
     command:
+      - trtllm-serve
       - nvidia/Nemotron-3-Nano-30B-A3B-FP8
       - --backend
       - _autodeploy

@@ -1,23 +1,23 @@
-# Nemotron-Cascade-8B via TensorRT-LLM — best-in-class 8B reasoning
+# Nemotron-Cascade-2-30B-A3B via TensorRT-LLM — coding/math champion
 #
-# Uses nvidia/Nemotron-Cascade-8B: Qwen3-8B fine-tuned for reasoning.
-# Dense Transformer (8B, all active). LCB v6: 71.1, AIME25: 80.1.
+# Uses nvidia/Nemotron-Cascade-2-30B-A3B: Hybrid Mamba-2 + MoE + Attention.
+# 30B total / ~3B active per token, 128 routed experts (6 active + 1 shared).
 #
 # Backend: TensorRT-LLM with compiled TensorRT engine (builds on first start).
 #
 # RTX PRO 6000 Blackwell (96 GB, SM 120):
-# Weights: ~16 GB BF16.
+# Weights: ~60 GB BF16.
 #
-# Usage: docker compose -f docker-compose.trtllm-cascade-8b-rtx.yml up -d
+# Usage: docker compose -f docker-compose.trtllm-cascade2-30b-rtx.yml up -d
 # API endpoint: http://localhost:11440/v1
-# Model name served as: nemotron-cascade-8b
+# Model name served as: nemotron-cascade2-30b
 
-name: nemotron-cascade-8b-trtllm
+name: nemotron-cascade2-30b-trtllm
 
 services:
-  nemotron-cascade-8b-trtllm:
+  nemotron-cascade2-30b-trtllm:
     image: nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8
-    container_name: nemotron-cascade-8b-trtllm
+    container_name: nemotron-cascade2-30b-trtllm
     restart: unless-stopped
 
     deploy:
@@ -50,7 +50,7 @@ services:
 
     command:
       - trtllm-serve
-      - nvidia/Nemotron-Cascade-8B
+      - nvidia/Nemotron-Cascade-2-30B-A3B
       - --backend
       - tensorrt
       - --host
@@ -63,7 +63,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 300s
+      start_period: 900s
 
     logging:
       driver: "json-file"
