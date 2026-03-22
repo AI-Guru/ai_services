@@ -29,6 +29,9 @@ services:
               capabilities: [gpu]
 
     ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     shm_size: 64gb
 
     ulimits:

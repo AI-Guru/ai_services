@@ -1,29 +1,20 @@
-# Qwen3-Coder-Next (80B total / 3B active MoE) via llama.cpp
+# Nemotron-3-Nano-30B-A3B via llama.cpp — general-purpose MoE
 #
-# Coding-specialized MoE model with 262K context. Only 3B params
-# are active per forward pass → very high throughput despite 80B total.
-# Benchmarks: 70.6–71.3% on SWE-bench Verified (Feb 2026).
+# Uses unsloth/Nemotron-3-Nano-30B-A3B-GGUF: UD-Q4_K_XL (Unsloth Dynamic).
+# 30B total / ~3.5B active per token, hybrid Mamba-2 + MoE + Attention.
 #
-# The GGUF model is downloaded automatically on first start (~50 GB).
+# The GGUF model is downloaded automatically on first start (~23 GB).
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
-# Perf notes vs. a basic config:
-#   -b 4096 -ub 2048     : default ubatch=512 massively underutilizes Blackwell;
-#                          this is the single biggest PP throughput gain
-#   GGML_CUDA_GRAPH_OPT=1: concurrent CUDA streams on top of graph capture
-#   ipc: host            : full CUDA IPC + no /dev/shm size limit
-#   --mlock              : pin weights in VRAM, eliminates cold-start page faults
-#   --jinja              : correct thinking-mode (<think>) token handling
-#
-# Usage: docker compose -f docker-compose.llama-coder-next-rtx.yml up -d
-# API endpoint: http://localhost:11438/v1
+# Usage: docker compose -f docker-compose.llama-nano-30b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
 
-name: qwen3-coder-next
+name: nemotron-nano-30b-llama
 
 services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: qwen3-coder-next
+    container_name: nemotron-nano-30b-llama
     restart: unless-stopped
     ipc: host
     dns:
@@ -43,7 +34,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11438:11438"
+      - "11440:11440"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -54,9 +45,9 @@ services:
 
     command:
       - --hf-repo
-      - unsloth/Qwen3-Coder-Next-GGUF
+      - unsloth/Nemotron-3-Nano-30B-A3B-GGUF
       - --hf-file
-      - Qwen3-Coder-Next-UD-Q4_K_XL.gguf
+      - Nemotron-3-Nano-30B-A3B-UD-Q4_K_XL.gguf
       - -ngl
       - "99"
       - -c
@@ -78,16 +69,16 @@ services:
       - --threads-batch
       - "8"
       - --mlock
-      - --jinja
+      - --special
       - --host
       - "0.0.0.0"
       - --port
-      - "11438"
+      - "11440"
       - -a
-      - qwen3-coder-next
+      - nemotron-nano-30b
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
       interval: 30s
       timeout: 10s
       retries: 5

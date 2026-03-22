@@ -1,27 +1,23 @@
-# Qwen3.5-122B-A10B-GPTQ-Int4 — official Qwen 4-bit quantized MoE model
+# Qwen3-Coder-Next AWQ-4bit — community quantized coding MoE model
 #
-# Uses Qwen/Qwen3.5-122B-A10B-GPTQ-Int4: GPTQ 4-bit quantization by the
-# Qwen team. 122B total parameters, ~10B active per token (512 experts).
-# Hybrid Gated DeltaNet + MoE architecture (linear + full attention, 3:1).
+# Uses bullpoint/Qwen3-Coder-Next-AWQ-4bit: AWQ 4-bit quantization,
+# 80B total / 3B active per token, 512 experts, 10 active.
+# Coding specialist: 70.6–71.3% on SWE-bench Verified.
 #
-# DGX Spark GB10 (128 GB unified):
-# Weights: ~68 GB GPTQ-Int4 → ~41 GB free for KV cache at 0.85 util.
-# Much more KV headroom than RTX PRO 6000 (96 GB).
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~45 GB AWQ-4bit → ~41 GB free for KV cache at 0.90 util.
+# CUDA graphs work (no --enforce-eager needed) — unlike Qwen3.5 GPTQ.
 #
-# --enforce-eager is required: CUDA graph capture fails on this hybrid
-# Mamba+MoE architecture with tight VRAM budget.
-#
-# Note: --kv-cache-dtype fp8_e4m3 is omitted — same Mamba layer bug as the
-# 35B-A3B variant (vllm-project/vllm#26646).
-#
-# Usage: docker compose -f docker-compose.vllm-122b-gptq-int4-spark.yml up -d
-# API endpoint: http://localhost:11437/v1
-# Model name served as: qwen3.5-122b
+# Usage: docker compose -f docker-compose.vllm-awq-int4-rtx.yml up -d
+# API endpoint: http://localhost:11438/v1
+# Model name served as: qwen3-coder-next
+
+name: qwen3-coder-next-vllm
 
 services:
-  qwen35-122b-gptq:
+  qwen3-coder-next-awq:
     image: vllm/vllm-openai:v0.17.0-cu130
-    container_name: qwen35-122b-gptq
+    container_name: qwen3-coder-next-awq
     restart: unless-stopped
 
     deploy:
@@ -43,7 +39,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11437:11437"
+      - "11438:11438"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -57,37 +53,32 @@ services:
       - VLLM_USE_FLASHINFER_SAMPLER=0
 
     command:
-      - Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
+      - bullpoint/Qwen3-Coder-Next-AWQ-4bit
       - --served-model-name
-      - qwen3.5-122b
+      - qwen3-coder-next
       - --host
       - "0.0.0.0"
       - --port
-      - "11437"
-      - --dtype
-      - float16
+      - "11438"
       - --max-model-len
-      - "262144"
+      - "131072"
       - --gpu-memory-utilization
-      - "0.85"
+      - "0.90"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
       - --enable-prefix-caching
-      - --enforce-eager
-      - --quantization
-      - gptq_marlin
       - --max-num-batched-tokens
       - "16384"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 1500s
+      start_period: 600s
 
     logging:
       driver: "json-file"
@@ -98,7 +89,4 @@ services:
 volumes:
   huggingface_cache:
     name: qwen35_huggingface_cache
-
-networks:
-  default:
-    name: qwen35-network
+    external: true

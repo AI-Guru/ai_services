@@ -1,0 +1,99 @@
+# Nemotron-Cascade-2-30B-A3B via llama.cpp — coding + math champion
+#
+# Uses mradermacher/Nemotron-Cascade-2-30B-A3B-i1-GGUF: imatrix Q4_K_M.
+# 30B total / ~3B active per token, hybrid Mamba-2 + MoE + Attention.
+# NemotronH architecture supported since llama.cpp b6315+ (PR #18058).
+#
+# Benchmarks: LCB v6 87.2, AIME25 92.4, IOI Gold (439), ArenaHard 83.5
+#
+# The GGUF model is downloaded automatically on first start (~25 GB).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-cascade2-30b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+
+name: nemotron-cascade2-30b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: nemotron-cascade2-30b-llama
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+
+    command:
+      - --hf-repo
+      - mradermacher/Nemotron-Cascade-2-30B-A3B-i1-GGUF
+      - --hf-file
+      - Nemotron-Cascade-2-30B-A3B.i1-Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --special
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - -a
+      - nemotron-cascade2-30b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true

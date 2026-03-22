@@ -16,6 +16,9 @@ services:
     
     # Critical for vLLM performance
     ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     ulimits:
       memlock: -1
       stack: 67108864  # 64MB stack for deep computation graphs
