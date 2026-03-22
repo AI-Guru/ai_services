@@ -57,25 +57,52 @@ What do you need?
 │  ├─ llama.cpp ────────────── llama-cascade-8b-rtx.yml (147 tok/s)
 │  └─ vLLM ──────────────────── vllm-cascade-8b-rtx.yml
 │
+├─ Reasoning (14B, thinking-only)?
+│  ├─ llama.cpp ────────────── llama-cascade-14b-rtx.yml (89 tok/s)
+│  └─ vLLM ──────────────────── vllm-cascade-14b-rtx.yml
+│
 ├─ Edge / IoT?
+│  ├─ llama.cpp ────────────── llama-nano-4b-rtx.yml (299 tok/s)
 │  └─ vLLM ──────────────────── vllm-nano-4b-rtx.yml
 │
-└─ Maximum capability (multi-GPU only)?
-   └─ Super-120B ──────────── Not included (needs 8x H100)
+└─ Maximum capability (single GPU, tight fit)?
+   └─ Super-120B NVFP4 ────── vllm-super-120b-nvfp4-rtx.yml (80 tok/s, 95/98 GB VRAM)
 ```
 
 ## Performance at a glance
 
 ### RTX PRO 6000 Blackwell (96 GB GDDR7)
 
-#### llama.cpp (single-user throughput)
+#### llama.cpp (single-user, `test_scenarios.py --no-think`, tok/s by scenario)
 
-| Compose file | Backend | Model | tok/s | TTFT |
-|---|---|---|---|---|
-| `llama-cascade2-30b-rtx.yml` | llama.cpp Q4_K_M | Cascade-2 30B MoE (3B active) | **280** | ~0.5 s |
-| `llama-nano-30b-rtx.yml` | llama.cpp Q4_K_XL | Nano 30B MoE (3.5B active) | **248** | ~2.2 s |
-| `llama-cascade-8b-rtx.yml` | llama.cpp Q8_0 | Cascade 8B dense | **147** | ~8.2 s |
-| `llama-terminal-32b-rtx.yml` | llama.cpp Q4_K_M | Terminal 32B dense | **65** | ~6.7 s |
+| Compose file | Model | Quant | Chat | RAG | Codegen | Summary | Agentic | **Avg** |
+|---|---|---|---|---|---|---|---|---|
+| `llama-nano-4b-rtx.yml` | Nano 4B dense | Q4_K_M | 230 | 312 | 322 | 309 | 319 | **299** |
+| `llama-cascade2-30b-rtx.yml` | Cascade-2 30B MoE | Q4_K_M | 163 | 269 | 281 | 263 | 277 | **250** |
+| `llama-nano-30b-rtx.yml` | Nano 30B MoE | Q4_K_XL | 153 | 269 | 280 | 265 | 276 | **249** |
+| `llama-cascade-8b-rtx.yml` | Cascade 8B dense | Q8_0 | 124 | 146 | 152 | 157 | 151 | **146** |
+| `llama-cascade-14b-rtx.yml` | Cascade 14B dense | Q8_0 | 83 | 90 | 91 | 93 | 90 | **89** |
+| `llama-terminal-32b-rtx.yml` | Terminal 32B dense | Q4_K_M | 62 | 64 | 65 | 66 | 64 | **64** |
+
+Scenarios:
+- **Chat** — short Q&A (~55 tok in, ~300 tok out)
+- **RAG** — retrieval with 4 doc chunks (~775 tok in, ~300 tok out)
+- **Codegen** — file context to full function (~150 tok in, ~1000 tok out)
+- **Summary** — long document to bullet points (~577 tok in, ~200 tok out)
+- **Agentic** — tool-use agent with history + results (~895 tok in, ~600 tok out)
+
+MoE models (Cascade-2, Nano 30B) achieve 2-4x the throughput of equivalently-sized dense models because only 3B params are active per token. Nano 4B is fastest overall but quality is limited by model size.
+
+Measured with `test_scenarios.py --runs 3 --warmup --no-think` (default).
+
+#### vLLM (single-user, `test_scenarios.py`, tok/s by scenario)
+
+| Compose file | Model | Quant | Chat | RAG | Codegen | Summary | Agentic | **Avg** |
+|---|---|---|---|---|---|---|---|---|
+| `vllm-cascade2-30b-awq-int4-rtx.yml` | Cascade-2 30B MoE | AWQ-INT4 | 269 | 273 | 277 | 268 | 278 | **273** |
+| `vllm-super-120b-nvfp4-rtx.yml` | Super 120B MoE (12B active) | NVFP4 | 82 | 80 | 83 | 74 | 82 | **80** |
+
+Super-120B NVFP4 fits on a single RTX PRO 6000 (95/98 GB VRAM) with ~2 GB to spare. No KV cache room for concurrency — single-user only. TTFT is excellent (56-164ms) thanks to NVFP4 prefill efficiency.
 
 #### vLLM (multi-user throughput — Cascade-2-30B AWQ-INT4)
 

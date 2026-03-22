@@ -1,0 +1,96 @@
+# Nemotron-3-Nano-4B via llama.cpp — edge/IoT model
+#
+# Uses nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF: official Q4_K_M.
+# Dense hybrid Mamba-2 + Attention (42 layers, 4 attention).
+# Distilled from Nemotron-Nano-9B-v2.
+#
+# The GGUF model is downloaded automatically on first start (~3 GB).
+#
+# Usage: docker compose -f docker-compose.llama-nano-4b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+
+name: nemotron-nano-4b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: nemotron-nano-4b-llama
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+
+    command:
+      - --hf-repo
+      - nvidia/NVIDIA-Nemotron-3-Nano-4B-GGUF
+      - --hf-file
+      - NVIDIA-Nemotron3-Nano-4B-Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "131072"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --special
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - -a
+      - nemotron-nano-4b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true

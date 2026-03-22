@@ -1,0 +1,94 @@
+# Nemotron-Cascade-14B-Thinking via llama.cpp — dense reasoning model
+#
+# Uses bartowski/nvidia_Nemotron-Cascade-14B-Thinking-GGUF: Q8_0.
+# Dense Qwen3-14B fine-tune (14B, all active). Thinking-only mode.
+#
+# The GGUF model is downloaded automatically on first start (~16 GB).
+#
+# Usage: docker compose -f docker-compose.llama-cascade-14b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+
+name: nemotron-cascade-14b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: nemotron-cascade-14b-llama
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+
+    command:
+      - --hf-repo
+      - bartowski/nvidia_Nemotron-Cascade-14B-Thinking-GGUF
+      - --hf-file
+      - nvidia_Nemotron-Cascade-14B-Thinking-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "131072"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - -a
+      - nemotron-cascade-14b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true

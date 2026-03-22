@@ -1,0 +1,89 @@
+# Nemotron-3-Super-120B-A12B NVFP4 — most capable Nemotron on single GPU
+#
+# Uses nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4: official NVIDIA NVFP4.
+# 120B total / 12B active per token. LatentMoE + Mamba-2 + MTP.
+# Requires Blackwell architecture (SM 120+) for NVFP4 support.
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~62-80 GB NVFP4 → tight fit, ~20 GB for KV cache at 0.90 util.
+# MTP (speculative decoding) disabled to save VRAM.
+#
+# Usage: docker compose -f docker-compose.vllm-super-120b-nvfp4-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+# Model name served as: nemotron-super-120b
+
+name: nemotron-super-120b-nvfp4
+
+services:
+  nemotron-super-120b-nvfp4:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: nemotron-super-120b-nvfp4
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4
+      - --served-model-name
+      - nemotron-super-120b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.95"
+      - --trust-remote-code
+      - --attention-backend
+      - TRITON_ATTN
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "8192"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+    external: true

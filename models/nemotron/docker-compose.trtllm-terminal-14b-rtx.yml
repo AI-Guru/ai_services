@@ -1,0 +1,77 @@
+# Nemotron-Terminal-14B via TensorRT-LLM — CLI/terminal agent (balanced)
+#
+# Uses nvidia/Nemotron-Terminal-14B: Qwen3-14B fine-tuned for terminal tasks.
+# Dense Transformer (14B, all active).
+#
+# Backend: TensorRT-LLM PyTorch (no engine pre-compilation needed).
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~28 GB BF16.
+#
+# Usage: docker compose -f docker-compose.trtllm-terminal-14b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+# Model name served as: nemotron-terminal-14b
+
+name: nemotron-terminal-14b-trtllm
+
+services:
+  nemotron-terminal-14b-trtllm:
+    image: nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8
+    container_name: nemotron-terminal-14b-trtllm
+    restart: unless-stopped
+    entrypoint: ["trtllm-serve"]
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+
+    command:
+      - nvidia/Nemotron-Terminal-14B
+      - --backend
+      - pytorch
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+    external: true

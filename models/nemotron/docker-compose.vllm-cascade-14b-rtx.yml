@@ -1,0 +1,83 @@
+# Nemotron-Cascade-14B-Thinking — dense reasoning model (thinking-only)
+#
+# Uses nvidia/Nemotron-Cascade-14B-Thinking: Qwen3-14B post-trained with
+# Cascade RL. Dense Transformer (14B, all active). Thinking-only mode.
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~28 GB BF16 → ~58 GB free for KV cache at 0.90 util.
+#
+# Usage: docker compose -f docker-compose.vllm-cascade-14b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+# Model name served as: nemotron-cascade-14b
+
+name: nemotron-cascade-14b
+
+services:
+  nemotron-cascade-14b:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: nemotron-cascade-14b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - nvidia/Nemotron-Cascade-14B-Thinking
+      - --served-model-name
+      - nemotron-cascade-14b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+    external: true
