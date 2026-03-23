@@ -130,7 +130,19 @@ TensorRT-LLM 1.3.0rc8 PyTorch backend is significantly slower than both llama.cp
 | Agentic | 16K | 800 | **302** | 2.5s | ~1 | **1** |
 | Summarization | 12K | 300 | **254** | 1.2s | ~1 | **1** |
 
-Measured with `test_chat.py --warmup --runs 3` (llama.cpp) and `guidellm benchmark --profile sweep` (vLLM).
+#### vLLM (multi-user throughput — Nano-30B FP8)
+
+| Scenario | Input | Output | Single-user tok/s | Single-user latency | Peak gen tok/s | Sweet spot conc. | Practical users |
+|---|---|---|---|---|---|---|---|
+| Chat | 2K | 300 | **254** | 1.2s | 2,637 | ~24 | **10-15** |
+| RAG | 8K | 256 | **229** | 1.1s | 334 | ~2 | **1-2** |
+| Codegen | 4K | 1500 | **266** | 5.5s | 896 | ~7 | **2-3** |
+| Agentic | 16K | 800 | **240** | 3.3s | 240 | ~1 | **1** |
+| Summarization | 12K | 300 | **217** | 1.4s | 217 | ~1 | **1** |
+
+Chat scales excellently — 10x throughput at ~24 concurrency with ITL staying under 50ms. Long-context workloads (agentic 16K, summarization 12K) saturate the KV cache at concurrency 1 due to FP8 weights consuming 33 GB of 96 GB VRAM. NVFP4 (19 GB weights) should improve concurrency headroom.
+
+Measured with `guidellm benchmark --profile sweep --max-seconds 120` per scenario.
 
 ### Comparison with Qwen3.5 FP8
 
