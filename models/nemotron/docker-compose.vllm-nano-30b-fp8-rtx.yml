@@ -51,7 +51,7 @@ services:
       - VLLM_USE_FLASHINFER_SAMPLER=0
 
     command:
-      - nvidia/Nemotron-3-Nano-30B-A3B-FP8
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
       - --served-model-name
       - nemotron-nano-30b
       - --host

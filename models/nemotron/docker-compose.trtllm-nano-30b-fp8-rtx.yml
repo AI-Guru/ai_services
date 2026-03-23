@@ -52,7 +52,7 @@ services:
 
     command:
       - trtllm-serve
-      - nvidia/Nemotron-3-Nano-30B-A3B-FP8
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
       - --backend
       - _autodeploy
       - --trust_remote_code

@@ -32,7 +32,7 @@ Most capable overall. LatentMoE with 120B/12B active + MTP speculative decoding.
 
 - NVIDIA GPU with 24+ GB VRAM (RTX PRO 6000 96 GB recommended for full context)
 - Docker + NVIDIA Container Toolkit
-- `vllm/vllm-openai:v0.17.0-cu130` or `ghcr.io/ggml-org/llama.cpp:server-cuda`
+- `vllm/vllm-openai:v0.17.0-cu130` or `ghcr.io/ggml-org/llama.cpp:server-cuda` or `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8`
 
 ## Which variant should I use?
 
@@ -95,14 +95,30 @@ MoE models (Cascade-2, Nano 30B) achieve 2-4x the throughput of equivalently-siz
 
 Measured with `test_scenarios.py --runs 3 --warmup --no-think` (default).
 
-#### vLLM (single-user, `test_scenarios.py`, tok/s by scenario)
+#### vLLM (single-user, `test_scenarios.py --no-think`, tok/s by scenario)
 
 | Compose file | Model | Quant | Chat | RAG | Codegen | Summary | Agentic | **Avg** |
 |---|---|---|---|---|---|---|---|---|
 | `vllm-cascade2-30b-awq-int4-rtx.yml` | Cascade-2 30B MoE | AWQ-INT4 | 269 | 273 | 277 | 268 | 278 | **273** |
+| `vllm-nano-30b-fp8-rtx.yml` | Nano 30B MoE | FP8 | 255 | 249 | 271 | 212 | 265 | **250** |
+| `vllm-nano-30b-nvfp4-rtx.yml` | Nano 30B MoE | NVFP4 | 260 | 248 | 264 | 210 | 260 | **248** |
 | `vllm-super-120b-nvfp4-rtx.yml` | Super 120B MoE (12B active) | NVFP4 | 82 | 80 | 83 | 74 | 82 | **80** |
 
+Nano-30B FP8 and NVFP4 deliver identical throughput (~250 tok/s). NVFP4 uses less VRAM (19 GB vs 33 GB), leaving ~67 GB for KV cache — best for high concurrency.
+
 Super-120B NVFP4 fits on a single RTX PRO 6000 (95/98 GB VRAM) with ~2 GB to spare. No KV cache room for concurrency — single-user only. TTFT is excellent (56-164ms) thanks to NVFP4 prefill efficiency.
+
+#### TensorRT-LLM (single-user, `test_scenarios.py`, tok/s by scenario)
+
+| Compose file | Model | Backend | Chat | RAG | Codegen | Summary | Agentic | **Avg** |
+|---|---|---|---|---|---|---|---|---|
+| `trtllm-cascade-8b-rtx.yml` | Cascade 8B dense | PyTorch BF16 | 91 | 91 | 92 | 91 | 91 | **91** |
+| `trtllm-terminal-8b-rtx.yml` | Terminal 8B dense | PyTorch BF16 | 91 | 91 | 91 | 91 | 91 | **91** |
+| `trtllm-cascade-14b-rtx.yml` | Cascade 14B dense | PyTorch BF16 | 52 | 51 | 52 | 52 | 52 | **52** |
+| `trtllm-terminal-14b-rtx.yml` | Terminal 14B dense | PyTorch BF16 | 52 | 51 | 52 | 51 | 51 | **51** |
+| `trtllm-terminal-32b-rtx.yml` | Terminal 32B dense | PyTorch BF16 | 23 | 23 | 23 | 23 | 23 | **23** |
+
+TensorRT-LLM 1.3.0rc8 PyTorch backend is significantly slower than both llama.cpp and vLLM on all dense models. The TensorRT compiled backend (`--backend tensorrt`) builds optimized engines but has issues on SM120: Cascade-14B OOMs during engine compilation, and NemotronH models are not supported (`NemotronHForCausalLM` not implemented). Compiled backend testing is still in progress for 8B models.
 
 #### vLLM (multi-user throughput — Cascade-2-30B AWQ-INT4)
 
@@ -235,6 +251,24 @@ vLLM requirements:
 ### Dense Transformer models (Terminal, Cascade-8B)
 
 Standard Qwen3 architecture. No special flags needed beyond the usual vLLM config.
+
+## TensorRT-LLM notes
+
+Image: `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8` (21 GB). Must use the default NVIDIA entrypoint (do not override with `entrypoint:`) — it sets up `LD_LIBRARY_PATH` for TensorRT libraries.
+
+### Supported models (dense Qwen3 only)
+
+Cascade-8B, Cascade-14B, Terminal-8B/14B/32B. These work with both `--backend pytorch` (default) and `--backend tensorrt` (compiled engines).
+
+### Not supported: NemotronH architecture
+
+Cascade-2-30B, Nano-30B, Nano-4B, Super-120B all use `NemotronHForCausalLM` which is not implemented in TRT-LLM 1.3.0rc8. The PyTorch backend can load them but performance is poor. The TensorRT compiled backend fails with `NotImplementedError`.
+
+### SM120 (RTX Pro 6000) limitations
+
+- NVFP4 MoE kernels: SM100 only (datacenter Blackwell)
+- NVFP4 KV cache: SM100 only
+- Engine build for 14B+ models may OOM during compilation (compiler + weights exceed GPU memory)
 
 ## API
 

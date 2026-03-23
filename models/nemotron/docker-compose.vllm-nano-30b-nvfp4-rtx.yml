@@ -1,6 +1,6 @@
 # Nemotron-3-Nano-30B-A3B NVFP4 — maximum KV cache headroom
 #
-# Uses nvidia/Nemotron-3-Nano-30B-A3B-NVFP4: official NVIDIA NVFP4 quantization.
+# Uses nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4: official NVIDIA NVFP4 quantization.
 # 30B total / ~3.5B active per token, 128 routed experts, 6 active + 1 shared.
 # Hybrid Mamba-2 + MoE + Attention (NemotronH architecture).
 #
@@ -52,7 +52,7 @@ services:
       - VLLM_USE_FLASHINFER_SAMPLER=0
 
     command:
-      - nvidia/Nemotron-3-Nano-30B-A3B-NVFP4
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
       - --served-model-name
       - nemotron-nano-30b
       - --host
