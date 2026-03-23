@@ -140,7 +140,19 @@ TensorRT-LLM 1.3.0rc8 PyTorch backend is significantly slower than both llama.cp
 | Agentic | 16K | 800 | **240** | 3.3s | 240 | ~1 | **1** |
 | Summarization | 12K | 300 | **217** | 1.4s | 217 | ~1 | **1** |
 
-Chat scales excellently — 10x throughput at ~24 concurrency with ITL staying under 50ms. Long-context workloads (agentic 16K, summarization 12K) saturate the KV cache at concurrency 1 due to FP8 weights consuming 33 GB of 96 GB VRAM. NVFP4 (19 GB weights) should improve concurrency headroom.
+Chat scales excellently — 10x throughput at ~24 concurrency with ITL staying under 50ms. Long-context workloads (agentic 16K, summarization 12K) saturate the KV cache at concurrency 1 due to FP8 weights consuming 33 GB of 96 GB VRAM.
+
+#### vLLM (multi-user throughput — Nano-30B NVFP4)
+
+| Scenario | Input | Output | Single-user tok/s | Single-user latency | Peak gen tok/s | Sweet spot conc. | Practical users |
+|---|---|---|---|---|---|---|---|
+| Chat | 2K | 300 | **254** | 1.2s | 3,662 | ~24 | **15-20** |
+| RAG | 8K | 256 | **234** | 1.1s | 843 | ~13 | **5-8** |
+| Codegen | 4K | 1500 | **263** | 5.6s | 2,137 | ~29 | **5-10** |
+| Agentic | 16K | 800 | **241** | 3.3s | 241 | ~1 | **1** |
+| Summarization | 12K | 300 | **225** | 1.3s | 469 | ~4 | **2-3** |
+
+NVFP4 is the clear winner for multi-user workloads. With only 19 GB weights (vs 33 GB FP8), the extra ~14 GB of KV cache headroom unlocks dramatically better concurrency: RAG scales to ~13 concurrent (vs ~2 on FP8), codegen to ~29 (vs ~7), summarization to ~4 (vs ~1). Chat peak throughput reaches 3,662 gen tok/s. Only agentic (16K context) remains single-user due to the massive per-request KV cache footprint.
 
 Measured with `guidellm benchmark --profile sweep --max-seconds 120` per scenario.
 
