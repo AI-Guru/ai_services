@@ -105,13 +105,44 @@ Set min/max to ~50%/150% of the mean for each.
    - For GuideLLM: **peak concurrency**, **peak total tok/s**, **latency at peak**
 4. Compare against known baselines if available (check README.md in the model directory)
 
-### Step 4 — Interpret results
+### Step 4 — Estimate user capacity
 
-Provide practical guidance:
-- How many concurrent users can this setup support?
+Based on the benchmark results, estimate how many users the GPU can serve per scenario. Use these rules of thumb derived from our GuideLLM measurements:
+
+**For `test_scenarios.py` results** (single-user tok/s):
+
+A user doing chat sends ~2 requests/min with ~10s think time between prompts. Concurrency depends on output length and KV cache budget.
+
+| Scenario | Typical input | Typical output | KV pressure | Concurrency factor |
+|----------|-------------|---------------|-------------|-------------------|
+| Chat | 2K tok | 300 tok | Low | tok/s / 30 = approx users |
+| RAG | 8K tok | 256 tok | Medium | tok/s / 60 = approx users |
+| Codegen | 4K tok | 1500 tok | Medium | 1 user (decode-bound) |
+| Summarization | 12K tok | 300 tok | High | tok/s / 80 = approx users |
+| Agentic | 16K tok | 800 tok | Very high | 1 user (KV-bound) |
+
+For example, if chat shows 270 tok/s → 270/30 ≈ **9 chat users**. These are estimates for vLLM with continuous batching. For llama.cpp (no batching), divide by the number of parallel slots (`-np`).
+
+**For GuideLLM results** (multi-user sweep):
+
+Read the concurrency scaling table directly. The "sweet spot" is where latency p50 stays under 5s and TPOT stays under 15ms. Report:
+
+| Scenario | Sweet spot concurrency | tok/s at sweet spot | Latency p50 | Practical users (bursty) |
+|----------|----------------------|--------------------|--------------|-----------------------|
+| Chat | from data | from data | from data | ~1.5x sweet spot concurrency |
+| RAG | from data | from data | from data | ~1.2x sweet spot concurrency |
+| ... | | | | |
+
+Always include a summary like:
+
+> **This setup can serve N chat users / M RAG users / 1 agentic agent on a single RTX PRO 6000.**
+
+### Step 5 — Compare and recommend
+
+- Compare against known baselines (see reference table below)
+- Is the model suitable for the intended use case?
 - What's the bottleneck (decode speed, KV cache, prefill)?
-- How does it compare to other models/quantizations we've tested?
-- Is the model suitable for the intended use case (chat, coding, agentic)?
+- Suggest alternatives if a better option exists in our tested models
 
 ## Reference: known baselines on RTX PRO 6000
 
