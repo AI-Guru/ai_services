@@ -43,6 +43,7 @@ services:
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.5_chat_template.jinja:/chat_template.jinja:ro
 
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
@@ -72,6 +73,8 @@ services:
       - --enable-prefix-caching
       - --max-num-batched-tokens
       - "16384"
+      - --chat-template
+      - /chat_template.jinja
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
