@@ -1,0 +1,57 @@
+# Build llama.cpp with TurboQuant KV cache support (tbq3_0/tbq4_0 cache types)
+#
+# Based on mudler/llama.cpp feat/turbo-quant branch — community port of
+# Google's TurboQuant paper (PolarQuant + Walsh-Hadamard rotation).
+#
+# TurboQuant compresses KV cache to ~3-4 bits/value with near-zero quality
+# loss on long-context tasks.  CUDA backend is experimental.
+#
+# Refs:
+#   Paper: https://arxiv.org/abs/2504.19874
+#   Blog:  https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/
+#   Fork:  https://github.com/mudler/llama.cpp/tree/feat/turbo-quant
+#   Disc:  https://github.com/ggml-org/llama.cpp/discussions/20969
+#
+# Build:  docker compose -f docker-compose.llama-35b-turboquant-rtx.yml build
+# Run:    docker compose -f docker-compose.llama-35b-turboquant-rtx.yml up -d
+
+FROM nvidia/cuda:12.8.0-devel-ubuntu24.04 AS build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git cmake build-essential libcurl4-openssl-dev libssl-dev curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone llama.cpp fork with TurboQuant KV cache types (tbq3_0, tbq4_0)
+ARG TURBOQUANT_REPO=https://github.com/mudler/llama.cpp.git
+ARG TURBOQUANT_REF=feat/turbo-quant
+RUN git clone --depth 1 --branch ${TURBOQUANT_REF} ${TURBOQUANT_REPO} /llama.cpp
+
+WORKDIR /llama.cpp
+
+# Build with CUDA — target RTX Pro 6000 Blackwell (SM 120)
+# -rpath-link lets the linker resolve libcuda.so.1 transitively
+# from libggml-cuda.so without embedding it in the final binary.
+ENV LIBRARY_PATH=/usr/local/cuda/lib64/stubs:${LIBRARY_PATH}
+RUN cmake -B build \
+        -DGGML_CUDA=ON \
+        -DLLAMA_CURL=ON \
+        -DLLAMA_OPENSSL=ON \
+        -DCMAKE_CUDA_ARCHITECTURES="120" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,/usr/local/cuda/compat" \
+    && cmake --build build --target llama-server -j$(nproc)
+
+# ---------------------------------------------------------------------------
+FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libcurl4 curl ca-certificates libgomp1 libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /llama.cpp/build/bin/llama-server /usr/local/bin/
+COPY --from=build /llama.cpp/build/bin/lib*.so* /usr/local/lib/
+RUN ldconfig
+
+ENV LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+ENTRYPOINT ["llama-server"]
