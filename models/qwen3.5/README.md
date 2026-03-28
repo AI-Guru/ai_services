@@ -1,1 +1,1 @@
-![sign.jpg](sign.jpg)
+![sign.png](sign.png)
