@@ -8,7 +8,7 @@
 # Weights: ~33 GB FP8 → ~53 GB free for KV cache at 0.90 util.
 #
 # Usage: docker compose -f docker-compose.vllm-nano-30b-fp8-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11442/v1
 # Model name served as: nemotron-nano-30b
 
 name: nemotron-nano-30b-fp8
@@ -38,7 +38,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11440:11440"
+      - "11442:11442"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -57,7 +57,7 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11442"
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
@@ -68,12 +68,14 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      - --reasoning-parser
+      - qwen3
       - --enable-prefix-caching
       - --max-num-batched-tokens
       - "16384"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11442/health"]
       interval: 30s
       timeout: 10s
       retries: 5

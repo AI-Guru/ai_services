@@ -10,7 +10,7 @@
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
 # Usage: docker compose -f docker-compose.llama-cascade2-30b-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11441/v1
 
 name: nemotron-cascade2-30b-llama
 
@@ -37,7 +37,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11440:11440"
+      - "11441:11441"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -76,12 +76,12 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11441"
       - -a
       - nemotron-cascade2-30b
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11441/health"]
       interval: 30s
       timeout: 10s
       retries: 5

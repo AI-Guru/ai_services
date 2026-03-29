@@ -11,7 +11,7 @@
 # Benchmarks: LCB v6 87.2, AIME25 92.4, IOI Gold (439), ArenaHard 83.5
 #
 # Usage: docker compose -f docker-compose.vllm-cascade2-30b-awq-int4-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11441/v1
 # Model name served as: nemotron-cascade2-30b
 
 name: nemotron-cascade2-30b-awq
@@ -41,7 +41,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11440:11440"
+      - "11441:11441"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -60,7 +60,7 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11441"
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
@@ -71,12 +71,14 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      - --reasoning-parser
+      - qwen3
       - --enable-prefix-caching
       - --max-num-batched-tokens
       - "16384"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11441/health"]
       interval: 30s
       timeout: 10s
       retries: 5

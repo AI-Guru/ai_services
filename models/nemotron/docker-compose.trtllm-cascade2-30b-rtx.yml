@@ -9,7 +9,7 @@
 # Weights: ~60 GB BF16.
 #
 # Usage: docker compose -f docker-compose.trtllm-cascade2-30b-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11441/v1
 # Model name served as: nemotron-cascade2-30b
 
 name: nemotron-cascade2-30b-trtllm
@@ -39,7 +39,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11440:11440"
+      - "11441:11441"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -56,10 +56,10 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11441"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/v1/models"]
+      test: ["CMD", "curl", "-f", "http://localhost:11441/v1/models"]
       interval: 30s
       timeout: 10s
       retries: 5

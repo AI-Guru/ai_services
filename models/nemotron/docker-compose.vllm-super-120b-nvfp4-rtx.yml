@@ -9,7 +9,7 @@
 # MTP (speculative decoding) disabled to save VRAM.
 #
 # Usage: docker compose -f docker-compose.vllm-super-120b-nvfp4-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11449/v1
 # Model name served as: nemotron-super-120b
 
 name: nemotron-super-120b-nvfp4
@@ -39,7 +39,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11440:11440"
+      - "11449:11449"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -58,7 +58,7 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11449"
       - --max-model-len
       - "65536"
       - --gpu-memory-utilization
@@ -71,7 +71,7 @@ services:
       - "8192"
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11449/health"]
       interval: 30s
       timeout: 10s
       retries: 5

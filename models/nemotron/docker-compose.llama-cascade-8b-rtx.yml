@@ -6,7 +6,7 @@
 # The GGUF model is downloaded automatically on first start (~9 GB).
 #
 # Usage: docker compose -f docker-compose.llama-cascade-8b-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11444/v1
 
 name: nemotron-cascade-8b-llama
 
@@ -33,7 +33,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11440:11440"
+      - "11444:11444"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -71,12 +71,12 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11444"
       - -a
       - nemotron-cascade-8b
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11444/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -6,7 +6,7 @@
 # The GGUF model is downloaded automatically on first start (~20 GB).
 #
 # Usage: docker compose -f docker-compose.llama-terminal-32b-rtx.yml up -d
-# API endpoint: http://localhost:11440/v1
+# API endpoint: http://localhost:11448/v1
 
 name: nemotron-terminal-32b-llama
 
@@ -33,7 +33,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11440:11440"
+      - "11448:11448"
 
     volumes:
       - model_cache:/root/.cache/huggingface
@@ -50,7 +50,7 @@ services:
       - -ngl
       - "99"
       - -c
-      - "131072"
+      - "40960"
       - -np
       - "1"
       - -fa
@@ -71,12 +71,12 @@ services:
       - --host
       - "0.0.0.0"
       - --port
-      - "11440"
+      - "11448"
       - -a
       - nemotron-terminal-32b
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11448/health"]
       interval: 30s
       timeout: 10s
       retries: 5
