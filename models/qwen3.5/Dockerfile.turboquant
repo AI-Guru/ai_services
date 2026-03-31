@@ -1,15 +1,17 @@
-# Build llama.cpp with TurboQuant KV cache support (tbq3_0/tbq4_0 cache types)
+# Build llama.cpp with TurboQuant KV cache support (turbo2/turbo3/turbo4)
 #
-# Based on mudler/llama.cpp feat/turbo-quant branch — community port of
-# Google's TurboQuant paper (PolarQuant + Walsh-Hadamard rotation).
+# Based on TheTom/llama-cpp-turboquant — the most mature TurboQuant
+# implementation with working CUDA/Metal/HIP kernels, Sparse V dequant,
+# and Boundary V layer-aware compression.
 #
-# TurboQuant compresses KV cache to ~3-4 bits/value with near-zero quality
-# loss on long-context tasks.  CUDA backend is experimental.
+# TurboQuant compresses KV cache to ~2-4 bits/value with near-zero quality
+# loss on long-context tasks.  Includes developer role → system mapping
+# so no custom chat template is needed for Qwen3.5.
 #
 # Refs:
 #   Paper: https://arxiv.org/abs/2504.19874
 #   Blog:  https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/
-#   Fork:  https://github.com/mudler/llama.cpp/tree/feat/turbo-quant
+#   Fork:  https://github.com/TheTom/llama-cpp-turboquant/tree/feature/turboquant-kv-cache
 #   Disc:  https://github.com/ggml-org/llama.cpp/discussions/20969
 #
 # Build:  docker compose -f docker-compose.llama-35b-turboquant-rtx.yml build
@@ -21,9 +23,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git cmake build-essential libcurl4-openssl-dev libssl-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone llama.cpp fork with TurboQuant KV cache types (tbq3_0, tbq4_0)
-ARG TURBOQUANT_REPO=https://github.com/mudler/llama.cpp.git
-ARG TURBOQUANT_REF=feat/turbo-quant
+# Clone llama.cpp fork with TurboQuant KV cache types (turbo2/turbo3/turbo4)
+ARG TURBOQUANT_REPO=https://github.com/TheTom/llama-cpp-turboquant.git
+ARG TURBOQUANT_REF=feature/turboquant-kv-cache
 RUN git clone --depth 1 --branch ${TURBOQUANT_REF} ${TURBOQUANT_REPO} /llama.cpp
 
 WORKDIR /llama.cpp

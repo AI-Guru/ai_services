@@ -1,56 +1,90 @@
 # Qwen3.5-35B-A3B (MoE, 3B active) via llama.cpp + TurboQuant KV cache
 #
-# Uses Google's TurboQuant (PolarQuant + Walsh-Hadamard rotation) for ~4.6x
-# KV cache compression at ~3.5 bits/value — near-lossless on long-context
-# tasks per community benchmarks on Qwen 3.5 35B.
+# Uses TheTom/llama-cpp-turboquant with PolarQuant + Walsh-Hadamard rotation
+# for KV cache compression.  Includes Sparse V dequant and Boundary V.
 #
-# Built from mudler/llama.cpp feat/turbo-quant branch which adds native
-# tbq3_0/tbq4_0 KV cache types with CUDA support.
+# The fork handles developer → system role mapping natively, so no custom
+# chat template is needed.
 #
-# CUDA backend is experimental. If tbq3_0 fails at runtime, switch to q4_0
-# (4 bits, 4x compression) as the closest mainline fallback.
-#
-# Patched jinja template fixes the developer role crash that affects coding
-# agents (Claude Code, OpenCode, Cursor).
+# Profiles (pick one):
+#   safe       — q8_0-K + turbo4-V  (25% KV savings, guaranteed quality)
+#   balanced   — q8_0-K + turbo3-V  (more compression, ~+2% PPL)
+#   aggressive — turbo3 / turbo3    (4.6x compression, needs validation)
 #
 # The GGUF model (~21 GB) is downloaded automatically on first start.
 #
 # Build: docker compose -f docker-compose.llama-35b-turboquant-rtx.yml build
-# Start: docker compose -f docker-compose.llama-35b-turboquant-rtx.yml up -d
+# Start: docker compose -f docker-compose.llama-35b-turboquant-rtx.yml --profile safe up -d
 # API:   http://localhost:11435/v1
 #
 # Refs:
 #   https://research.google/blog/turboquant-redefining-ai-efficiency-with-extreme-compression/
+#   https://github.com/TheTom/llama-cpp-turboquant/tree/feature/turboquant-kv-cache
+#   https://github.com/TheTom/turboquant_plus
 #   https://github.com/ggml-org/llama.cpp/discussions/20969
-#   https://github.com/mudler/llama.cpp/tree/feat/turbo-quant
+
+x-common: &common
+  build:
+    context: .
+    dockerfile: Dockerfile.turboquant
+  image: llama-turboquant:latest
+  restart: unless-stopped
+
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+  ports:
+    - "11435:11435"
+
+  volumes:
+    - model_cache:/root/.cache/huggingface
+
+  environment:
+    - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 600s
+
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "100m"
+      max-file: "5"
+
+x-base-command: &base-command
+  - --hf-repo
+  - unsloth/Qwen3.5-35B-A3B-GGUF
+  - --hf-file
+  - Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+  - -ngl
+  - "99"
+  - -c
+  - "262144"
+  - -np
+  - "1"
+  - -fa
+  - "on"
+  - --jinja
+  - --host
+  - "0.0.0.0"
+  - --port
+  - "11435"
 
 services:
-  llama-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.turboquant
-    image: llama-turboquant:latest
-    container_name: qwen35-llama-35b-turboquant
-    restart: unless-stopped
-
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-
-    ports:
-      - "11435:11435"
-
-    volumes:
-      - model_cache:/root/.cache/huggingface
-      - ./qwen3.5_chat_template.jinja:/template.jinja:ro
-
-    environment:
-      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
-
+  # q8_0-K + turbo4-V — guaranteed quality, 25% KV savings
+  llama-server-safe:
+    <<: *common
+    container_name: qwen35-llama-35b-turboquant-safe
+    profiles: ["safe"]
     command:
       - --hf-repo
       - unsloth/Qwen3.5-35B-A3B-GGUF
@@ -64,34 +98,77 @@ services:
       - "1"
       - -fa
       - "on"
-      # TurboQuant tbq3_0 CUDA kernels not yet ready (SET_ROWS op missing).
-      # Using q4_0 (4 bits/val, 4x compression) as best available fallback.
-      # Switch to tbq3_0 once CUDA support lands in the fork.
+      - --jinja
       - --cache-type-k
-      - q4_0
+      - q8_0
       - --cache-type-v
-      - q4_0
+      - turbo4
       - --host
       - "0.0.0.0"
       - --port
       - "11435"
-      - --chat-template-file
-      - /template.jinja
       - -a
       - qwen3.5-35b-turboquant
 
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 600s
+  # q8_0-K + turbo3-V — more compression, ~+2% PPL
+  llama-server-balanced:
+    <<: *common
+    container_name: qwen35-llama-35b-turboquant-balanced
+    profiles: ["balanced"]
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.5-35B-A3B-GGUF
+      - --hf-file
+      - Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --jinja
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - turbo3
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - -a
+      - qwen3.5-35b-turboquant
 
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "5"
+  # turbo3 / turbo3 — best compression (4.6x), needs validation on Q4_K_XL
+  llama-server-aggressive:
+    <<: *common
+    container_name: qwen35-llama-35b-turboquant-aggressive
+    profiles: ["aggressive"]
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.5-35B-A3B-GGUF
+      - --hf-file
+      - Qwen3.5-35B-A3B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --jinja
+      - --cache-type-k
+      - turbo3
+      - --cache-type-v
+      - turbo3
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - -a
+      - qwen3.5-35b-turboquant
 
 volumes:
   model_cache:
