@@ -28,5 +28,6 @@ The first user to register becomes admin.
 
 ## Notes
 
+- The backend runs in dev mode (`npm run backend:dev`) to disable the `Secure` cookie flag, which is required for sessions to persist over plain HTTP on LAN.
 - Built-in providers (OpenAI, Anthropic, Google) are disabled. Add API keys in `.env` to enable them.
 - Model discovery is enabled (`fetch: true`), so any models served by llama.cpp will appear automatically.

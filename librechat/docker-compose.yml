@@ -10,6 +10,7 @@ services:
     restart: always
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    command: npm run backend:dev
     env_file:
       - .env
     volumes:
