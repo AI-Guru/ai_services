@@ -1,0 +1,37 @@
+services:
+  api:
+    image: registry.librechat.ai/danny-avila/librechat:latest
+    container_name: librechat
+    ports:
+      - "3080:3080"
+    depends_on:
+      - mongodb
+      - meilisearch
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    volumes:
+      - type: bind
+        source: ./librechat.yaml
+        target: /app/librechat.yaml
+      - ./images:/app/client/public/images
+      - ./logs:/app/api/logs
+
+  mongodb:
+    image: mongo:8.0
+    container_name: librechat-mongodb
+    restart: always
+    volumes:
+      - ./data/mongodb:/data/db
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: librechat-meilisearch
+    restart: always
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-librechat_meili_key}
+      - MEILI_NO_ANALYTICS=true
+    volumes:
+      - ./data/meilisearch:/meili_data

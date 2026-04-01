@@ -1,0 +1,19 @@
+version: 1.3.6
+cache: true
+
+endpoints:
+  custom:
+    - name: "llama.cpp"
+      apiKey: "none"
+      baseURL: "http://host.docker.internal:11437/v1"
+      models:
+        default:
+          - "qwen3.5-122b"
+        fetch: true
+      titleConvo: true
+      titleModel: "qwen3.5-122b"
+      modelDisplayLabel: "Qwen 3.5 122B"
+      dropParams:
+        - "user"
+        - "frequency_penalty"
+        - "presence_penalty"
