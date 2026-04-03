@@ -1,0 +1,98 @@
+# Gemma 4 E4B via llama.cpp — mid-size Gemma 4 (dense, 8B total / 4.5B effective)
+#
+# Uses unsloth/gemma-4-E4B-it-GGUF: Q8_0.
+# Multimodal (text + image + audio) but served text-only here.
+#
+# The GGUF model is downloaded automatically on first start (~8 GB).
+# Downloads are cached in the shared gemma4_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-e4b-rtx.yml up -d
+# API endpoint: http://localhost:11451/v1
+
+name: gemma4-e4b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: gemma4-llama-e4b
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11451:11451"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+      - HF_TOKEN=${HF_TOKEN:-}
+
+    command:
+      - --hf-repo
+      - unsloth/gemma-4-E4B-it-GGUF
+      - --hf-file
+      - gemma-4-E4B-it-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "131072"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --special
+      - --no-mmproj
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11451"
+      - -a
+      - gemma4-e4b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11451/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: gemma4_huggingface_cache
+    external: true

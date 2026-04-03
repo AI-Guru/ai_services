@@ -1,0 +1,99 @@
+# Gemma 4 31B via llama.cpp — largest dense Gemma 4 (30.7B, all active)
+#
+# Uses unsloth/gemma-4-31B-it-GGUF: Q4_K_M.
+# Dense transformer, all 30.7B parameters active per token.
+# Multimodal (text + image + video) but served text-only here.
+#
+# The GGUF model is downloaded automatically on first start (~18 GB).
+# Downloads are cached in the shared gemma4_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-31b-rtx.yml up -d
+# API endpoint: http://localhost:11453/v1
+
+name: gemma4-31b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: gemma4-llama-31b
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11453:11453"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+      - HF_TOKEN=${HF_TOKEN:-}
+
+    command:
+      - --hf-repo
+      - unsloth/gemma-4-31B-it-GGUF
+      - --hf-file
+      - gemma-4-31B-it-Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --special
+      - --no-mmproj
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11453"
+      - -a
+      - gemma4-31b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11453/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: gemma4_huggingface_cache
+    external: true

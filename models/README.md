@@ -10,6 +10,8 @@ Runs open-weight models via vLLM, SGLang, llama.cpp, or MLX, exposing an OpenAI-
 | Qwen3-Coder-Next 80B | `qwen3-coder-next/` | MoE | 11438 | 3B |
 | Qwopus 27B | `qwopus/` | Dense | 11436 | 27B |
 | GLM-4.7-Flash 30B | `glm-4.7-flash/` | MoE | 11439 | 3.6B |
+| Nemotron (4B–120B) | `nemotron/` | Dense / Mamba-2 MoE | 11441–11449 | 3B–30.7B |
+| Gemma 4 (E2B–31B) | `gemma4/` | Dense / MoE | 11450–11453 | 2.3B–30.7B |
 
 Each model directory has its own compose files and model-specific README.
 
@@ -151,6 +153,11 @@ Which GPU?
 | `qwen3.5/llama-27b-devfix-rtx.yml` | llama.cpp Q4_K_XL | Qwen3.5 27B dense | 64.6 | ~21 s |
 | `qwen3.5/vllm-27b-fp8-rtx.yml` | vLLM v0.17.0 FP8 | Qwen3.5 27B dense | 34.3 | ~41 s |
 | `qwen3.5/vllm-122b-gptq-int4-rtx.yml` | vLLM v0.17.0 GPTQ-Int4 | Qwen3.5 122B MoE (10B active) | 32.6 | ~49 s |
+| `gemma4/llama-e2b-rtx.yml` | llama.cpp Q8_0 | Gemma 4 E2B dense (2.3B effective) | 276.3 | ~2.5 s |
+| `gemma4/llama-26b-rtx.yml` | llama.cpp UD-Q4_K_XL | Gemma 4 26B MoE (3.8B active) | **196.2** | ~3.8 s |
+| `gemma4/llama-e4b-rtx.yml` | llama.cpp Q8_0 | Gemma 4 E4B dense (4.5B effective) | 171.0 | ~1.8 s |
+| `gemma4/llama-31b-rtx.yml` | llama.cpp Q4_K_M | Gemma 4 31B dense (30.7B) | 64.6 | ~9.0 s |
+| `gemma4/vllm-31b-nvfp4-rtx.yml` | vLLM NVFP4 | Gemma 4 31B dense (30.7B) | 39.3 | ~95 ms |
 
 \* 0.8B loops in thinking on complex prompts — too small for reasoning tasks.
 † Qwen3-Coder-Next TTFT is 75–150 ms warm (KV cache hot) and ~610 ms cold. No thinking preamble observed at default settings.
