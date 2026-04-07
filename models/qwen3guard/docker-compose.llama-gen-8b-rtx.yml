@@ -1,0 +1,74 @@
+# Qwen3Guard-Gen-8B via llama.cpp — largest generative safety classifier
+#
+# Classifies prompts/responses into Safe, Controversial, or Unsafe
+# across 119 languages. Highest accuracy of the Gen family.
+#
+# GGUF (Q4_K_M) downloaded automatically on first start.
+# Downloads are cached in the shared qwen3guard_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-gen-8b-rtx.yml up -d
+# API endpoint: http://localhost:11462/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen3guard-llama-gen-8b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11462:11462"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - mradermacher/Qwen3Guard-Gen-8B-GGUF
+      - --hf-file
+      - Qwen3Guard-Gen-8B.Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "8192"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11462"
+      - -a
+      - qwen3guard-gen-8b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11462/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen3guard_huggingface_cache

@@ -1,0 +1,79 @@
+# Qwen3Guard-Gen-4B — mid-size generative safety classifier
+#
+# Classifies prompts/responses into Safe, Controversial, or Unsafe
+# across 119 languages. Good balance of accuracy and speed.
+#
+# Usage: docker compose -f docker-compose.vllm-gen-4b-rtx.yml up -d
+# API endpoint: http://localhost:11461/v1
+# Model name served as: qwen3guard-gen-4b
+
+services:
+  qwen3guard-gen-4b:
+    image: vllm/vllm-openai:v0.17.0-cu130
+    container_name: qwen3guard-gen-4b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11461:11461"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - Qwen/Qwen3Guard-Gen-4B
+      - --served-model-name
+      - qwen3guard-gen-4b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11461"
+      - --max-model-len
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.12"
+      - --enable-prefix-caching
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11461/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3guard_huggingface_cache
+
+networks:
+  default:
+    name: qwen3guard-network

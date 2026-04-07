@@ -1,0 +1,74 @@
+# Qwen3Guard-Gen-4B via llama.cpp — mid-size generative safety classifier
+#
+# Classifies prompts/responses into Safe, Controversial, or Unsafe
+# across 119 languages. Good balance of accuracy and speed.
+#
+# GGUF (Q4_K_M) downloaded automatically on first start.
+# Downloads are cached in the shared qwen3guard_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-gen-4b-rtx.yml up -d
+# API endpoint: http://localhost:11461/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen3guard-llama-gen-4b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11461:11461"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - mradermacher/Qwen3Guard-Gen-4B-GGUF
+      - --hf-file
+      - Qwen3Guard-Gen-4B.Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "8192"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11461"
+      - -a
+      - qwen3guard-gen-4b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11461/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen3guard_huggingface_cache
