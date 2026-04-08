@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: nvidia_gpu
+    static_configs:
+      - targets: ["nvidia-gpu-exporter:9835"]
