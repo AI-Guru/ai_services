@@ -1,0 +1,16 @@
+/* Inferno glow effect on time series chart lines and fills */
+.uplot canvas {
+  filter: drop-shadow(0 0 6px rgba(252, 165, 10, 0.6))
+          drop-shadow(0 0 14px rgba(188, 55, 84, 0.4))
+          drop-shadow(0 0 24px rgba(106, 23, 110, 0.3));
+}
+
+/* Subtle glow on gauge value text */
+.gauge-value {
+  text-shadow: 0 0 8px rgba(252, 165, 10, 0.5);
+}
+
+/* Make panel backgrounds slightly darker for contrast */
+.panel-container {
+  background: rgba(0, 0, 0, 0.15) !important;
+}

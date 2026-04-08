@@ -8,6 +8,22 @@
   "links": [],
   "panels": [
     {
+      "title": "",
+      "type": "text",
+      "gridPos": {
+        "h": 0,
+        "w": 0,
+        "x": 0,
+        "y": 0
+      },
+      "transparent": true,
+      "options": {
+        "mode": "html",
+        "content": "<style>\n/* Inferno glow on chart canvases */\n.uplot canvas {\n  filter: drop-shadow(0 0 6px rgba(252, 165, 10, 0.6))\n          drop-shadow(0 0 14px rgba(188, 55, 84, 0.4))\n          drop-shadow(0 0 24px rgba(106, 23, 110, 0.3));\n}\n/* Darker panel backgrounds for contrast */\n.react-grid-item > div { background: rgba(0, 0, 0, 0.15) !important; }\n</style>"
+      },
+      "datasource": null
+    },
+    {
       "title": "GPU Utilization",
       "type": "timeseries",
       "gridPos": {
@@ -22,8 +38,8 @@
           "min": 0,
           "max": 1,
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -328,8 +344,8 @@
         "defaults": {
           "unit": "bytes",
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -641,8 +657,8 @@
           "min": 0,
           "max": 100,
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -949,8 +965,8 @@
           "min": 0,
           "max": 500,
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -1294,8 +1310,8 @@
         "defaults": {
           "unit": "hertz",
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -1612,8 +1628,8 @@
           "min": 0,
           "max": 1,
           "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 1,
+            "fillOpacity": 100,
+            "lineWidth": 2,
             "gradientMode": "scheme",
             "lineInterpolation": "smooth"
           },
@@ -3119,5 +3135,5 @@
   "timezone": "",
   "title": "NVIDIA GPU Monitor",
   "uid": "nvidia-gpu-monitor",
-  "version": 5
+  "version": 8
 }
