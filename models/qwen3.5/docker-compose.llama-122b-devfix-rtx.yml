@@ -6,7 +6,8 @@
 # The GGUF model is downloaded automatically on first start (~68 GB, 3 shards).
 # Downloads are cached in the shared qwen35_huggingface_cache volume.
 #
-# RTX PRO 6000 (96 GB GDDR7): tight fit — 128K context with q8_0 KV cache.
+# RTX PRO 6000 (96 GB GDDR7): only 12/48 layers have KV cache (hybrid DeltaNet),
+# so 262K context at q8_0 uses only ~3.3 GB KV — fits easily in 96 GB.
 #
 # Usage: docker compose -f docker-compose.llama-122b-devfix-rtx.yml up -d
 # API endpoint: http://localhost:11437/v1
@@ -43,7 +44,7 @@ services:
       - -ngl
       - "99"
       - -c
-      - "131072"
+      - "262144"
       - -np
       - "1"
       - -fa
