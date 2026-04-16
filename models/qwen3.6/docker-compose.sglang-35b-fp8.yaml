@@ -1,0 +1,128 @@
+# Qwen3.6-35B-A3B-FP8 via SGLang — official Qwen pre-quantized FP8 model
+#
+# Uses Qwen/Qwen3.6-35B-A3B-FP8: block-wise FP8 (block=128) quantized by the
+# Qwen team. SGLang reads the quant config from the model directly.
+#
+# Architecture: hybrid 30 Gated DeltaNet + 10 full-attention layers,
+# 256 experts (8 routed + 1 shared active per token), 35B total / 3B active.
+# Only the 10 full-attention layers carry a traditional KV cache (~20 KB/token
+# in bf16). The DeltaNet recurrent state is ~15 MB/request regardless of
+# sequence length.
+#
+# Important: FP8 KV cache produces silent corrupt output (wrong answers, no
+# crash) when DeltaNet linear attention state interacts with FP8-quantized KV.
+# kv-cache-dtype is set explicitly to bf16. Do not change to fp8_e4m3 or
+# fp8_e5m2. mamba-ssm-dtype is also pinned to bf16 for DeltaNet state precision.
+#
+# SGLang has RadixAttention (prefix caching) enabled by default — no flag needed.
+# Note: only the 10 full-attention layers benefit from prefix caching. HiCache
+# (higher-order cache) is blocked by DeltaNet and will log a startup warning:
+# "HiRadixCache only supports MHA and MLA". This is expected and non-fatal.
+#
+# Multi-Token Prediction (MTP / NEXTN) is enabled for faster inference. Qwen3.6
+# natively supports MTP via its built-in draft heads. Disable the speculative
+# flags if you see instability. Speculative decoding + DeltaNet radix cache
+# requires --mamba-scheduler-strategy extra_buffer and SGLANG_ENABLE_SPEC_V2=1.
+#
+# Usage: docker compose -f docker-compose.sglang-35b-fp8.yaml up -d
+# API endpoint: http://localhost:11435/v1
+# Model name served as: qwen3.6-35b
+
+services:
+  qwen36-sglang-fp8:
+    image: lmsysorg/sglang:latest
+    container_name: qwen36-sglang-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+      - SGLANG_ENABLE_SPEC_V2=1
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --served-model-name
+      - qwen3.6-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - --context-length
+      - "262144"
+      - --mem-fraction-static
+      - "0.80"
+      - --tp-size
+      - "1"
+      - --attention-backend
+      - triton
+      - --fp8-gemm-backend
+      - triton
+      - --kv-cache-dtype
+      - bf16
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --mamba-scheduler-strategy
+      - extra_buffer
+      - --max-running-requests
+      - "20"
+      - --speculative-algo
+      - NEXTN
+      - --speculative-num-steps
+      - "3"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "4"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11435/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

@@ -1,0 +1,89 @@
+# Qwen3.6-35B-A3B — BF16, 262K context, vision encoder disabled
+#
+# Frees ~2-3 GB of GPU memory; use when multimodal input is not needed.
+#
+# Architecture: hybrid 30 Gated DeltaNet + 10 full-attention layers,
+# 256 experts (8 routed + 1 shared active per token), 35B total / 3B active.
+#
+# Usage: docker compose -f docker-compose.vllm-35b-text-only.yaml up -d
+# API endpoint: http://localhost:11435/v1
+# Model name served as: qwen3.6-35b
+
+services:
+  qwen36-text:
+    image: vllm/vllm-openai:v0.19.0-cu130
+    container_name: qwen36-text
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.6-35B-A3B
+      - --served-model-name
+      - qwen3.6-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

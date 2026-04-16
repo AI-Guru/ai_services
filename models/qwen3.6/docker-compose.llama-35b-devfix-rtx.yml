@@ -1,0 +1,81 @@
+# Qwen3.6-35B-A3B (MoE, 3B active) via llama.cpp — with patched jinja template
+#
+# Fixes the developer role crash that affects coding agents (Claude Code,
+# OpenCode, Cursor) while preserving thinking mode (<think> blocks).
+#
+# Architecture: hybrid 30 Gated DeltaNet + 10 full-attention layers,
+# 256 experts (8 routed + 1 shared active per token), 35B total / 3B active.
+#
+# The GGUF model is downloaded automatically on first start (~22 GB).
+# Downloads are cached in the shared qwen36_huggingface_cache volume.
+#
+# Usage: docker compose -f docker-compose.llama-35b-devfix-rtx.yml up -d
+# API endpoint: http://localhost:11435/v1
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen36-llama-35b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+      - ./qwen3.6_chat_template.jinja:/template.jinja:ro
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-35B-A3B-GGUF
+      - --hf-file
+      - Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - --chat-template-file
+      - /template.jinja
+      - -a
+      - qwen3.6-35b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_huggingface_cache
+    external: true
