@@ -1,18 +1,23 @@
-# Qwen3.6-35B-A3B — BF16, 262K context, vision encoder disabled
+# Qwen3.6-35B-A3B-FP8 — official FP8 quant, vision encoder disabled
 #
-# Frees ~2-3 GB of GPU memory; use when multimodal input is not needed.
+# Combines the official Qwen FP8 checkpoint with --language-model-only:
+#   ~35 GB FP8 weights + no ViT (~2-3 GB saved) → even more KV cache headroom
+#   than the standard FP8 config, useful for high-concurrency text workloads.
 #
 # Architecture: hybrid 30 Gated DeltaNet + 10 full-attention layers,
 # 256 experts (8 routed + 1 shared active per token), 35B total / 3B active.
 #
-# Usage: docker compose -f docker-compose.vllm-35b-text-only.yaml up -d
+# Note: --kv-cache-dtype fp8_e4m3 is omitted — vLLM bug with DeltaNet layers
+# (vllm-project/vllm#26646); re-enable once upstream fix lands.
+#
+# Usage: docker compose -f docker-compose.vllm-35b-fp8-textonly-rtx.yml up -d
 # API endpoint: http://localhost:11435/v1
 # Model name served as: qwen3.6-35b
 
 services:
-  qwen36-text:
+  qwen36-fp8-textonly:
     image: vllm/vllm-openai:v0.19.0-cu130
-    container_name: qwen36-text
+    container_name: qwen36-fp8-textonly
     restart: unless-stopped
 
     deploy:
@@ -38,6 +43,7 @@ services:
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_chat_template.jinja:/chat_template.jinja:ro
 
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
@@ -48,7 +54,7 @@ services:
       - VLLM_USE_FLASHINFER_SAMPLER=0
 
     command:
-      - Qwen/Qwen3.6-35B-A3B
+      - Qwen/Qwen3.6-35B-A3B-FP8
       - --served-model-name
       - qwen3.6-35b
       - --host
@@ -58,7 +64,7 @@ services:
       - --max-model-len
       - "262144"
       - --gpu-memory-utilization
-      - "0.85"
+      - "0.90"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -68,13 +74,15 @@ services:
       - --language-model-only
       - --max-num-batched-tokens
       - "16384"
+      - --chat-template
+      - /chat_template.jinja
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 300s
+      start_period: 180s
 
     logging:
       driver: "json-file"

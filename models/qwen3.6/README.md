@@ -26,6 +26,7 @@ API endpoint: `http://localhost:11435/v1`, model name: `qwen3.6-35b`
 | File | Engine | Quant | Hardware | Notes |
 |------|--------|-------|----------|-------|
 | `docker-compose.vllm-35b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
+| `docker-compose.vllm-35b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled, fastest vLLM variant |
 | `docker-compose.vllm-35b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, saves ~2-3 GB |
 | `docker-compose.vllm-35b-1m.yaml` | vLLM | BF16 | Any | ~1M context via YaRN, util 0.95 |
 | `docker-compose.sglang-35b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
@@ -41,13 +42,14 @@ Tested 2026-04-16 with `test_chat.py` (default MoE prompt) and `test_tools.py` (
 |--------|------:|-----:|-----------:|--------|
 | **SGLang FP8** | **204.5** | **9.2s** | 8.4s | SGLang + MTP/NEXTN speculative decoding |
 | **llama.cpp Q4_K_XL** | **205.3** | **9.2s** | 8.9s | llama.cpp GGUF, single slot |
+| **vLLM FP8 text-only** | **203.2** | **7.3s** | 7.3s | vLLM v0.19.0, FP8 + vision disabled |
 | **vLLM FP8** | 92.0 | 24.7s | 7.8s | vLLM v0.19.0, prefix caching |
 | **vLLM BF16 text-only** | 86.6 | 27.0s | 10.2s | vLLM v0.19.0, vision disabled |
 | **vLLM BF16 1M** | — | — | — | OOM: BF16 weights (66 GB) leave no room for 1M KV cache on 96 GB |
 
 SGLang's MTP speculative decoding and llama.cpp's Q4 quantization both achieve ~200+ tok/s.
 vLLM without speculative decoding sits at ~90 tok/s. The 1M context BF16 config does not fit
-on the RTX PRO 6000 — use FP8 or a larger GPU (DGX Spark 128 GB).
+on the RTX PRO 6000 — use FP8 or a larger GPU.
 
 ### Tool calling
 
