@@ -38,14 +38,14 @@ Script: `run-qwen-mlx.sh` — uses `mlx-openai-server` with `qwen3.6_chat_templa
 
 ### MLX Benchmarks (Apple Silicon, 2026-04-20)
 
-Tested with `test_chat.py` (3 runs + warmup), `mlx-openai-server` 1.7.0. tok/s counts all generated tokens (think + answer) over full wall time.
+Tested with `test_chat.py` (3 runs + warmup), `mlx-openai-server` 1.7.1, `mlx-lm` 0.31.2. tok/s counts all generated tokens (think + answer) over full wall time.
 
 | Run | TTFT | tok/s | Think time |
 |-----|-----:|------:|-----------:|
-| 1 | 22.5s | 79.8 | 22.3s |
-| 2 | 25.9s | 79.8 | 25.6s |
-| 3 | 20.2s | 79.4 | 19.9s |
-| **avg** | **22.9s** | **79.7** | **22.6s** |
+| 1 | 25.4s | 80.1 | 25.2s |
+| 2 | 19.1s | 79.9 | 18.9s |
+| 3 | 22.6s | 79.7 | 22.4s |
+| **avg** | **22.4s** | **79.9** | **22.2s** |
 
 Think time dominates TTFT — the model reasons extensively before answering. Decode throughput is consistent at ~80 tok/s including think tokens.
 
