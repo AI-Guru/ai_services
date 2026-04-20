@@ -17,9 +17,37 @@
 # RTX PRO 6000 (96 GB) — primary config
 docker compose -f docker-compose.vllm-35b-fp8-rtx.yml up -d
 
+# Apple Silicon (24+ GB unified memory)
+./run-qwen-mlx.sh --install
+./run-qwen-mlx.sh --serve
 ```
 
-API endpoint: `http://localhost:11435/v1`, model name: `qwen3.6-35b`
+API endpoint: `http://localhost:11435/v1` (vLLM/llama.cpp/SGLang), `http://localhost:11436/v1` (MLX), model name: `qwen3.6-35b`
+
+## MLX (Apple Silicon)
+
+Script: `run-qwen-mlx.sh` — uses `mlx-openai-server` with `qwen3.6_chat_template.jinja`, port **11436**.
+
+| Model | Size | Memory |
+|-------|-----:|-------:|
+| `mlx-community/Qwen3.6-35B-A3B-4bit` *(default)* | ~20 GB | 24+ GB |
+| `mlx-community/Qwen3.6-35B-A3B-4bit-DWQ` | ~20 GB | 24+ GB |
+| `mlx-community/Qwen3.6-35B-A3B-6bit` | ~30 GB | 40+ GB |
+| `mlx-community/Qwen3.6-35B-A3B-8bit` | ~40 GB | 48+ GB |
+| `mlx-community/Qwen3.6-35B-A3B-bf16` | ~70 GB | 96+ GB |
+
+### MLX Benchmarks (Apple Silicon, 2026-04-20)
+
+Tested with `test_chat.py` (3 runs + warmup), `mlx-openai-server` 1.7.0. tok/s counts all generated tokens (think + answer) over full wall time.
+
+| Run | TTFT | tok/s | Think time |
+|-----|-----:|------:|-----------:|
+| 1 | 22.5s | 79.8 | 22.3s |
+| 2 | 25.9s | 79.8 | 25.6s |
+| 3 | 20.2s | 79.4 | 19.9s |
+| **avg** | **22.9s** | **79.7** | **22.6s** |
+
+Think time dominates TTFT — the model reasons extensively before answering. Decode throughput is consistent at ~80 tok/s including think tokens.
 
 ## Compose variants
 

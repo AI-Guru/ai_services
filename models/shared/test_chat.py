@@ -103,7 +103,8 @@ def benchmark(client: OpenAI, model: str, prompt: str, verbose: bool = True,
     think_duration = (t_answer_first - t_think_first) if (t_think_first and t_answer_first) else None
     total_time     = t_end - t_start
     completion_tokens = (
-        usage.completion_tokens if usage else len(answer_text.split())
+        usage.completion_tokens if usage
+        else len(answer_text.split()) + len("".join(think_chunks)) // 4
     )
     tps = completion_tokens / total_time if total_time > 0 else 0.0
 
