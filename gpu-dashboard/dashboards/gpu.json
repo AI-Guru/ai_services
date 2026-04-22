@@ -963,7 +963,7 @@
         "defaults": {
           "unit": "watt",
           "min": 0,
-          "max": 500,
+          "max": 650,
           "custom": {
             "fillOpacity": 100,
             "lineWidth": 2,
@@ -2831,7 +2831,7 @@
         "defaults": {
           "unit": "watt",
           "min": 0,
-          "max": 500,
+          "max": 650,
           "thresholds": {
             "mode": "percentage",
             "steps": [
@@ -3135,5 +3135,5 @@
   "timezone": "",
   "title": "NVIDIA GPU Monitor",
   "uid": "nvidia-gpu-monitor",
-  "version": 8
+  "version": 9
 }

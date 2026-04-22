@@ -29,10 +29,7 @@ TEMPLATE_PATH="${SCRIPT_DIR}/qwen3.6_chat_template.jinja"
 
 # 35B MoE (3B active) — default, ~20 GB, requires 24+ GB unified memory
 MODEL="mlx-community/Qwen3.6-35B-A3B-4bit"
-# MODEL="mlx-community/Qwen3.6-35B-A3B-4bit-DWQ"   # DWQ variant, same size
-# MODEL="mlx-community/Qwen3.6-35B-A3B-6bit"        # ~30 GB, better quality
-# MODEL="mlx-community/Qwen3.6-35B-A3B-8bit"        # ~40 GB, highest quality
-# MODEL="mlx-community/Qwen3.6-35B-A3B-bf16"        # ~70 GB, full precision
+# MODEL="mlx-community/Qwen3.6-27B-4bit"        # 27B mixed-precision variant, ~16 GB, slightly lower quality
 
 # =============================================================================
 # Helper functions
