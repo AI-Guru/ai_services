@@ -161,12 +161,15 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 |--------|------:|-----:|-----------:|--------|
 | **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled |
 | **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal |
-| **SGLang FP8 + MTP** | _pending_ | — | — | SGLang with NEXTN speculative decoding |
-| **vLLM BF16 text-only** | _pending_ | — | — | vLLM v0.19.0, BF16 + vision disabled |
+| **vLLM BF16 text-only** | 28.3 | 64.9s | 64.8s | vLLM v0.19.0, BF16 + vision disabled |
+| **SGLang FP8 + MTP** | — | — | — | Config present but NEXTN spec decoding produces garbage (EAGLE fallback); fix pending |
 
 Dense 27B decode is bandwidth-bound on all 27B active params (vs 3B for 35B-MoE):
 ~1.6 TB/s ÷ 27 GB ≈ 60 tok/s theoretical peak at FP8. Measured 47 tok/s is ~78%
 efficiency, typical for FP8 tensor-core kernels on Blackwell SM_120.
+
+BF16 weights (~54 GB) are 2× the size, so decode drops to 28 tok/s — exactly
+halved, confirming the bandwidth-bound profile.
 
 The vision encoder adds negligible overhead for text-only inference (both FP8
 variants measured identical throughput).

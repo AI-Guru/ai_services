@@ -39,6 +39,7 @@ services:
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_chat_template.jinja:/chat_template.jinja:ro
 
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
@@ -66,6 +67,8 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
       - --hf-overrides
       - >-
         {"text_config": {"rope_parameters": {
