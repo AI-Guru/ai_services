@@ -1,3 +1,14 @@
+# Qwen3.6 Family
+
+Two open-weight variants from Alibaba Qwen (Apache 2.0):
+
+- **[Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B)** — 35B-total / 3B-active MoE (fast, cheap to serve)
+- **[Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B)** — 27B dense (stronger per-token, bandwidth-bound)
+
+Both share the hybrid Gated DeltaNet + Gated Attention architecture and the same reasoning / tool-calling parsers (`qwen3` / `qwen3_coder`).
+
+---
+
 # Qwen3.6-35B-A3B
 
 [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) — 35B-total / 3B-active Mixture-of-Experts model from Alibaba Qwen.
@@ -104,3 +115,88 @@ python ../shared/test_tools.py --model qwen3.6-35b
 - **vLLM**: v0.19.0+ (`vllm/vllm-openai:v0.19.0-cu130`)
 - **SGLang**: v0.5.10+ (`lmsysorg/sglang:latest`)
 - **llama.cpp**: latest `server-cuda` image
+
+---
+
+# Qwen3.6-27B
+
+[Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) — 27B dense model with the same hybrid attention architecture as the 35B MoE. First open-weight single-dense variant of the Qwen3.6 family.
+
+## Architecture
+
+- **Dense 27B**: all 27B parameters active per token (vs 3B for 35B-A3B MoE)
+- **Hybrid attention**: 64 layers = 16 × (3×Gated DeltaNet + 1×full Gated Attention) — 48 DeltaNet + 16 full
+- **Multimodal**: text, image, and video input (vision encoder optional)
+- **Context**: 262K native, 1M via YaRN
+- **Multi-Token Prediction**: native MTP for speculative decoding
+- **License**: Apache 2.0
+
+## Quick start
+
+```bash
+# RTX PRO 6000 (96 GB) — primary config
+docker compose -f docker-compose.vllm-27b-fp8-rtx.yml up -d
+```
+
+API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
+
+## Compose variants
+
+| File | Engine | Quant | Hardware | Notes |
+|------|--------|-------|----------|-------|
+| `docker-compose.vllm-27b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
+| `docker-compose.vllm-27b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled |
+| `docker-compose.vllm-27b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, ~54 GB BF16 weights |
+| `docker-compose.sglang-27b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
+
+No llama.cpp config — Qwen3.6-27B is very new and no community GGUF quants are available yet (as of 2026-04-22). Check `unsloth/Qwen3.6-27B-GGUF` or `bartowski/Qwen_Qwen3.6-27B-GGUF` for later availability.
+
+## Benchmarks (RTX PRO 6000, 96 GB)
+
+Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
+
+### Performance
+
+| Config | tok/s | TTFT | Think time | Engine |
+|--------|------:|-----:|-----------:|--------|
+| **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled |
+| **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal |
+| **SGLang FP8 + MTP** | _pending_ | — | — | SGLang with NEXTN speculative decoding |
+| **vLLM BF16 text-only** | _pending_ | — | — | vLLM v0.19.0, BF16 + vision disabled |
+
+Dense 27B decode is bandwidth-bound on all 27B active params (vs 3B for 35B-MoE):
+~1.6 TB/s ÷ 27 GB ≈ 60 tok/s theoretical peak at FP8. Measured 47 tok/s is ~78%
+efficiency, typical for FP8 tensor-core kernels on Blackwell SM_120.
+
+The vision encoder adds negligible overhead for text-only inference (both FP8
+variants measured identical throughput).
+
+### Startup time
+
+| Config | Cold start | Notes |
+|--------|:----------:|-------|
+| vLLM FP8 | ~3.5 min | FP8 weights ~27 GB, CUDA graph capture |
+| vLLM FP8 text-only | ~3.5 min | Same as FP8, vision encoder still loads |
+| SGLang FP8 | ~2 min | Fast startup; MTP draft heads initialize quickly |
+| vLLM BF16 text-only | ~12 min | BF16 weights ~54 GB + Triton compilation |
+
+### Known issues
+
+- **No GGUF**: community quants not yet published for 27B.
+- **FP8 KV cache**: Omitted on all configs — DeltaNet linear attention state
+  produces silent corruption with FP8 KV quantization (vllm-project/vllm#26646).
+
+## Testing
+
+```bash
+# Chat benchmark
+python ../shared/test_chat.py --base-url http://localhost:11436/v1 --model qwen3.6-27b
+
+# Tool-calling integration test
+python ../shared/test_tools.py --base-url http://localhost:11436/v1 --model qwen3.6-27b
+```
+
+## When to pick 27B vs 35B-A3B
+
+- **35B-A3B (MoE)**: ~4× faster decode (200+ tok/s vs 47 tok/s). Best for high-throughput, multi-user, or latency-sensitive serving.
+- **27B (dense)**: stronger per-token reasoning and generation quality. Best for single-user agentic tasks where quality matters more than speed.
