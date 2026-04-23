@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Qwen3.6-35B-A3B on Apple Silicon via MLX
+# Qwen3.6 on Apple Silicon via MLX (35B MoE or 27B dense)
 #
 # Usage:
 #   ./run-qwen-mlx.sh --install    # Create conda env and install packages
@@ -29,7 +29,14 @@ TEMPLATE_PATH="${SCRIPT_DIR}/qwen3.6_chat_template.jinja"
 
 # 35B MoE (3B active) — default, ~20 GB, requires 24+ GB unified memory
 MODEL="mlx-community/Qwen3.6-35B-A3B-4bit"
-# MODEL="mlx-community/Qwen3.6-27B-4bit"        # 27B mixed-precision variant, ~16 GB, slightly lower quality
+# MODEL="mlx-community/Qwen3.6-35B-A3B-4bit-DWQ" # 35B MoE DWQ — same size, better quality
+# MODEL="mlx-community/Qwen3.6-35B-A3B-8bit"     # 35B MoE 8-bit — ~40 GB, best MoE quality
+
+# 27B dense — all 27B params active, stronger per-token but bandwidth-bound (~30–40 tok/s)
+# No mlx-community checkpoint yet; Unsloth Dynamic Quant variants are the best available:
+# MODEL="unsloth/Qwen3.6-27B-UD-MLX-4bit"        # ~16 GB, recommended for 24 GB Macs
+# MODEL="unsloth/Qwen3.6-27B-UD-MLX-6bit"        # ~22 GB, better quality
+# MODEL="unsloth/Qwen3.6-27B-MLX-8bit"           # ~35 GB, requires 48+ GB unified memory
 
 # =============================================================================
 # Helper functions
@@ -135,7 +142,7 @@ cmd_serve() {
         error "Chat template not found: ${TEMPLATE_PATH}"
     fi
 
-    info "Starting Qwen3.6-35B-A3B server on port ${PORT}..."
+    info "Starting Qwen3.6 server on port ${PORT}..."
     info "Model: ${MODEL}"
     info "Context: ${CONTEXT_LENGTH} tokens (256K)"
     info "Template: ${TEMPLATE_PATH}"

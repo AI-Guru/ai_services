@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Qwen3.6 MLX — 35B MoE vs 27B Dense · Apple Silicon</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --accent-5: #160b39;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --moe-color: #f37819;
+    --dense-color: #bc3754;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-1), var(--accent-2) 50%, var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent-3));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* --- Stat grid --- */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem; margin-top: 1rem;
+  }
+  .stat {
+    background: var(--bg-elev);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent-2);
+  }
+  .stat.moe { border-left-color: var(--moe-color); }
+  .stat.dense { border-left-color: var(--dense-color); }
+  .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-1); margin-top: 0.15rem; }
+  .stat .value small { font-size: 0.55em; color: var(--muted); font-weight: 400; }
+  .stat .note { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+  .stat .note.good { color: #8be094; }
+  .stat .note.bad { color: #ff8a85; }
+
+  /* --- Comparison hero --- */
+  .compare-hero {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem;
+    align-items: center; margin-top: 1.2rem;
+  }
+  .model-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.5rem;
+    text-align: center;
+  }
+  .model-card.moe { border: 1px solid rgba(243,120,25,0.35); }
+  .model-card.dense { border: 1px solid rgba(188,55,84,0.35); }
+  .model-card .model-name { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .model-card .big-num { font-size: 3rem; font-weight: 800; margin: 0.3rem 0; }
+  .model-card.moe .big-num { color: var(--moe-color); }
+  .model-card.dense .big-num { color: var(--dense-color); }
+  .model-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .model-card .checkpoint { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .vs-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  }
+  .vs-pill .ratio {
+    font-size: 2rem; font-weight: 800;
+    background: linear-gradient(90deg, var(--moe-color), var(--accent-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .vs-pill .vs-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  @media (max-width: 700px) {
+    .compare-hero { grid-template-columns: 1fr; }
+    .vs-pill { flex-direction: row; justify-content: center; }
+  }
+
+  /* --- Tables --- */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.model-moe { color: var(--moe-color); font-weight: 600; }
+  td.model-dense { color: var(--dense-color); font-weight: 600; }
+
+  /* --- Charts --- */
+  .chart-wrap {
+    position: relative; height: 280px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 360px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* --- Badges --- */
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+  .badge.moe  { background: rgba(243,120,25,0.15); color: var(--moe-color); }
+  .badge.dense{ background: rgba(188,55,84,0.15);  color: var(--dense-color); }
+
+  /* --- Findings box --- */
+  .findings {
+    background: linear-gradient(135deg, rgba(243,120,25,0.07), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--accent-2);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--accent-1); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  /* --- Code --- */
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6 · MoE vs Dense · Apple Silicon</h1>
+  <div class="subtitle">35B MoE (3B active) vs 27B Dense — MLX inference benchmark</div>
+  <div class="meta">
+    <span>Hardware: Apple Silicon · unified memory</span>
+    <span>mlx-openai-server 1.7.1</span>
+    <span>mlx-lm 0.31.2</span>
+    <span>Quantization: 4-bit</span>
+    <span>Date: 2026-04-23</span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Headline ──────────────────────────────────────────────── -->
+<section>
+  <h2>Headline Results</h2>
+  <p>
+    The <strong>35B MoE</strong> model activates only 3B parameters per token, making it
+    <em>bandwidth-efficient</em> on Apple Silicon. The <strong>27B dense</strong> model
+    activates all parameters every token — 8× the memory reads per token, which
+    maps directly to 8× lower throughput on memory-bandwidth-limited hardware.
+  </p>
+
+  <div class="compare-hero">
+    <div class="model-card moe">
+      <div class="model-name">35B MoE · 3B active</div>
+      <div class="big-num">79.9</div>
+      <div class="unit">tok / s</div>
+      <div class="checkpoint">mlx-community/Qwen3.6-35B-A3B-4bit</div>
+    </div>
+    <div class="vs-pill">
+      <div class="ratio">8.2×</div>
+      <div class="vs-label">faster</div>
+    </div>
+    <div class="model-card dense">
+      <div class="model-name">27B Dense · all active</div>
+      <div class="big-num">9.7</div>
+      <div class="unit">tok / s</div>
+      <div class="checkpoint">unsloth/Qwen3.6-27B-UD-MLX-4bit</div>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-top:1.5rem">
+    <div class="stat moe">
+      <div class="label">MoE avg TTFT</div>
+      <div class="value">22.4 <small>s</small></div>
+      <div class="note">think-dominated</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Dense avg TTFT</div>
+      <div class="value">131 <small>s</small></div>
+      <div class="note bad">very long reasoning</div>
+    </div>
+    <div class="stat moe">
+      <div class="label">MoE model size</div>
+      <div class="value">~20 <small>GB</small></div>
+      <div class="note">24 GB Mac fits easily</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Dense model size</div>
+      <div class="value">~16 <small>GB</small></div>
+      <div class="note">fits 24 GB Mac</div>
+    </div>
+    <div class="stat moe">
+      <div class="label">Active params/token</div>
+      <div class="value">3B</div>
+      <div class="note good">8.6% of total</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Active params/token</div>
+      <div class="value">27B</div>
+      <div class="note bad">100% of total</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Raw data ──────────────────────────────────────────────── -->
+<section>
+  <h2>Raw Benchmark Data</h2>
+  <p class="muted">Prompt: MoE vs dense architecture efficiency trade-offs. Thinking enabled. 3 runs each.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Run</th>
+        <th class="num">TTFT (s)</th>
+        <th class="num">Think (s)</th>
+        <th class="num">Tokens</th>
+        <th class="num">tok/s</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="model-moe" rowspan="3">35B MoE</td>
+        <td>1</td><td class="num">25.4</td><td class="num">—</td><td class="num">~2030</td><td class="num">80.1</td>
+      </tr>
+      <tr>
+        <td>2</td><td class="num">19.1</td><td class="num">—</td><td class="num">~2027</td><td class="num">79.9</td>
+      </tr>
+      <tr>
+        <td>3</td><td class="num">22.6</td><td class="num">—</td><td class="num">~2024</td><td class="num">79.7</td>
+      </tr>
+      <tr style="background:rgba(243,120,25,0.06)">
+        <td class="model-moe"><strong>35B avg</strong></td>
+        <td></td><td class="num"><strong>22.4</strong></td><td class="num">—</td><td class="num">—</td><td class="num"><strong>79.9</strong></td>
+      </tr>
+      <tr>
+        <td class="model-dense" rowspan="3">27B Dense</td>
+        <td>1</td><td class="num">113.9</td><td class="num">113.4</td><td class="num">~1557</td><td class="num">13.7</td>
+      </tr>
+      <tr>
+        <td>2</td><td class="num">137.8</td><td class="num">137.5</td><td class="num">~830</td><td class="num">6.0</td>
+      </tr>
+      <tr>
+        <td>3</td><td class="num">141.7</td><td class="num">141.4</td><td class="num">~1277</td><td class="num">9.4</td>
+      </tr>
+      <tr style="background:rgba(188,55,84,0.06)">
+        <td class="model-dense"><strong>27B avg</strong></td>
+        <td></td><td class="num"><strong>131.1</strong></td><td class="num"><strong>130.8</strong></td><td class="num">—</td><td class="num"><strong>9.7</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    tok/s counts all generated tokens (think + answer) over full wall time.
+    Thinking is not separately timed for MoE runs.
+    27B dense think times dominate TTFT: 99.7 % of TTFT is spent in the reasoning phase.
+  </p>
+</section>
+
+<!-- ── Charts ───────────────────────────────────────────────── -->
+<section>
+  <h2>Visualised</h2>
+
+  <div class="grid-2">
+    <div>
+      <h3>Throughput (tok/s)</h3>
+      <div class="chart-wrap">
+        <canvas id="chartTps"></canvas>
+      </div>
+    </div>
+    <div>
+      <h3>Time-to-First-Token (s)</h3>
+      <div class="chart-wrap">
+        <canvas id="chartTtft"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <h3>Per-run consistency</h3>
+  <div class="chart-wrap chart-tall">
+    <canvas id="chartRuns"></canvas>
+  </div>
+</section>
+
+<!-- ── Bandwidth analysis ────────────────────────────────────── -->
+<section>
+  <h2>Why the 8× Gap?</h2>
+  <p>
+    Apple Silicon inference is <em>memory-bandwidth bound</em>, not compute bound.
+    Every generated token requires loading model weights from unified memory.
+    The number of bytes moved per token is the key metric.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th class="num">Active params</th>
+        <th class="num">Bytes/token (4-bit)</th>
+        <th class="num">Theoretical max tok/s <small style="font-weight:400">(@ 400 GB/s)</small></th>
+        <th class="num">Measured tok/s</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="model-moe">35B MoE</td>
+        <td class="num">3B</td>
+        <td class="num">~1.5 GB</td>
+        <td class="num">~267</td>
+        <td class="num">79.9</td>
+      </tr>
+      <tr>
+        <td class="model-dense">27B Dense</td>
+        <td class="num">27B</td>
+        <td class="num">~13.5 GB</td>
+        <td class="num">~30</td>
+        <td class="num">9.7</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    Theoretical ceiling assumes the full model fits in cache and bandwidth is the only limit.
+    Real throughput is lower due to KV-cache reads, attention, and other overhead.
+    Both models land below their theoretical ceiling, with the 27B closer due to its
+    extreme bandwidth pressure leaving less headroom for compute.
+  </p>
+
+  <div class="findings">
+    <strong>Key insight:</strong>
+    <ul>
+      <li>The MoE design achieves <strong>35B parameter quality</strong> at <strong>3B parameter cost</strong> per token.</li>
+      <li>Dense 27B moves 9× more memory per token than MoE on the hot path.</li>
+      <li>On a higher-bandwidth Mac (M2 Ultra: 800 GB/s, M3 Ultra: 819 GB/s) the dense model would be proportionally faster, but the MoE advantage remains structural.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Optimisation ──────────────────────────────────────────── -->
+<section>
+  <h2>How to Speed Up 27B Dense</h2>
+
+  <h3>1 · Speculative Decoding <span class="badge warn">not yet available</span></h3>
+  <p>
+    Speculative decoding uses a small draft model to propose multiple tokens per step.
+    When accepted, you amortise the full-model cost over several tokens — typical gains are
+    1.5–2.5×.
+  </p>
+  <p>
+    <strong>Blocker:</strong> Qwen3.6 introduced a new <strong>248 K-token vocabulary</strong>
+    (vs 152 K for Qwen2.5 and Qwen3). This means no existing small Qwen model is
+    tokenizer-compatible. Tested and confirmed: <code>mlx-community/Qwen2.5-0.5B-Instruct-4bit</code>
+    raises <em>"Draft model tokenizer does not match model tokenizer"</em> and the
+    speculative-decode path in mlx-lm aborts. All Qwen2.5 and Qwen3 checkpoints have the
+    same 152 K vocab — none are drop-in draft models for Qwen3.6.
+  </p>
+  <p>
+    Additionally, mlx-lm's speculative decoding requires a <code>RotatingKVCache</code>
+    (enabled by <code>--max-kv-size</code>), which the current
+    <code>mlx_lm.server</code> does not expose as a flag — so even with a compatible
+    draft model the server path would need patching.
+  </p>
+  <p class="muted">
+    When a small Qwen3.6 model (0.5B–1.5B) appears on mlx-community or Unsloth,
+    this command pattern will apply:
+  </p>
+  <pre><code># Future command — requires Qwen3.6-compatible small draft model
+mlx_lm generate \
+  --model unsloth/Qwen3.6-27B-UD-MLX-4bit \
+  --draft-model &lt;qwen3.6-small-mlx-4bit&gt; \
+  --num-draft-tokens 4 \
+  --max-kv-size 8192</code></pre>
+
+  <h3>2 · Disable Thinking (<code>enable_thinking=false</code>)</h3>
+  <p>
+    Thinking tokens are ~99 % of TTFT for the 27B model. Disabling thinking trades
+    reasoning depth for dramatically lower latency. Suitable for factual Q&amp;A, code
+    completion, and retrieval-augmented tasks.
+  </p>
+  <pre><code>curl http://localhost:11436/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "qwen3.6-27b",
+    "messages": [{"role": "user", "content": "Your question here"}],
+    "extra_body": {"enable_thinking": false}
+  }'</code></pre>
+  <p class="muted">Expect TTFT to drop from ~130 s to &lt; 5 s for most queries.</p>
+
+  <h3>3 · Higher Quantisation Variants</h3>
+  <p>
+    The Unsloth UD (Unsloth Dynamic) checkpoints trade quality for speed at each tier.
+    Consider your memory budget vs quality requirement:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Checkpoint</th>
+        <th class="num">Size</th>
+        <th>Notes</th>
+        <th>Badge</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>unsloth/Qwen3.6-27B-UD-MLX-4bit</code></td>
+        <td class="num">~16 GB</td>
+        <td>Best speed, 24 GB Mac</td>
+        <td><span class="badge good">recommended</span></td>
+      </tr>
+      <tr>
+        <td><code>unsloth/Qwen3.6-27B-UD-MLX-6bit</code></td>
+        <td class="num">~22 GB</td>
+        <td>Better quality, 32 GB Mac</td>
+        <td><span class="badge warn">quality+</span></td>
+      </tr>
+      <tr>
+        <td><code>unsloth/Qwen3.6-27B-MLX-8bit</code></td>
+        <td class="num">~35 GB</td>
+        <td>Highest quality, 48+ GB</td>
+        <td><span class="badge">best quality</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4 · Memory Wiring</h3>
+  <p>
+    mlx-lm wires model weights to GPU memory at load time. Ensure no other large
+    processes compete for unified memory bandwidth during inference — even a browser
+    with many tabs can add contention on 24 GB machines.
+  </p>
+
+  <h3>5 · Context-Length Tuning</h3>
+  <p>
+    The KV-cache grows with context length. For production use cases, set
+    <code>--context-length</code> to the minimum required rather than the full 128K
+    default. Smaller KV-cache = less memory bus pressure per step.
+  </p>
+
+  <div class="findings">
+    <strong>Realistic targets with today's available optimisations:</strong>
+    <ul>
+      <li><strong>No-think mode:</strong> 9.7 tok/s, but TTFT drops from ~131 s to &lt; 5 s — biggest practical win available now.</li>
+      <li><strong>Speculative decoding:</strong> blocked — Qwen3.6's 248 K vocabulary has no compatible small draft model yet. Expected gain when available: 1.5–2.5×.</li>
+      <li><strong>Reduce context length:</strong> smaller KV-cache → marginally less bus pressure, minor win.</li>
+      <li>MoE remains 8× faster regardless of all optimisations — the bandwidth math is unforgiving.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Recommendation ────────────────────────────────────────── -->
+<section>
+  <h2>Which Model to Use?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Use case</th>
+        <th>Recommendation</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Interactive chat / coding assistant</td>
+        <td class="model-moe">35B MoE</td>
+        <td>80 tok/s feels instant; quality competitive with dense</td>
+      </tr>
+      <tr>
+        <td>Deep reasoning / complex maths</td>
+        <td class="model-dense">27B Dense (thinking)</td>
+        <td>Dense transformers tend to reason more coherently over long chains</td>
+      </tr>
+      <tr>
+        <td>Batch processing / no latency SLA</td>
+        <td class="model-dense">27B Dense</td>
+        <td>Higher per-token quality in exchange for throughput</td>
+      </tr>
+      <tr>
+        <td>Low-latency API (no thinking)</td>
+        <td class="model-dense">27B Dense + no-think</td>
+        <td>Drops TTFT to &lt;5 s; smaller context footprint than MoE</td>
+      </tr>
+      <tr>
+        <td>24 GB Mac, fast responses</td>
+        <td class="model-moe">35B MoE</td>
+        <td>Fits comfortably, 8× faster, strong reasoning</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+</main>
+
+<footer>
+  Measured on Apple Silicon · mlx-openai-server 1.7.1 · mlx-lm 0.31.2 · 4-bit quantisation
+</footer>
+
+<script>
+const moeColor  = 'rgba(243,120,25,0.85)';
+const denseColor = 'rgba(188,55,84,0.85)';
+const moeBorder  = 'rgba(243,120,25,1)';
+const denseBorder = 'rgba(188,55,84,1)';
+const gridColor  = 'rgba(252,165,10,0.08)';
+const tickColor  = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+// ── Throughput bar chart ──
+new Chart(document.getElementById('chartTps'), {
+  type: 'bar',
+  data: {
+    labels: ['35B MoE', '27B Dense'],
+    datasets: [{
+      label: 'tok/s',
+      data: [79.9, 9.7],
+      backgroundColor: [moeColor, denseColor],
+      borderColor: [moeBorder, denseBorder],
+      borderWidth: 2,
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: ctx => ` ${ctx.parsed.x} tok/s` }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor },
+        title: { display: true, text: 'tokens / second', color: tickColor }
+      },
+      y: {
+        grid: { display: false },
+        ticks: { color: tickColor, font: { weight: '600' } }
+      }
+    }
+  }
+});
+
+// ── TTFT bar chart ──
+new Chart(document.getElementById('chartTtft'), {
+  type: 'bar',
+  data: {
+    labels: ['35B MoE', '27B Dense'],
+    datasets: [{
+      label: 'TTFT (s)',
+      data: [22.4, 131.1],
+      backgroundColor: [moeColor, denseColor],
+      borderColor: [moeBorder, denseBorder],
+      borderWidth: 2,
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} s` }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor },
+        title: { display: true, text: 'seconds', color: tickColor }
+      },
+      y: {
+        grid: { display: false },
+        ticks: { color: tickColor, font: { weight: '600' } }
+      }
+    }
+  }
+});
+
+// ── Per-run consistency ──
+new Chart(document.getElementById('chartRuns'), {
+  type: 'line',
+  data: {
+    labels: ['Run 1', 'Run 2', 'Run 3'],
+    datasets: [
+      {
+        label: '35B MoE tok/s',
+        data: [80.1, 79.9, 79.7],
+        borderColor: moeBorder,
+        backgroundColor: 'rgba(243,120,25,0.1)',
+        pointBackgroundColor: moeBorder,
+        pointRadius: 6,
+        tension: 0.25,
+        fill: true,
+        yAxisID: 'y',
+      },
+      {
+        label: '27B Dense tok/s',
+        data: [13.7, 6.0, 9.4],
+        borderColor: denseBorder,
+        backgroundColor: 'rgba(188,55,84,0.1)',
+        pointBackgroundColor: denseBorder,
+        pointRadius: 6,
+        tension: 0.25,
+        fill: true,
+        yAxisID: 'y',
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: { color: tickColor, boxWidth: 14, padding: 16 }
+      },
+      tooltip: {
+        callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s` }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor }
+      },
+      y: {
+        grid: { color: gridColor },
+        ticks: { color: tickColor },
+        title: { display: true, text: 'tok/s', color: tickColor },
+        min: 0
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>
