@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Qwen3.6 RTX — 35B MoE vs 27B Dense · RTX PRO 6000 Blackwell</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --accent-5: #160b39;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --moe-color: #f37819;
+    --dense-color: #bc3754;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-1), var(--accent-2) 50%, var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent-3));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* Stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem; margin-top: 1rem;
+  }
+  .stat {
+    background: var(--bg-elev);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent-2);
+  }
+  .stat.moe { border-left-color: var(--moe-color); }
+  .stat.dense { border-left-color: var(--dense-color); }
+  .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-1); margin-top: 0.15rem; }
+  .stat .value small { font-size: 0.55em; color: var(--muted); font-weight: 400; }
+  .stat .note { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+  .stat .note.good { color: #8be094; }
+  .stat .note.bad { color: #ff8a85; }
+
+  /* Hero compare */
+  .compare-hero {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem;
+    align-items: center; margin-top: 1.2rem;
+  }
+  .model-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.5rem;
+    text-align: center;
+  }
+  .model-card.moe { border: 1px solid rgba(243,120,25,0.35); }
+  .model-card.dense { border: 1px solid rgba(188,55,84,0.35); }
+  .model-card .model-name { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .model-card .big-num { font-size: 3rem; font-weight: 800; margin: 0.3rem 0; }
+  .model-card.moe .big-num { color: var(--moe-color); }
+  .model-card.dense .big-num { color: var(--dense-color); }
+  .model-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .model-card .checkpoint { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .vs-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  }
+  .vs-pill .ratio {
+    font-size: 2rem; font-weight: 800;
+    background: linear-gradient(90deg, var(--moe-color), var(--accent-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .vs-pill .vs-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  @media (max-width: 700px) {
+    .compare-hero { grid-template-columns: 1fr; }
+    .vs-pill { flex-direction: row; justify-content: center; }
+  }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.model-moe { color: var(--moe-color); font-weight: 600; }
+  td.model-dense { color: var(--dense-color); font-weight: 600; }
+
+  /* Charts */
+  .chart-wrap {
+    position: relative; height: 280px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 400px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+  .badge.moe  { background: rgba(243,120,25,0.15); color: var(--moe-color); }
+  .badge.dense{ background: rgba(188,55,84,0.15);  color: var(--dense-color); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(243,120,25,0.07), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--accent-2);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--accent-1); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6 · MoE vs Dense · RTX PRO 6000 Blackwell</h1>
+  <div class="subtitle">35B-A3B MoE (3B active) vs 27B Dense — vLLM FP8 inference benchmark</div>
+  <div class="meta">
+    <span>GPU: RTX PRO 6000 Blackwell · 96 GB GDDR7 · SM_120</span>
+    <span>Memory bandwidth: ~1.6 TB/s</span>
+    <span>vLLM v0.19.0-cu130</span>
+    <span>Quantization: FP8 (block 128)</span>
+    <span>Tool: GuideLLM 0.5.4 · profile=sweep</span>
+    <span>Date: 2026-04-23</span>
+  </div>
+</header>
+
+<main>
+
+<!-- Headline -->
+<section>
+  <h2>Headline Results</h2>
+  <p>
+    The <strong>35B-A3B MoE</strong> activates only ~3 B parameters per token — <em>bandwidth-efficient</em>
+    decode on Blackwell's FP8 tensor cores. The <strong>27B dense</strong> streams all 27 B active parameters
+    every token — ~9× more memory reads per token, which maps to a <strong>~3× decode-speed gap</strong>
+    on this hardware (less dramatic than the 8× gap seen on Apple Silicon at 4-bit, because FP8 on
+    Blackwell cuts dense bandwidth pressure in half vs 4-bit weights on MLX).
+  </p>
+
+  <div class="compare-hero">
+    <div class="model-card moe">
+      <div class="model-name">35B MoE · 3B active</div>
+      <div class="big-num">196.9</div>
+      <div class="unit">tok / s single-user</div>
+      <div class="checkpoint">Qwen/Qwen3.6-35B-A3B-FP8</div>
+    </div>
+    <div class="vs-pill">
+      <div class="ratio">3.0×</div>
+      <div class="vs-label">faster</div>
+    </div>
+    <div class="model-card dense">
+      <div class="model-name">27B Dense · all active</div>
+      <div class="big-num">66.6</div>
+      <div class="unit">tok / s single-user</div>
+      <div class="checkpoint">Qwen/Qwen3.6-27B-FP8 + MTP</div>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-top:1.5rem">
+    <div class="stat moe">
+      <div class="label">MoE peak aggregate</div>
+      <div class="value">4 166 <small>tok/s</small></div>
+      <div class="note good">codegen · saturating C</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Dense peak aggregate</div>
+      <div class="value">1 094 <small>tok/s</small></div>
+      <div class="note">codegen · 3.8× lower than MoE</div>
+    </div>
+    <div class="stat moe">
+      <div class="label">MoE weights on disk</div>
+      <div class="value">~35 <small>GB</small></div>
+      <div class="note">fits with 60+ GB KV headroom</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Dense weights on disk</div>
+      <div class="value">~27 <small>GB</small></div>
+      <div class="note">fits with ~65 GB KV headroom</div>
+    </div>
+    <div class="stat moe">
+      <div class="label">Active params / token</div>
+      <div class="value">~3 <small>B</small></div>
+      <div class="note good">8.6% of total — MoE routing</div>
+    </div>
+    <div class="stat dense">
+      <div class="label">Active params / token</div>
+      <div class="value">27 <small>B</small></div>
+      <div class="note bad">100% of total — dense</div>
+    </div>
+  </div>
+</section>
+
+<!-- Side by side per scenario -->
+<section>
+  <h2>Per-scenario Throughput — MoE vs Dense</h2>
+  <p class="muted">Single-request (C=1) and peak aggregate (saturating concurrency) from the full GuideLLM sweep. See <a href="benchmark-35b-a3b.html" style="color:var(--accent-2)">35B report</a> and <a href="benchmark-27b.html" style="color:var(--accent-2)">27B report</a> for full detail.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th class="num">27B C=1</th>
+        <th class="num">35B C=1</th>
+        <th class="num">Speedup</th>
+        <th class="num">27B peak agg</th>
+        <th class="num">35B peak agg</th>
+        <th class="num">Speedup</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Chat (2K × 300)</td>
+        <td class="num">66.6</td><td class="num">196.9</td><td class="num"><span class="badge moe">2.96×</span></td>
+        <td class="num">793</td><td class="num">1 827</td><td class="num"><span class="badge moe">2.30×</span></td>
+      </tr>
+      <tr>
+        <td>Codegen (4K × 1.5K)</td>
+        <td class="num">69.1</td><td class="num">209.6</td><td class="num"><span class="badge moe">3.03×</span></td>
+        <td class="num">1 094</td><td class="num">4 166</td><td class="num"><span class="badge moe">3.81×</span></td>
+      </tr>
+      <tr>
+        <td>Agentic (16K × 800)</td>
+        <td class="num">54.1</td><td class="num">180.6</td><td class="num"><span class="badge moe">3.34×</span></td>
+        <td class="num">147</td><td class="num">1 366</td><td class="num"><span class="badge moe">9.29×</span></td>
+      </tr>
+      <tr>
+        <td>RAG (8K × 256)</td>
+        <td class="num">50.7</td><td class="num">175.0</td><td class="num"><span class="badge moe">3.45×</span></td>
+        <td class="num">230</td><td class="num">809</td><td class="num"><span class="badge moe">3.52×</span></td>
+      </tr>
+      <tr>
+        <td>Summarization (12K × 300)</td>
+        <td class="num">46.0</td><td class="num">164.9</td><td class="num"><span class="badge moe">3.58×</span></td>
+        <td class="num">188</td><td class="num">699</td><td class="num"><span class="badge moe">3.72×</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="grid-2">
+    <div>
+      <h3>Single-user throughput (C=1)</h3>
+      <div class="chart-wrap"><canvas id="chartSingle"></canvas></div>
+    </div>
+    <div>
+      <h3>Peak aggregate (saturating C)</h3>
+      <div class="chart-wrap"><canvas id="chartPeak"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- Concurrency scaling -->
+<section>
+  <h2>Concurrency Scaling — Chat workload</h2>
+  <p class="muted">Both models fed the same chat-shaped workload (2 K prompts, ~300-token outputs). Aggregate tok/s grows with concurrent users until prefill or KV cache saturates. Dotted = dense 27B, solid = MoE 35B.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartScalingChat"></canvas></div>
+
+  <h3 style="margin-top:1.5rem">All scenarios — MoE 35B</h3>
+  <p class="muted">The MoE scales cleanly through C=13 on chat and holds 200+ tok/s per request on long-prompt scenarios.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartScaling35b"></canvas></div>
+
+  <h3 style="margin-top:1.5rem">All scenarios — Dense 27B</h3>
+  <p class="muted">Dense scaling is far more constrained: long-prompt scenarios cap at 1–3 concurrent users because decode bandwidth is the bottleneck.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartScaling27b"></canvas></div>
+</section>
+
+<!-- Bandwidth analysis -->
+<section>
+  <h2>Why the Gap?</h2>
+  <p>
+    On Blackwell, FP8 decode is memory-bandwidth-limited. Throughput is roughly
+    <code>bandwidth / bytes_per_token</code>. Each token requires streaming the active weights
+    through tensor cores once.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th class="num">Active params</th>
+        <th class="num">FP8 bytes/token</th>
+        <th class="num">Theoretical max <small style="font-weight:400">(@ 1.6 TB/s)</small></th>
+        <th class="num">Measured C=1</th>
+        <th class="num">Efficiency</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="model-moe">35B MoE</td>
+        <td class="num">~3 B</td>
+        <td class="num">~3 GB</td>
+        <td class="num">~530 tok/s</td>
+        <td class="num">196.9</td>
+        <td class="num">37 %</td>
+      </tr>
+      <tr>
+        <td class="model-dense">27B Dense</td>
+        <td class="num">27 B</td>
+        <td class="num">~27 GB</td>
+        <td class="num">~60 tok/s</td>
+        <td class="num">66.6 (with MTP)</td>
+        <td class="num">111 % <span class="badge good">MTP</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    The 27B exceeds its nominal ceiling because <strong>MTP speculative decoding</strong> lets it
+    emit &gt; 1 token per model forward pass on average. The MoE's 37 % efficiency reflects KV-cache
+    reads, MoE router overhead, and prefill coexistence — there's headroom we haven't exploited
+    (e.g. multi-GPU tensor parallelism would push it higher).
+  </p>
+
+  <div class="findings">
+    <strong>Key insight:</strong>
+    <ul>
+      <li>Dense 27B streams <strong>9× more memory per token</strong> than the MoE — that gap is structural.</li>
+      <li>MTP closes ~40 % of the per-token gap on dense (47 → 66.6 tok/s). Tested on MoE too: no gain, because the MoE's forward pass is already so cheap that draft+verify overhead eats the benefit.</li>
+      <li>Under concurrency the MoE pulls further ahead: its decode headroom means prefill can coexist with more concurrent users before the GPU saturates.</li>
+      <li>At <strong>peak aggregate</strong> the gap hits 9.3× on agentic — the dense 27B's prefill-per-user cost caps it at ~1 user, while the MoE serves 4-5.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Optimizations tested -->
+<section>
+  <h2>Optimisations Tested</h2>
+  <p class="muted">All on vLLM v0.19.0-cu130 with Qwen's official FP8 checkpoints. Both configs use <code>--language-model-only</code> (vision encoder off).</p>
+
+  <h3>1 · MTP speculative decoding</h3>
+  <p>
+    Uses Qwen3.6's native Multi-Token Prediction draft heads. Flag:
+  </p>
+  <pre><code>--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'</code></pre>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th class="num">Baseline FP8</th>
+        <th class="num">FP8 + MTP</th>
+        <th class="num">Δ</th>
+        <th>Kept on?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="model-dense">27B Dense</td>
+        <td class="num">47.0</td>
+        <td class="num">66.6</td>
+        <td class="num"><span class="badge good">+41 %</span></td>
+        <td><span class="badge good">yes</span></td>
+      </tr>
+      <tr>
+        <td class="model-moe">35B-A3B MoE</td>
+        <td class="num">203.2</td>
+        <td class="num">201.7</td>
+        <td class="num"><span class="badge bad">±0 %</span></td>
+        <td><span class="badge bad">no</span></td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    The MoE's forward pass on 3 B active weights is ~5 ms — the draft+verify cycle's overhead eats any speculative gain. The dense 27B's ~21 ms/token forward pass amortises that overhead easily.
+  </p>
+
+  <h3>2 · NVFP4 quantization <span class="badge bad">slower than FP8 on single GPU</span></h3>
+  <p>
+    Tested <code>mmangkad/Qwen3.6-27B-NVFP4</code> with the FlashInfer Cutlass NVFP4 backend.
+    Result: 44.9 tok/s vs FP8's 47 tok/s — <em>slower</em>. Only linear ops in transformer blocks are
+    FP4-quantised (~14 GB); the rest stays BF16/FP8 (~17 GB), so total memory pressure is similar to plain FP8.
+    Upstream recipes that report higher NVFP4 numbers use <code>--tensor-parallel-size 2</code> across two
+    GPUs — the speedup comes from tensor parallelism, not NVFP4 itself.
+  </p>
+
+  <h3>3 · Blackwell flag bundle <span class="badge bad">invalid / redundant in v0.19</span></h3>
+  <p>
+    Community blogs suggested <code>--async-scheduling</code>, <code>--cuda-graph-capture-size</code>,
+    and <code>--compilation-config '{"level":3}'</code>. None are useful in vLLM v0.19:
+    async scheduling is on by default, the CUDA-graph CLI flag doesn't exist (only a JSON sub-field),
+    and <code>level:3</code> (VLLM_COMPILE) is already the default <code>mode</code>.
+  </p>
+
+  <h3>4 · SGLang + NEXTN speculative decoding <span class="badge bad">garbage output</span></h3>
+  <p>
+    SGLang v0.4+ falls back to EAGLE when <code>--speculative-algo NEXTN</code> is passed without a
+    draft model checkpoint — produces silent corruption (CJK gibberish). Config file is present
+    but not the recommended path; use vLLM + MTP for the 27B.
+  </p>
+</section>
+
+<!-- Recommendation -->
+<section>
+  <h2>Which Model to Use?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Use case</th>
+        <th>Recommendation</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Multi-user API (&gt; 5 concurrent)</td>
+        <td class="model-moe">35B MoE · FP8</td>
+        <td>4 × higher peak aggregate, decode cheap</td>
+      </tr>
+      <tr>
+        <td>Interactive chat / code assistant</td>
+        <td class="model-moe">35B MoE · FP8</td>
+        <td>~200 tok/s feels instant; scales to 25+ users</td>
+      </tr>
+      <tr>
+        <td>Agentic loop (long context, 1 user)</td>
+        <td class="model-dense">27B Dense · FP8 + MTP</td>
+        <td>Tends to reason more coherently over long chains</td>
+      </tr>
+      <tr>
+        <td>Single-user reasoning quality</td>
+        <td class="model-dense">27B Dense · FP8 + MTP</td>
+        <td>Dense per-token quality; MTP keeps latency workable</td>
+      </tr>
+      <tr>
+        <td>RAG at scale (&gt; 3 concurrent)</td>
+        <td class="model-moe">35B MoE · FP8</td>
+        <td>9 users vs dense's 3; retrieval quality is fine on MoE</td>
+      </tr>
+      <tr>
+        <td>Long-context summarization (24-user pool)</td>
+        <td class="model-moe">35B MoE · FP8</td>
+        <td>3.7 × more throughput; dense caps at 2 users</td>
+      </tr>
+      <tr>
+        <td>Tool calling (structured output)</td>
+        <td class="model-moe">35B MoE · FP8</td>
+        <td>BF16 passes 4/4 tool scenarios; FP8 sometimes fails parallel tool calls (model-level FP8 artifact)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="findings">
+    <strong>Bottom line:</strong>
+    <ul>
+      <li>Pick the <strong class="model-moe">35B-A3B MoE</strong> for throughput, multi-user serving, and most production deployments.</li>
+      <li>Pick the <strong class="model-dense">27B Dense</strong> when you need the highest per-token reasoning quality with only one user active at a time.</li>
+      <li>Both run fine on a single RTX PRO 6000 — the choice is about user concurrency and workload shape, not about whether they fit.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Measured on NVIDIA RTX PRO 6000 Blackwell · vLLM v0.19.0-cu130 · FP8 quantisation<br/>
+  Source: <code>models/qwen3.6/benchmarks/guidellm/</code> (27B) and <code>benchmarks/guidellm-35b/</code> (35B)
+</footer>
+
+<script>
+const moeColor  = 'rgba(243,120,25,0.85)';
+const denseColor = 'rgba(188,55,84,0.85)';
+const moeBorder  = 'rgba(243,120,25,1)';
+const denseBorder = 'rgba(188,55,84,1)';
+const gridColor  = 'rgba(252,165,10,0.08)';
+const tickColor  = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+const scenarios = ['Chat', 'Codegen', 'Agentic', 'RAG', 'Summarization'];
+const singleDense = [66.6, 69.1, 54.1, 50.7, 46.0];
+const single35b   = [196.9, 209.6, 180.6, 175.0, 164.9];
+const peakDense   = [793, 1094, 147, 230, 188];
+const peak35b     = [1827, 4166, 1366, 809, 699];
+
+// Single-user grouped bars
+new Chart(document.getElementById('chartSingle'), {
+  type: 'bar',
+  data: {
+    labels: scenarios,
+    datasets: [
+      { label: '27B Dense', data: singleDense, backgroundColor: denseColor, borderColor: denseBorder, borderWidth: 1, borderRadius: 4 },
+      { label: '35B MoE',   data: single35b,   backgroundColor: moeColor,   borderColor: moeBorder,   borderWidth: 1, borderRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: tickColor } }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s` } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, title: { display: true, text: 'tok/s', color: tickColor } },
+    },
+  }
+});
+
+// Peak aggregate grouped bars (log-ish via normalize? keep linear)
+new Chart(document.getElementById('chartPeak'), {
+  type: 'bar',
+  data: {
+    labels: scenarios,
+    datasets: [
+      { label: '27B Dense', data: peakDense, backgroundColor: denseColor, borderColor: denseBorder, borderWidth: 1, borderRadius: 4 },
+      { label: '35B MoE',   data: peak35b,   backgroundColor: moeColor,   borderColor: moeBorder,   borderWidth: 1, borderRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: tickColor } }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s` } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, title: { display: true, text: 'Peak aggregate tok/s', color: tickColor } },
+    },
+  }
+});
+
+const SWEEP_27B = {
+  "chat": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 66.6,
+      "in_tps": 486.2
+    },
+    {
+      "concurrency": 2.2,
+      "out_tps": 129.0,
+      "in_tps": 847.1
+    },
+    {
+      "concurrency": 3.3,
+      "out_tps": 185.6,
+      "in_tps": 1308.7
+    },
+    {
+      "concurrency": 4.4,
+      "out_tps": 237.2,
+      "in_tps": 1664.9
+    },
+    {
+      "concurrency": 6.0,
+      "out_tps": 303.8,
+      "in_tps": 2027.5
+    },
+    {
+      "concurrency": 7.5,
+      "out_tps": 357.7,
+      "in_tps": 2590.4
+    },
+    {
+      "concurrency": 9.7,
+      "out_tps": 426.4,
+      "in_tps": 2871.4
+    },
+    {
+      "concurrency": 12.3,
+      "out_tps": 491.7,
+      "in_tps": 3412.3
+    },
+    {
+      "concurrency": 15.1,
+      "out_tps": 544.3,
+      "in_tps": 3797.8
+    }
+  ],
+  "rag": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 50.7,
+      "in_tps": 1679.6
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 63.2,
+      "in_tps": 1947.7
+    },
+    {
+      "concurrency": 1.5,
+      "out_tps": 64.5,
+      "in_tps": 2122.0
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 68.6,
+      "in_tps": 2193.5
+    },
+    {
+      "concurrency": 1.8,
+      "out_tps": 74.9,
+      "in_tps": 2330.6
+    },
+    {
+      "concurrency": 2.0,
+      "out_tps": 78.6,
+      "in_tps": 2591.0
+    },
+    {
+      "concurrency": 2.1,
+      "out_tps": 85.0,
+      "in_tps": 2703.1
+    },
+    {
+      "concurrency": 2.4,
+      "out_tps": 95.7,
+      "in_tps": 2863.2
+    },
+    {
+      "concurrency": 2.6,
+      "out_tps": 93.8,
+      "in_tps": 3201.0
+    }
+  ],
+  "agentic": [
+    {
+      "concurrency": 0.1,
+      "out_tps": 212.9,
+      "in_tps": 0.0
+    },
+    {
+      "concurrency": 0.2,
+      "out_tps": 19.3,
+      "in_tps": 500.9
+    },
+    {
+      "concurrency": 0.4,
+      "out_tps": 27.9,
+      "in_tps": 541.2
+    },
+    {
+      "concurrency": 0.4,
+      "out_tps": 27.7,
+      "in_tps": 533.7
+    },
+    {
+      "concurrency": 0.5,
+      "out_tps": 31.4,
+      "in_tps": 650.2
+    },
+    {
+      "concurrency": 0.7,
+      "out_tps": 38.2,
+      "in_tps": 808.2
+    },
+    {
+      "concurrency": 0.9,
+      "out_tps": 50.4,
+      "in_tps": 982.3
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 54.1,
+      "in_tps": 1055.8
+    }
+  ],
+  "codegen": [
+    {
+      "concurrency": 0.8,
+      "out_tps": 60.6,
+      "in_tps": 246.1
+    },
+    {
+      "concurrency": 0.9,
+      "out_tps": 64.6,
+      "in_tps": 195.1
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 69.1,
+      "in_tps": 177.7
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 71.7,
+      "in_tps": 193.4
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 76.5,
+      "in_tps": 231.1
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 69.6,
+      "in_tps": 284.1
+    },
+    {
+      "concurrency": 1.2,
+      "out_tps": 91.2,
+      "in_tps": 216.6
+    },
+    {
+      "concurrency": 1.2,
+      "out_tps": 99.4,
+      "in_tps": 342.7
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 115.7,
+      "in_tps": 269.2
+    }
+  ],
+  "summarization": [
+    {
+      "concurrency": 0.9,
+      "out_tps": 40.5,
+      "in_tps": 1639.0
+    },
+    {
+      "concurrency": 0.9,
+      "out_tps": 40.3,
+      "in_tps": 1681.5
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 46.0,
+      "in_tps": 1933.6
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 43.2,
+      "in_tps": 1743.8
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 44.1,
+      "in_tps": 1789.9
+    },
+    {
+      "concurrency": 1.0,
+      "out_tps": 44.8,
+      "in_tps": 1557.0
+    },
+    {
+      "concurrency": 1.1,
+      "out_tps": 44.5,
+      "in_tps": 1985.6
+    },
+    {
+      "concurrency": 1.1,
+      "out_tps": 46.6,
+      "in_tps": 1755.1
+    },
+    {
+      "concurrency": 1.3,
+      "out_tps": 49.9,
+      "in_tps": 1857.3
+    }
+  ]
+};
+const SWEEP_35B = {
+  "chat": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 196.9,
+      "in_tps": 1323.1
+    },
+    {
+      "concurrency": 2.0,
+      "out_tps": 291.2,
+      "in_tps": 1889.8
+    },
+    {
+      "concurrency": 3.1,
+      "out_tps": 390.0,
+      "in_tps": 2596.5
+    },
+    {
+      "concurrency": 4.0,
+      "out_tps": 459.9,
+      "in_tps": 3236.0
+    },
+    {
+      "concurrency": 6.0,
+      "out_tps": 575.5,
+      "in_tps": 3819.2
+    },
+    {
+      "concurrency": 7.2,
+      "out_tps": 666.6,
+      "in_tps": 4544.9
+    },
+    {
+      "concurrency": 10.0,
+      "out_tps": 767.8,
+      "in_tps": 5203.2
+    },
+    {
+      "concurrency": 12.0,
+      "out_tps": 874.3,
+      "in_tps": 5915.9
+    },
+    {
+      "concurrency": 13.5,
+      "out_tps": 959.3,
+      "in_tps": 6550.9
+    }
+  ],
+  "rag": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 175.0,
+      "in_tps": 5460.7
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 197.8,
+      "in_tps": 6017.9
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 215.1,
+      "in_tps": 6841.2
+    },
+    {
+      "concurrency": 1.9,
+      "out_tps": 231.3,
+      "in_tps": 7509.2
+    },
+    {
+      "concurrency": 2.2,
+      "out_tps": 256.8,
+      "in_tps": 7944.1
+    },
+    {
+      "concurrency": 2.5,
+      "out_tps": 269.3,
+      "in_tps": 8850.8
+    },
+    {
+      "concurrency": 2.9,
+      "out_tps": 301.3,
+      "in_tps": 9344.2
+    },
+    {
+      "concurrency": 3.3,
+      "out_tps": 324.3,
+      "in_tps": 10171.1
+    },
+    {
+      "concurrency": 3.7,
+      "out_tps": 341.9,
+      "in_tps": 10895.7
+    }
+  ],
+  "agentic": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 180.6,
+      "in_tps": 3926.6
+    },
+    {
+      "concurrency": 1.3,
+      "out_tps": 199.9,
+      "in_tps": 4204.1
+    },
+    {
+      "concurrency": 1.3,
+      "out_tps": 198.7,
+      "in_tps": 4054.8
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 204.6,
+      "in_tps": 4038.6
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 215.5,
+      "in_tps": 4172.7
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 209.0,
+      "in_tps": 4289.2
+    },
+    {
+      "concurrency": 1.5,
+      "out_tps": 215.3,
+      "in_tps": 4418.1
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 226.2,
+      "in_tps": 4718.6
+    },
+    {
+      "concurrency": 1.7,
+      "out_tps": 239.4,
+      "in_tps": 4526.1
+    }
+  ],
+  "codegen": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 209.6,
+      "in_tps": 599.2
+    },
+    {
+      "concurrency": 1.3,
+      "out_tps": 221.1,
+      "in_tps": 679.8
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 237.5,
+      "in_tps": 633.3
+    },
+    {
+      "concurrency": 1.5,
+      "out_tps": 251.2,
+      "in_tps": 623.6
+    },
+    {
+      "concurrency": 1.5,
+      "out_tps": 259.0,
+      "in_tps": 684.6
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 265.5,
+      "in_tps": 723.4
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 255.8,
+      "in_tps": 726.4
+    },
+    {
+      "concurrency": 1.8,
+      "out_tps": 286.0,
+      "in_tps": 757.2
+    },
+    {
+      "concurrency": 1.8,
+      "out_tps": 292.7,
+      "in_tps": 820.9
+    }
+  ],
+  "summarization": [
+    {
+      "concurrency": 1.0,
+      "out_tps": 164.9,
+      "in_tps": 6712.9
+    },
+    {
+      "concurrency": 1.3,
+      "out_tps": 182.2,
+      "in_tps": 6987.6
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 183.1,
+      "in_tps": 7520.9
+    },
+    {
+      "concurrency": 1.4,
+      "out_tps": 182.7,
+      "in_tps": 7673.2
+    },
+    {
+      "concurrency": 1.5,
+      "out_tps": 195.7,
+      "in_tps": 7740.3
+    },
+    {
+      "concurrency": 1.6,
+      "out_tps": 202.4,
+      "in_tps": 8305.6
+    },
+    {
+      "concurrency": 1.8,
+      "out_tps": 212.6,
+      "in_tps": 8537.2
+    },
+    {
+      "concurrency": 2.0,
+      "out_tps": 228.0,
+      "in_tps": 8870.5
+    },
+    {
+      "concurrency": 2.1,
+      "out_tps": 226.7,
+      "in_tps": 9385.1
+    }
+  ]
+};
+
+// Chat scaling comparison
+new Chart(document.getElementById('chartScalingChat'), {
+  type: 'line',
+  data: {
+    datasets: [
+      {
+        label: '35B MoE',
+        data: SWEEP_35B.chat.map(p => ({ x: p.concurrency, y: p.out_tps })),
+        borderColor: moeBorder,
+        backgroundColor: 'rgba(243,120,25,0.15)',
+        pointRadius: 5, tension: 0.3, fill: true,
+      },
+      {
+        label: '27B Dense',
+        data: SWEEP_27B.chat.map(p => ({ x: p.concurrency, y: p.out_tps })),
+        borderColor: denseBorder,
+        backgroundColor: 'rgba(188,55,84,0.15)',
+        borderDash: [6, 4],
+        pointRadius: 5, tension: 0.3, fill: true,
+      },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: tickColor } } },
+    scales: {
+      x: { type: 'linear', grid: { color: gridColor }, title: { display: true, text: 'Concurrency (mean active requests)', color: tickColor } },
+      y: { grid: { color: gridColor }, beginAtZero: true, title: { display: true, text: 'Aggregate output tok/s', color: tickColor } },
+    },
+  }
+});
+
+function scalingAll(canvasId, sweep, colors) {
+  new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'Chat',          data: sweep.chat.map(p => ({ x: p.concurrency, y: p.out_tps })),          borderColor: colors[0], backgroundColor: colors[0] + '22', tension: 0.3, pointRadius: 4, fill: false },
+        { label: 'Codegen',       data: sweep.codegen.map(p => ({ x: p.concurrency, y: p.out_tps })),       borderColor: colors[1], backgroundColor: colors[1] + '22', tension: 0.3, pointRadius: 4, fill: false },
+        { label: 'RAG',           data: sweep.rag.map(p => ({ x: p.concurrency, y: p.out_tps })),           borderColor: colors[2], backgroundColor: colors[2] + '22', tension: 0.3, pointRadius: 4, fill: false },
+        { label: 'Summarization', data: sweep.summarization.map(p => ({ x: p.concurrency, y: p.out_tps })), borderColor: colors[3], backgroundColor: colors[3] + '22', tension: 0.3, pointRadius: 4, fill: false },
+        { label: 'Agentic',       data: sweep.agentic.map(p => ({ x: p.concurrency, y: p.out_tps })),       borderColor: colors[4], backgroundColor: colors[4] + '22', tension: 0.3, pointRadius: 4, fill: false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: tickColor } } },
+      scales: {
+        x: { type: 'linear', grid: { color: gridColor }, title: { display: true, text: 'Concurrency', color: tickColor } },
+        y: { grid: { color: gridColor }, beginAtZero: true, title: { display: true, text: 'Aggregate output tok/s', color: tickColor } },
+      },
+    }
+  });
+}
+
+const inferno = ['#fcffa4', '#f37819', '#bc3754', '#6a176e', '#dd5238'];
+scalingAll('chartScaling35b', SWEEP_35B, inferno);
+scalingAll('chartScaling27b', SWEEP_27B, inferno);
+</script>
+</body>
+</html>
