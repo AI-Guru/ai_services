@@ -174,6 +174,7 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 |------|--------|-------|----------|-------|
 | `docker-compose.vllm-27b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
 | `docker-compose.vllm-27b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled |
+| `docker-compose.vllm-27b-nvfp4-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Community NVFP4 (mmangkad/Qwen3.6-27B-NVFP4) |
 | `docker-compose.vllm-27b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, ~54 GB BF16 weights |
 | `docker-compose.sglang-27b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
 
@@ -189,6 +190,7 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 |--------|------:|-----:|-----------:|--------|
 | **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled |
 | **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal |
+| **vLLM NVFP4** | 44.9 | 36.7s | 36.6s | vLLM v0.19.0, FlashInfer Cutlass NVFP4 backend, single GPU |
 | **vLLM BF16 text-only** | 28.3 | 64.9s | 64.8s | vLLM v0.19.0, BF16 + vision disabled |
 | **SGLang FP8 + MTP** | — | — | — | Config present but NEXTN spec decoding produces garbage (EAGLE fallback); fix pending |
 
@@ -201,6 +203,14 @@ halved, confirming the bandwidth-bound profile.
 
 The vision encoder adds negligible overhead for text-only inference (both FP8
 variants measured identical throughput).
+
+**NVFP4 surprise**: Despite Blackwell's hardware NVFP4 tensor cores, single-GPU
+NVFP4 measured 44.9 tok/s — *slightly slower* than FP8. Why: only the linear
+ops in transformer blocks are FP4-quantized (~14 GB), the rest stays BF16/FP8
+(~17 GB), so total memory bandwidth pressure is similar to plain FP8. The
+upstream community recipe achieves higher throughput by adding `--tensor-parallel-size 2`
+to split weights across two GPUs — which is the actual source of speedup,
+not NVFP4 itself. NVFP4 may be more advantageous for prefill or multi-GPU setups.
 
 ### Startup time
 
