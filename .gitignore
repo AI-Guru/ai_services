@@ -174,4 +174,4 @@ cython_debug/
 .pypirc
 
 # GuideLLM benchmark JSON dumps (per-request raw data, multi-MB)
-models/*/benchmarks/guidellm/*/benchmarks.json
+models/*/benchmarks/guidellm*/*/benchmarks.json

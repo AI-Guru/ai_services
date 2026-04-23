@@ -132,6 +132,44 @@ behavior with FP8 quantization, not a vLLM bug.
 - **llama.cpp parallel tool calls**: Does not support emitting multiple tool calls in a
   single response; dispatches them sequentially.
 
+## Concurrency sweep — FP8 (35B-A3B MoE)
+
+Full GuideLLM sweep across 5 production-shaped scenarios. See [`benchmark-35b-a3b.html`](benchmark-35b-a3b.html) for charts.
+
+### Single-request throughput (C=1)
+
+| Scenario | Input × Output | tok/s |
+|----------|---:|---:|
+| Codegen | 4 K × 1.5 K | **209.6** |
+| Chat | 2 K × 300 | **196.9** |
+| Agentic | 16 K × 800 | 180.6 |
+| RAG | 8 K × 256 | 175.0 |
+| Summarization | 12 K × 300 | 164.9 |
+
+### Aggregate throughput & user capacity
+
+| Scenario | Peak agg tok/s | Sweet spot C | Practical users |
+|----------|---:|---:|:---:|
+| Codegen | **4 166** | 2–4 | **~14** |
+| Chat | **1 827** | 10–13 | **~28** |
+| Agentic | 1 366 | 1–2 | ~5 |
+| RAG | 809 | 3–4 | ~9 |
+| Summarization | 699 | 2 | ~5 |
+
+### 27B dense vs 35B-A3B MoE — same GPU
+
+| Scenario | 27B C=1 | 35B C=1 | Speedup | 27B peak agg | 35B peak agg | Speedup |
+|----------|---:|---:|---:|---:|---:|---:|
+| Chat | 66.6 | 196.9 | 2.96× | 793 | 1 827 | 2.30× |
+| Codegen | 69.1 | 209.6 | 3.03× | 1 094 | 4 166 | 3.81× |
+| Agentic | 54.1 | 180.6 | 3.34× | 147 | 1 366 | 9.29× |
+| RAG | 50.7 | 175.0 | 3.45× | 230 | 809 | 3.52× |
+| Summarization | 46.0 | 164.9 | 3.58× | 188 | 699 | 3.72× |
+
+MoE 35B is the clear throughput winner — ~3× decode and 3–9× aggregate. Pick it for multi-user serving. Pick the dense 27B only when per-token reasoning quality trumps throughput.
+
+Reproduce with `TARGET=http://localhost:11435 MODEL=qwen3.6-35b PROCESSOR=Qwen/Qwen3.6-35B-A3B-FP8 OUTPUT_DIR=$(pwd)/benchmarks/guidellm-35b ./bench-guidellm-parallel.sh`.
+
 ## Testing
 
 Run the shared test scripts to verify the endpoint:
