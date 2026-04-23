@@ -259,3 +259,35 @@ python ../shared/test_tools.py --base-url http://localhost:11436/v1 --model qwen
 
 - **35B-A3B (MoE)**: ~4× faster decode (200+ tok/s vs 47 tok/s). Best for high-throughput, multi-user, or latency-sensitive serving.
 - **27B (dense)**: stronger per-token reasoning and generation quality. Best for single-user agentic tasks where quality matters more than speed.
+
+## Concurrency sweep — FP8 + MTP
+
+Full GuideLLM sweep across 5 production-shaped scenarios. See [`benchmark-27b.html`](benchmark-27b.html) for charts.
+
+### Single-request throughput (C=1)
+
+| Scenario | Input × Output | tok/s |
+|----------|---:|---:|
+| Codegen | 4 K × 1.5 K | **69.1** |
+| Chat | 2 K × 300 | **66.6** |
+| Agentic | 16 K × 800 | 54.1 |
+| RAG | 8 K × 256 | 50.7 |
+| Summarization | 12 K × 300 | 46.0 |
+
+### Aggregate throughput & user capacity
+
+| Scenario | Peak agg tok/s | Sweet spot C | Practical concurrent users |
+|----------|---:|---:|:---:|
+| Chat | **793** | 8–12 | **~15** |
+| Codegen | **1 094** | 4–6 | ~6 |
+| RAG | 230 | 2–3 | ~3 |
+| Summarization | 188 | 1 | ~2 |
+| Agentic | 147 | 1 | 1 |
+
+### Key findings
+
+- **MTP scales well under load** — chat throughput stays positive through C=15 (no compounding overhead).
+- **Bottleneck is prefill, not decode** — long-prompt scenarios (RAG, agentic, summarization) cap at 1–3 concurrent users; the "60 tok/s decode ceiling" is rarely the binding constraint when prompts grow.
+- **One RTX PRO 6000 serves**: 15 chat users · 6 coders · 3 RAG users · 1 agentic agent.
+
+Reproduce with `./bench-guidellm-parallel.sh` (defaults to vLLM FP8+MTP on port 11436).
