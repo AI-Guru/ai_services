@@ -75,6 +75,8 @@ services:
       - "16384"
       - --chat-template
       - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11436/health"]

@@ -188,8 +188,9 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 
 | Config | tok/s | TTFT | Think time | Engine |
 |--------|------:|-----:|-----------:|--------|
-| **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled |
-| **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal |
+| **vLLM FP8 + MTP** | **66.2** | **26.0s** | 26.0s | vLLM v0.19.0, FP8 + `qwen3_next_mtp` speculative decoding ★ |
+| **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled (no MTP) |
+| **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal (no MTP) |
 | **vLLM NVFP4** | 44.9 | 36.7s | 36.6s | vLLM v0.19.0, FlashInfer Cutlass NVFP4 backend, single GPU |
 | **vLLM BF16 text-only** | 28.3 | 64.9s | 64.8s | vLLM v0.19.0, BF16 + vision disabled |
 | **SGLang FP8 + MTP** | — | — | — | Config present but NEXTN spec decoding produces garbage (EAGLE fallback); fix pending |
@@ -211,6 +212,23 @@ ops in transformer blocks are FP4-quantized (~14 GB), the rest stays BF16/FP8
 upstream community recipe achieves higher throughput by adding `--tensor-parallel-size 2`
 to split weights across two GPUs — which is the actual source of speedup,
 not NVFP4 itself. NVFP4 may be more advantageous for prefill or multi-GPU setups.
+
+**MTP speculative decoding wins big**: Adding
+`--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'`
+to the FP8 config jumped throughput from 47 → 66.2 tok/s on long generations
+(+41%). MTP uses Qwen3.6's native draft heads to speculate one token ahead;
+verification batches the draft + target in a single forward pass. Pure-decode
+on short outputs (~64 tokens) dropped slightly (-13%) due to draft+verify
+overhead, but long generations dominate this thinking model's typical
+workload. `num_speculative_tokens=2` was untested — DeltaNet hybrid recurrent
+state can't restore on partial accept, so gains saturate near 1.
+
+The Blackwell flag bundle (`--async-scheduling`, `--cuda-graph-capture-size`,
+`--compilation-config '{"level":3}'`) suggested by community blogs is
+**redundant or invalid** in vLLM v0.19: async scheduling is on by default,
+the cuda-graph CLI flag doesn't exist (it's a `compilation-config` JSON
+sub-field), and `level:3` (VLLM_COMPILE) is the default `mode`. No gains
+available from this path.
 
 ### Startup time
 
