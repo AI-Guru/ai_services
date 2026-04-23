@@ -76,6 +76,10 @@ services:
       - "16384"
       - --chat-template
       - /chat_template.jinja
+      # NOTE: MTP speculative decoding tested 2026-04-23 and gave NO speedup
+      # for 35B-A3B (201.7 vs 203.2 tok/s baseline). MoE decode is already
+      # cheap (~3B active), so draft+verify overhead eats the speculative gain.
+      # The dense 27B benefits (+41%) but the MoE 35B does not. Keeping MTP off.
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11435/health"]

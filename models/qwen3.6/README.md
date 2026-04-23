@@ -117,6 +117,12 @@ behavior with FP8 quantization, not a vLLM bug.
 
 ### Known issues
 
+- **MTP speculative decoding does not help the 35B-A3B**. Tested 2026-04-23 with
+  `--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'`:
+  201.7 tok/s vs 203.2 baseline (no measurable change). MoE decode on ~3B active
+  params is already cheap, so the draft+verify overhead eats the speculative gain.
+  The dense 27B sees +41% from the same flag because its forward pass is ~9× more
+  expensive (27B vs 3B active). Both 35B FP8 configs leave MTP off by default.
 - **vLLM 1M context (BF16)**: Crashes in a restart loop on 96 GB GPU. BF16 weights consume
   66 GB, leaving insufficient VRAM for 1M-token KV cache. Needs FP8 weights or >128 GB VRAM.
 - **SGLang + MTP + DeltaNet**: Requires `--mamba-scheduler-strategy extra_buffer` and
