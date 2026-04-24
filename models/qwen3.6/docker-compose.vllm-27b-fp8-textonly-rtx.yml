@@ -42,7 +42,7 @@ services:
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
-      - ./qwen3.6_chat_template.jinja:/chat_template.jinja:ro
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
 
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
