@@ -125,6 +125,26 @@ behavior with FP8 quantization, not a vLLM bug.
   expensive (27B vs 3B active). Both 35B FP8 configs leave MTP off by default.
 - **vLLM 1M context (BF16)**: Crashes in a restart loop on 96 GB GPU. BF16 weights consume
   66 GB, leaving insufficient VRAM for 1M-token KV cache. Needs FP8 weights or >128 GB VRAM.
+
+## DFlash speculative decoding (experimental)
+
+**[`docker-compose.vllm-27b-fp8-dflash-rtx.yml`](docker-compose.vllm-27b-fp8-dflash-rtx.yml)** replaces MTP with z-lab's DFlash block-diffusion drafter. Tested 2026-04-24:
+
+| Config | Single-user tok/s | Δ vs FP8 baseline |
+|--------|------------------:|-----------------:|
+| FP8 baseline | 47.0 | — |
+| FP8 + MTP | 66.6 | +41 % |
+| **FP8 + DFlash** | **93–98** | **+99 %** |
+
+Requirements:
+- **vLLM nightly** (`vllm/vllm-openai:cu130-nightly`) — `dflash` method is NOT in v0.19.0
+- **HF_TOKEN with access to gated repo** `z-lab/Qwen3.6-27B-DFlash` (accept terms on the HF page, then put token in project-root `.env`)
+- Start with `docker compose --env-file ../../.env -f docker-compose.vllm-27b-fp8-dflash-rtx.yml up -d`
+
+Caveats:
+- Drafter is labelled "still under training" by z-lab — output quality is lossless in principle but monitor for regressions
+- Nightly vLLM may have other regressions (untested against Gemma 4, Qwen 3.5, etc.)
+- z-lab reports 4–5× on B200; we measure 2× on RTX PRO 6000 — the lower bandwidth (1.6 vs 3.4 TB/s) explains the gap
 - **SGLang + MTP + DeltaNet**: Requires `--mamba-scheduler-strategy extra_buffer` and
   `SGLANG_ENABLE_SPEC_V2=1` to avoid radix cache conflict with speculative decoding.
 - **FP8 KV cache**: Omitted on all configs — DeltaNet linear attention state produces

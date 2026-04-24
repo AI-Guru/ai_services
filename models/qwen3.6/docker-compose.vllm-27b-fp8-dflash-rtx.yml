@@ -1,0 +1,108 @@
+# Qwen3.6-27B-FP8 + DFlash speculative decoding (experimental)
+#
+# Uses Qwen/Qwen3.6-27B-FP8 as target and z-lab/Qwen3.6-27B-DFlash as the
+# speculative drafter. DFlash uses block-diffusion drafting (not autoregressive
+# like MTP/EAGLE), drafting 8-16 tokens in a single drafter forward pass.
+#
+# Reported speedups (z-lab Qwen3.5-27B-DFlash on B200): 4-5x at concurrency=1.
+# No published numbers yet for the 3.6-27B variant — this config is exploratory.
+#
+# Status: drafter is "still under training" per the model card (architectural
+# changes including causal SWA layers). Treat output quality as unverified.
+#
+# Replaces the MTP --speculative-config from docker-compose.vllm-27b-fp8-rtx.yml.
+# The drafter (~4 GB BF16) is downloaded automatically on first start.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-fp8-dflash-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+#
+# Refs:
+#   https://huggingface.co/z-lab/Qwen3.6-27B-DFlash
+#   https://huggingface.co/z-lab/Qwen3.5-27B-DFlash (the original, with B200 numbers)
+#   arXiv:2602.06036
+
+services:
+  qwen36-27b-fp8-dflash:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-fp8-dflash
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.6-27B-FP8
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/Qwen3.6-27B-DFlash","num_speculative_tokens":15}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
