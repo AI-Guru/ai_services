@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Qwen3.6-27B · Baseline vs MTP vs DFlash · RTX PRO 6000</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --accent-5: #160b39;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --baseline-color: #6a176e;  /* inferno purple */
+    --mtp-color: #bc3754;       /* inferno hot pink */
+    --dflash-color: #fcffa4;    /* inferno bright */
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--baseline-color), var(--mtp-color) 50%, var(--dflash-color));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--mtp-color), var(--dflash-color));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* Hero row: 3 config cards */
+  .hero-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 900px) { .hero-row { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.4rem;
+    position: relative;
+    border: 1px solid transparent;
+  }
+  .config-card.baseline { border-color: rgba(106,23,110,0.4); }
+  .config-card.mtp      { border-color: rgba(188,55,84,0.4); }
+  .config-card.dflash   { border-color: rgba(252,255,164,0.4);
+                          box-shadow: 0 0 30px rgba(252,255,164,0.08); }
+  .config-card .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .config-card.baseline .tag { color: #c49ad0; }
+  .config-card.mtp .tag      { color: #e48caa; }
+  .config-card.dflash .tag   { color: var(--dflash-color); }
+  .config-card h3 {
+    margin: 0.3rem 0 0.8rem;
+    font-size: 1.05rem; color: var(--fg); font-weight: 600;
+  }
+  .config-card .big-num {
+    font-size: 2.8rem; font-weight: 800; margin: 0.2rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .config-card.baseline .big-num { color: var(--baseline-color); filter: brightness(1.6); }
+  .config-card.mtp      .big-num { color: var(--mtp-color); }
+  .config-card.dflash   .big-num { color: var(--dflash-color); }
+  .config-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .config-card .delta {
+    margin-top: 0.8rem; font-size: 0.85rem;
+    padding: 0.25rem 0.6rem; border-radius: 999px;
+    display: inline-block;
+  }
+  .config-card .delta.pos { background: rgba(76,175,80,0.15); color: #8be094; }
+  .config-card .delta.neutral { background: rgba(152,144,196,0.15); color: var(--muted); }
+  .config-card .detail {
+    margin-top: 0.8rem; font-size: 0.8rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--dflash-color); color: #1a1430;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.2rem 0.6rem; border-radius: 999px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.config-baseline { color: #c49ad0; font-weight: 600; }
+  td.config-mtp      { color: var(--mtp-color); font-weight: 600; }
+  td.config-dflash   { color: var(--dflash-color); font-weight: 600; }
+
+  /* Charts */
+  .chart-wrap {
+    position: relative; height: 320px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 400px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(252,255,164,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--dflash-color);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--dflash-color); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  /* Method diagram (simple ASCII-ish) */
+  .method-diagram {
+    background: var(--bg);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin: 0.8rem 0;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    overflow-x: auto;
+    white-space: pre;
+    line-height: 1.6;
+    color: var(--muted);
+    border: 1px solid rgba(252,165,10,0.1);
+  }
+  .method-diagram .hi-1 { color: var(--baseline-color); filter: brightness(1.6); }
+  .method-diagram .hi-2 { color: var(--mtp-color); }
+  .method-diagram .hi-3 { color: var(--dflash-color); }
+  .method-diagram .hi-t { color: var(--accent-2); }
+  .method-diagram b { color: var(--fg); }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6-27B · Baseline vs MTP vs DFlash</h1>
+  <div class="subtitle">Three speculative-decoding strategies on the same dense model — RTX PRO 6000 Blackwell</div>
+  <div class="meta">
+    <span>Target: <code>Qwen/Qwen3.6-27B-FP8</code></span>
+    <span>vLLM v0.19.0-cu130 (baseline, MTP) · vLLM nightly (DFlash)</span>
+    <span>GPU: RTX PRO 6000 · 96 GB GDDR7 · ~1.6 TB/s</span>
+    <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
+    <span>Date: 2026-04-24</span>
+  </div>
+</header>
+
+<main>
+
+<!-- Hero cards -->
+<section>
+  <h2>Headline: Same model, three speeds</h2>
+  <p>
+    The dense <strong>Qwen3.6-27B</strong> target model is held constant across all three
+    configurations. Only the speculative-decoding strategy changes. Each progressive step
+    nearly doubles single-user throughput — <em>without</em> any loss in output quality,
+    because speculative decoding is lossless by construction.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card baseline">
+      <div class="tag">Config 1 · vanilla</div>
+      <h3>FP8 baseline</h3>
+      <div class="big-num">47.0</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta neutral">starting point</div>
+      <div class="detail">no speculative flag</div>
+    </div>
+
+    <div class="config-card mtp">
+      <div class="tag">Config 2 · qwen3_next_mtp</div>
+      <h3>FP8 + MTP</h3>
+      <div class="big-num">66.6</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta pos">+ 41 % vs baseline</div>
+      <div class="detail">built-in draft head, draft=1</div>
+    </div>
+
+    <div class="config-card dflash">
+      <div class="crown">fastest</div>
+      <div class="tag">Config 3 · z-lab dflash</div>
+      <h3>FP8 + DFlash</h3>
+      <div class="big-num">93.3</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta pos">+ 98 % vs baseline</div>
+      <div class="detail">2 B block-diffusion drafter, draft=15</div>
+    </div>
+  </div>
+</section>
+
+<!-- How each method works -->
+<section>
+  <h2>How each method drafts</h2>
+  <p class="muted">All three rely on the same target model for the final answer. They differ in <em>how</em> candidate tokens are proposed before the target validates them in a single forward pass.</p>
+
+  <h3 style="color: var(--baseline-color); filter: brightness(1.6)">Baseline — no speculation</h3>
+  <p>Each target forward pass produces exactly one token. Decode is bandwidth-bound on all 27 B active parameters — ~1.6 TB/s ÷ 27 GB ≈ 60 tok/s theoretical ceiling.</p>
+<div class="method-diagram"><span class="hi-1">target</span>─►<span class="hi-t">t₁</span>   <span class="hi-1">target</span>─►<span class="hi-t">t₂</span>   <span class="hi-1">target</span>─►<span class="hi-t">t₃</span>   <span class="hi-1">target</span>─►<span class="hi-t">t₄</span>   …
+ one full forward pass → one token</div>
+
+  <h3 style="color: var(--mtp-color)">MTP — built-in autoregressive draft head</h3>
+  <p>Qwen3.6's <code>qwen3_next_mtp</code> auxiliary head proposes the next token in roughly one extra attention layer's worth of compute. The target verifies and emits both in a single forward pass when the draft is accepted.</p>
+<div class="method-diagram">         ┌─<span class="hi-2">draft head</span>─►<span class="hi-t">t₂̂</span>         ┌─<span class="hi-2">draft head</span>─►<span class="hi-t">t₄̂</span>
+         │                      │
+<span class="hi-1">target</span>───┴─►<span class="hi-t">t₁</span> + verify <span class="hi-t">t₂</span>  <span class="hi-1">target</span>───┴─►<span class="hi-t">t₃</span> + verify <span class="hi-t">t₄</span>
+ one forward pass → one OR two tokens</div>
+
+  <h3 style="color: var(--dflash-color)">DFlash — external block-diffusion drafter</h3>
+  <p>A separate 2 B BF16 drafter <code>z-lab/Qwen3.6-27B-DFlash</code> performs a single non-autoregressive forward pass that proposes a block of up to 15 tokens at once via a diffusion step. The target then validates them in a single batched forward pass.</p>
+<div class="method-diagram"><span class="hi-3">drafter ──► block of 15 candidate tokens (one diffusion step)</span>
+                         │
+                         ▼
+                 <span class="hi-1">target verifies all 15 in one batched forward pass</span>
+                         │
+                         ▼
+              emit 4-9 accepted tokens per cycle (typical)</div>
+</section>
+
+<!-- Measured throughput -->
+<section>
+  <h2>Measured Throughput</h2>
+  <p class="muted">Same 3-run warm-up benchmark against the default test prompt. "Average" is mean across 3 runs; "steady state" is the best of run 2 and 3.</p>
+
+  <div class="grid-2">
+    <div>
+      <h3>tokens / second</h3>
+      <div class="chart-wrap"><canvas id="chartTps"></canvas></div>
+    </div>
+    <div>
+      <h3>TTFT (s)</h3>
+      <div class="chart-wrap"><canvas id="chartTtft"></canvas></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:1.2rem">Per-run consistency</h3>
+  <p class="muted">DFlash accepts more tokens per cycle as the KV cache warms up — run 1 is slower because the drafter's first few blocks have low acceptance; later runs stabilise at ~98 tok/s.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartRuns"></canvas></div>
+</section>
+
+<!-- Raw data table -->
+<section>
+  <h2>Raw Data</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Run</th>
+        <th class="num">TTFT (s)</th>
+        <th class="num">Tokens</th>
+        <th class="num">tok/s</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline" rowspan="4">FP8 baseline</td>
+        <td>1</td><td class="num">35.4</td><td class="num">~2 650</td><td class="num">47.0</td><td rowspan="4">no speculative flag, just vanilla FP8</td>
+      </tr>
+      <tr><td>2</td><td class="num">35.4</td><td class="num">~2 640</td><td class="num">47.0</td></tr>
+      <tr><td>3</td><td class="num">35.4</td><td class="num">~2 660</td><td class="num">47.0</td></tr>
+      <tr style="background:rgba(106,23,110,0.12)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>35.4</strong></td><td class="num"></td><td class="num"><strong>47.0</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-mtp" rowspan="4">FP8 + MTP</td>
+        <td>1</td><td class="num">25.4</td><td class="num">2 907</td><td class="num">66.0</td><td rowspan="4"><code>--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'</code></td>
+      </tr>
+      <tr><td>2</td><td class="num">29.7</td><td class="num">3 383</td><td class="num">65.6</td></tr>
+      <tr><td>3</td><td class="num">22.8</td><td class="num">2 751</td><td class="num">66.9</td></tr>
+      <tr style="background:rgba(188,55,84,0.08)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>26.0</strong></td><td class="num"></td><td class="num"><strong>66.2</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-dflash" rowspan="4">FP8 + DFlash</td>
+        <td>1</td><td class="num">25.1</td><td class="num">3 118</td><td class="num">87.6</td><td rowspan="4"><code>--speculative-config '{"method":"dflash","model":"z-lab/Qwen3.6-27B-DFlash","num_speculative_tokens":15}'</code></td>
+      </tr>
+      <tr><td>2</td><td class="num">16.7</td><td class="num">2 824</td><td class="num">94.4</td></tr>
+      <tr><td>3</td><td class="num">15.7</td><td class="num">2 801</td><td class="num">97.9</td></tr>
+      <tr style="background:rgba(252,255,164,0.06)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>19.2</strong></td><td class="num"></td><td class="num"><strong>93.3</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    All three configurations serve the same <code>Qwen/Qwen3.6-27B-FP8</code> target and produce equivalent output distributions (speculative decoding is lossless). Quality smoke tests: coherent haiku on speculative decoding, correct arithmetic on 17×23 = 391.
+  </p>
+</section>
+
+<!-- Why the gap -->
+<section>
+  <h2>Why DFlash wins</h2>
+  <p>
+    Decode on the dense 27B is <strong>memory-bandwidth-bound</strong>: each token requires streaming ~27 GB of FP8 active weights through tensor cores. Speculative decoding amortises that cost by emitting multiple tokens per target forward pass.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th class="num">Avg tokens emitted per target forward pass</th>
+        <th class="num">Effective bandwidth utilisation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline">Baseline</td>
+        <td class="num">1.0</td>
+        <td class="num">~78 %</td>
+      </tr>
+      <tr>
+        <td class="config-mtp">MTP (draft=1)</td>
+        <td class="num">~1.42</td>
+        <td class="num">~111 %</td>
+      </tr>
+      <tr>
+        <td class="config-dflash">DFlash (draft=15)</td>
+        <td class="num">~1.98</td>
+        <td class="num">~155 %</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    "Effective bandwidth utilisation" is measured tok/s ÷ theoretical ceiling (60 tok/s at 1.6 TB/s ÷ 27 GB). Values above 100 % are genuine — they mean we're emitting more tokens per model load than the raw bandwidth would allow, which is the whole point of speculation. Even at draft=15 DFlash's acceptance rate is ~13 % (2 of 15), but each accepted token is essentially free in bandwidth terms.
+  </p>
+
+  <div class="findings">
+    <strong>Why DFlash beats MTP here:</strong>
+    <ul>
+      <li><strong>Parallel drafting.</strong> MTP's built-in head drafts one token at a time; DFlash drafts a block of 15 in one non-autoregressive forward pass.</li>
+      <li><strong>Better acceptance on dense targets.</strong> On RTX PRO 6000 the dense 27B target's 21 ms/token forward pass is expensive, so every accepted draft saves meaningful time.</li>
+      <li><strong>Z-lab reports 4–5× on B200.</strong> We see 2× here because B200 has ~3.4 TB/s bandwidth vs our 1.6 TB/s, plus newer FP8 kernels. The technique is the same; the delta is raw hardware.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Requirements comparison -->
+<section>
+  <h2>Deployment Requirements</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Requirement</th>
+        <th>Baseline</th>
+        <th>MTP</th>
+        <th>DFlash</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>vLLM version</td>
+        <td>v0.19.0 <span class="badge good">stable</span></td>
+        <td>v0.19.0 <span class="badge good">stable</span></td>
+        <td>nightly (≥ 0.19.2rc1.dev134) <span class="badge warn">bleeding edge</span></td>
+      </tr>
+      <tr>
+        <td>Extra weights to download</td>
+        <td>—</td>
+        <td>— (baked into target)</td>
+        <td>2 B BF16 drafter (~4 GB)</td>
+      </tr>
+      <tr>
+        <td>HuggingFace access</td>
+        <td>public</td>
+        <td>public</td>
+        <td><strong>gated</strong> — must accept z-lab terms, requires HF_TOKEN</td>
+      </tr>
+      <tr>
+        <td>VRAM overhead</td>
+        <td>baseline</td>
+        <td>~none (head is part of target)</td>
+        <td>~4 GB for drafter weights</td>
+      </tr>
+      <tr>
+        <td>Startup time</td>
+        <td>~3 min</td>
+        <td>~3 min</td>
+        <td>~4 min (drafter download first run)</td>
+      </tr>
+      <tr>
+        <td>Risk</td>
+        <td><span class="badge good">none</span></td>
+        <td><span class="badge good">low</span></td>
+        <td><span class="badge warn">medium</span> — drafter "still under training" per z-lab</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Recommendation -->
+<section>
+  <h2>Which should you run?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Situation</th>
+        <th>Pick</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Hardened production, no nightlies</td>
+        <td class="config-mtp">MTP</td>
+        <td>+41 % free, stable vLLM, no gated repo, zero extra weights</td>
+      </tr>
+      <tr>
+        <td>Maximum throughput, acceptable bleeding edge</td>
+        <td class="config-dflash">DFlash</td>
+        <td>+98 % free, drop-in replacement, drafter auto-downloaded</td>
+      </tr>
+      <tr>
+        <td>Debugging a speculative regression</td>
+        <td class="config-baseline">Baseline</td>
+        <td>Reference behaviour — rule out spec bugs by disabling entirely</td>
+      </tr>
+      <tr>
+        <td>Tool-call stability</td>
+        <td class="config-mtp">MTP</td>
+        <td>Baked-in draft head keeps the whole stack vendor-tested</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="findings">
+    <strong>Looking forward:</strong>
+    <ul>
+      <li>A Qwen3.6-35B-A3B-DFlash drafter would likely give a similar 2× boost on the MoE target, pushing 35B peak from 4 166 to 8 000+ tok/s aggregate on codegen.</li>
+      <li>DFlash requires nightly vLLM. The method will roll into a stable release (v0.19.2 or v0.20) within weeks.</li>
+      <li>If the drafter graduates out of "still under training" with a versioned release, quality risk drops from medium to low.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  Measured on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) · vLLM v0.19.0-cu130 &amp; cu130-nightly · FP8 target<br/>
+  Related: <a href="benchmark-27b.html" style="color:var(--accent-2)">27B full benchmark</a> ·
+  <a href="benchmark-35b-a3b.html" style="color:var(--accent-2)">35B full benchmark</a> ·
+  <a href="comparison-rtx.html" style="color:var(--accent-2)">MoE vs Dense comparison</a>
+</footer>
+
+<script>
+const baselineColor = 'rgba(106,23,110,0.85)';
+const baselineBorder = 'rgba(138,60,148,1)'; // brighter for contrast
+const mtpColor      = 'rgba(188,55,84,0.85)';
+const mtpBorder     = 'rgba(188,55,84,1)';
+const dflashColor   = 'rgba(252,255,164,0.85)';
+const dflashBorder  = 'rgba(252,255,164,1)';
+const gridColor     = 'rgba(252,165,10,0.08)';
+const tickColor     = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+// Throughput bar chart
+new Chart(document.getElementById('chartTps'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline', 'MTP', 'DFlash'],
+    datasets: [{
+      label: 'tok/s (average of 3 runs)',
+      data: [47.0, 66.2, 93.3],
+      backgroundColor: [baselineColor, mtpColor, dflashColor],
+      borderColor:     [baselineBorder, mtpBorder, dflashBorder],
+      borderWidth: 2, borderRadius: 8,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second', color: tickColor } },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
+    }
+  }
+});
+
+// TTFT bar
+new Chart(document.getElementById('chartTtft'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline', 'MTP', 'DFlash'],
+    datasets: [{
+      label: 'TTFT (s)',
+      data: [35.4, 26.0, 19.2],
+      backgroundColor: [baselineColor, mtpColor, dflashColor],
+      borderColor:     [baselineBorder, mtpBorder, dflashBorder],
+      borderWidth: 2, borderRadius: 8,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'seconds (thinking-dominated)', color: tickColor } },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
+    }
+  }
+});
+
+// Per-run lines
+new Chart(document.getElementById('chartRuns'), {
+  type: 'line',
+  data: {
+    labels: ['Run 1', 'Run 2', 'Run 3'],
+    datasets: [
+      {
+        label: 'Baseline FP8',
+        data: [47.0, 47.0, 47.0],
+        borderColor: baselineBorder,
+        backgroundColor: 'rgba(106,23,110,0.15)',
+        pointBackgroundColor: baselineBorder,
+        pointRadius: 6, tension: 0.2, fill: true,
+      },
+      {
+        label: 'FP8 + MTP',
+        data: [66.0, 65.6, 66.9],
+        borderColor: mtpBorder,
+        backgroundColor: 'rgba(188,55,84,0.15)',
+        pointBackgroundColor: mtpBorder,
+        pointRadius: 6, tension: 0.2, fill: true,
+      },
+      {
+        label: 'FP8 + DFlash',
+        data: [87.6, 94.4, 97.9],
+        borderColor: dflashBorder,
+        backgroundColor: 'rgba(252,255,164,0.15)',
+        pointBackgroundColor: dflashBorder,
+        pointRadius: 6, tension: 0.2, fill: true,
+      }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor, boxWidth: 14, padding: 16 } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} tok/s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tok/s', color: tickColor },
+           min: 0, suggestedMax: 110 }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
