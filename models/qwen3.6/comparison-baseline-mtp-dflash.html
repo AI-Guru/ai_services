@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Qwen3.6-27B · Baseline vs MTP vs DFlash · RTX PRO 6000</title>
+<title>Qwen3.6 · Baseline vs MTP vs DFlash · RTX PRO 6000</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root {
@@ -227,10 +227,11 @@
 <body>
 
 <header>
-  <h1>Qwen3.6-27B · Baseline vs MTP vs DFlash</h1>
-  <div class="subtitle">Three speculative-decoding strategies on the same dense model — RTX PRO 6000 Blackwell</div>
+  <h1>Qwen3.6 · Baseline vs MTP vs DFlash</h1>
+  <div class="subtitle">Three speculative-decoding strategies — measured on the dense 27B and the MoE 35B-A3B</div>
   <div class="meta">
-    <span>Target: <code>Qwen/Qwen3.6-27B-FP8</code></span>
+    <span>Targets: <code>Qwen/Qwen3.6-27B-FP8</code>, <code>Qwen/Qwen3.6-35B-A3B-FP8</code></span>
+    <span>Drafters: <code>z-lab/Qwen3.6-27B-DFlash</code> (2 B), <code>z-lab/Qwen3.6-35B-A3B-DFlash</code> (0.5 B)</span>
     <span>vLLM v0.19.0-cu130 (baseline, MTP) · vLLM nightly (DFlash)</span>
     <span>GPU: RTX PRO 6000 · 96 GB GDDR7 · ~1.6 TB/s</span>
     <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
@@ -524,11 +525,111 @@
   <div class="findings">
     <strong>Looking forward:</strong>
     <ul>
-      <li>A Qwen3.6-35B-A3B-DFlash drafter would likely give a similar 2× boost on the MoE target, pushing 35B peak from 4 166 to 8 000+ tok/s aggregate on codegen.</li>
       <li>DFlash requires nightly vLLM. The method will roll into a stable release (v0.19.2 or v0.20) within weeks.</li>
       <li>If the drafter graduates out of "still under training" with a versioned release, quality risk drops from medium to low.</li>
     </ul>
   </div>
+</section>
+
+<!-- ── Bonus: 35B-A3B MoE ───────────────────────────────────── -->
+<section>
+  <h2>Bonus: DFlash on the 35B-A3B MoE</h2>
+  <p>
+    z-lab also publish a <strong>finalized 0.5 B drafter</strong> for the
+    <code>Qwen3.6-35B-A3B</code> MoE target (one quarter the size of the 27B's
+    drafter). Earlier in the day MTP gave <em>zero</em> measurable gain on this
+    same MoE, so we tested DFlash to see if its different drafting strategy
+    would succeed where the autoregressive head failed.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card baseline">
+      <div class="tag">Config 1 · vanilla</div>
+      <h3>FP8 baseline (35B)</h3>
+      <div class="big-num">203</div>
+      <div class="unit">tok / s (steady state)</div>
+      <div class="delta neutral">starting point</div>
+      <div class="detail">no speculative flag</div>
+    </div>
+
+    <div class="config-card mtp">
+      <div class="tag">Config 2 · qwen3_next_mtp</div>
+      <h3>FP8 + MTP (35B)</h3>
+      <div class="big-num">202</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta neutral">±0 % vs baseline</div>
+      <div class="detail">MoE forward already too cheap</div>
+    </div>
+
+    <div class="config-card dflash">
+      <div class="tag">Config 3 · z-lab dflash</div>
+      <h3>FP8 + DFlash (35B)</h3>
+      <div class="big-num">232</div>
+      <div class="unit">tok / s (steady state)</div>
+      <div class="delta pos">+ 14 % vs baseline</div>
+      <div class="detail">0.5 B drafter, draft=15</div>
+    </div>
+  </div>
+
+  <p style="margin-top:1.2rem">
+    The <strong>+14 % steady-state gain</strong> (avg <strong>+5.8 %</strong>: 214.7 vs 203 tok/s)
+    is modest compared to DFlash's +98 % on the dense 27B, but it's a real win
+    — and the first speculative method to give the MoE 35B <em>any</em> measurable
+    speedup on this hardware. Quality smoke tests pass: coherent haiku, correct
+    arithmetic on 17×23, developer-role pirate persona honored.
+  </p>
+
+  <div class="findings">
+    <strong>Why DFlash succeeds where MTP failed on the MoE:</strong>
+    <ul>
+      <li><strong>External drafter, not a built-in head.</strong> MTP's draft head shares the MoE's expert-routing forward path; one drafted token costs almost as much as one verified token. DFlash's 0.5 B dense drafter has its own forward pass at ~1 ms — much cheaper than spawning the MoE for each draft token.</li>
+      <li><strong>Block diffusion, not autoregressive.</strong> DFlash drafts 15 tokens in a single non-autoregressive pass; MTP drafts 1 token per head call.</li>
+      <li><strong>Smaller gain than on dense 27B is expected.</strong> The MoE target's verify pass is cheap (~5 ms), so the bandwidth saved per accepted draft is smaller in absolute terms. The 27B target's forward pass is ~21 ms — every accepted draft saves roughly 4× more wall time.</li>
+    </ul>
+  </div>
+
+  <h3 style="margin-top:1.5rem">27B Dense vs 35B-A3B MoE — speedup ratio</h3>
+  <p class="muted">Single-user steady-state throughput, normalised to each model's own baseline. Same three configs across both targets — but the dense 27B has dramatically more headroom for speculative decoding to recover.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartCompare35vs27"></canvas></div>
+
+  <h3 style="margin-top:1.5rem">Raw 35B numbers</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Run</th>
+        <th class="num">tok/s</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline" rowspan="2">FP8 baseline</td>
+        <td>steady state</td><td class="num">203</td><td>vLLM v0.19.0, no spec flag (from earlier benchmark)</td>
+      </tr>
+      <tr style="background:rgba(106,23,110,0.12)">
+        <td><strong>avg</strong></td><td class="num"><strong>203</strong></td><td></td>
+      </tr>
+
+      <tr>
+        <td class="config-mtp" rowspan="2">FP8 + MTP</td>
+        <td>3-run avg</td><td class="num">201.7</td><td><code>--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'</code> — no improvement</td>
+      </tr>
+      <tr style="background:rgba(188,55,84,0.08)">
+        <td><strong>avg</strong></td><td class="num"><strong>201.7</strong></td><td></td>
+      </tr>
+
+      <tr>
+        <td class="config-dflash" rowspan="4">FP8 + DFlash</td>
+        <td>1</td><td class="num">187.0</td><td rowspan="4"><code>--speculative-config '{"method":"dflash","model":"z-lab/Qwen3.6-35B-A3B-DFlash","num_speculative_tokens":15}'</code></td>
+      </tr>
+      <tr><td>2</td><td class="num">232.3</td></tr>
+      <tr><td>3</td><td class="num">224.8</td></tr>
+      <tr style="background:rgba(252,255,164,0.06)">
+        <td><strong>avg</strong></td><td class="num"><strong>214.7</strong></td><td></td>
+      </tr>
+    </tbody>
+  </table>
 </section>
 
 </main>
@@ -652,6 +753,58 @@ new Chart(document.getElementById('chartRuns'), {
       y: { grid: { color: gridColor }, ticks: { color: tickColor },
            title: { display: true, text: 'tok/s', color: tickColor },
            min: 0, suggestedMax: 110 }
+    }
+  }
+});
+
+// 27B vs 35B speedup comparison
+new Chart(document.getElementById('chartCompare35vs27'), {
+  type: 'bar',
+  data: {
+    labels: ['Baseline', 'MTP', 'DFlash'],
+    datasets: [
+      {
+        label: '27B Dense (steady state)',
+        data: [47.0, 66.9, 97.9],
+        backgroundColor: 'rgba(188,55,84,0.7)',
+        borderColor: 'rgba(188,55,84,1)',
+        borderWidth: 2, borderRadius: 6,
+        yAxisID: 'y',
+      },
+      {
+        label: '35B-A3B MoE (steady state)',
+        data: [203, 202, 232.3],
+        backgroundColor: 'rgba(243,120,25,0.7)',
+        borderColor: 'rgba(243,120,25,1)',
+        borderWidth: 2, borderRadius: 6,
+        yAxisID: 'y',
+      },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor, boxWidth: 14, padding: 16 } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} tok/s`,
+          afterLabel: ctx => {
+            const baselines = { '27B Dense (steady state)': 47.0, '35B-A3B MoE (steady state)': 203 };
+            const base = baselines[ctx.dataset.label];
+            if (base && ctx.parsed.y !== base) {
+              const pct = ((ctx.parsed.y - base) / base) * 100;
+              return `(${pct >= 0 ? '+' : ''}${pct.toFixed(1)}% vs own baseline)`;
+            }
+            return '';
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor, font: { weight: '600' } } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tok/s (steady state)', color: tickColor },
+           beginAtZero: true }
     }
   }
 });
