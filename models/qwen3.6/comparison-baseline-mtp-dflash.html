@@ -500,14 +500,24 @@
     </thead>
     <tbody>
       <tr>
+        <td>Single-user interactive coding</td>
+        <td class="config-dflash">DFlash</td>
+        <td>+53–63 % at C=1 on chat/codegen — biggest practical win</td>
+      </tr>
+      <tr>
+        <td>Multi-user serving (C ≥ 10)</td>
+        <td class="config-mtp">MTP</td>
+        <td>Higher aggregate at high concurrency, lighter verify-batch overhead</td>
+      </tr>
+      <tr>
         <td>Hardened production, no nightlies</td>
         <td class="config-mtp">MTP</td>
         <td>+41 % free, stable vLLM, no gated repo, zero extra weights</td>
       </tr>
       <tr>
-        <td>Maximum throughput, acceptable bleeding edge</td>
-        <td class="config-dflash">DFlash</td>
-        <td>+98 % free, drop-in replacement, drafter auto-downloaded</td>
+        <td>Long-prompt agentic workloads (16K+)</td>
+        <td class="config-mtp">MTP</td>
+        <td>Drafter acceptance drops at long context; not worth DFlash's complexity</td>
       </tr>
       <tr>
         <td>Debugging a speculative regression</td>
@@ -632,6 +642,102 @@
   </table>
 </section>
 
+<!-- ── Under concurrency (full GuideLLM sweep) ───────────────── -->
+<section>
+  <h2>Under concurrency: MTP vs DFlash on the 27B</h2>
+  <p>
+    Single-user benchmarks are flattering to DFlash. To see how each method actually behaves under load,
+    we ran the full GuideLLM sweep against both configurations on the 27B (5 scenarios, 10
+    concurrency strategies each, ~75 min per sweep). The headline:
+    <strong>DFlash dominates solo and at low concurrency, MTP catches up around C=8 and pulls ahead
+    at high concurrency on chat workloads.</strong>
+  </p>
+
+  <h3>Chat: per-request output tok/s vs concurrency</h3>
+  <p class="muted">Aggregate output tok/s across the active batch. The crossover at C ≈ 8 is the key visual.
+  Below: DFlash's 15-token block drafting wins. Above: MTP's lighter-weight 1-token-draft batches better.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartConcChat"></canvas></div>
+
+  <h3 style="margin-top:1.2rem">All five scenarios: where DFlash actually helps</h3>
+  <p class="muted">Single-user (C=1) DFlash improvement over MTP, by workload. The drop on long-prompt
+  scenarios reflects that the small drafter loses acceptance accuracy at long context, while the
+  prefill cost dominates regardless of speculation.</p>
+  <div class="chart-wrap"><canvas id="chartC1ByScenario"></canvas></div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th class="num">MTP @ C=1</th>
+        <th class="num">DFlash @ C=1</th>
+        <th class="num">Δ</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Codegen (4K × 1.5K)</td>
+        <td class="num">60.6</td><td class="num">98.9</td><td class="num"><span class="badge good">+63 %</span></td>
+        <td>Long output amortises drafting cost beautifully</td>
+      </tr>
+      <tr>
+        <td>Chat (2K × 300)</td>
+        <td class="num">66.6</td><td class="num">102.1</td><td class="num"><span class="badge good">+53 %</span></td>
+        <td>Short prompts → drafter accuracy stays high</td>
+      </tr>
+      <tr>
+        <td>Agentic (16K × 800)</td>
+        <td class="num">38.2</td><td class="num">51.9</td><td class="num"><span class="badge good">+36 %</span></td>
+        <td>Mostly prefill-bound; speculation only helps decode</td>
+      </tr>
+      <tr>
+        <td>Summarization (12K × 300)</td>
+        <td class="num">40.5</td><td class="num">47.9</td><td class="num"><span class="badge warn">+18 %</span></td>
+        <td>Pure prefill stress; very little decode to speculate over</td>
+      </tr>
+      <tr>
+        <td>RAG (8K × 256)</td>
+        <td class="num">50.7</td><td class="num">55.8</td><td class="num"><span class="badge warn">+10 %</span></td>
+        <td>Long prompts hurt drafter acceptance, short outputs limit gain</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:1.2rem">Aggregate throughput at high concurrency</h3>
+  <p class="muted">DFlash drafts 15 tokens per cycle. At high concurrency, the verify pass becomes
+  N×15 tokens, which is more memory pressure per batch step than MTP's 1-token-per-cycle.
+  MTP scales better past C=8.</p>
+  <table>
+    <thead>
+      <tr>
+        <th class="num">Concurrency</th>
+        <th class="num">MTP chat</th>
+        <th class="num">DFlash chat</th>
+        <th>Winner</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="num">66.6</td><td class="num">102.1</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash +53 %</span></td></tr>
+      <tr><td class="num">2</td><td class="num">129.0</td><td class="num">141.8 (C=1.5)</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash</span></td></tr>
+      <tr><td class="num">4</td><td class="num">237.2</td><td class="num">275.6 (C=4.0)</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash +16 %</span></td></tr>
+      <tr><td class="num">6</td><td class="num">303.8</td><td class="num">314.4 (C=5.3)</td><td><span class="badge">≈ tied</span></td></tr>
+      <tr><td class="num">8</td><td class="num">357.7 (C=7.5)</td><td class="num">355.9 (C=7.0)</td><td><span class="badge">≈ tied</span></td></tr>
+      <tr><td class="num">10</td><td class="num">426.4 (C=9.7)</td><td class="num">381.3 (C=9.6)</td><td><span class="badge mtp" style="background:rgba(188,55,84,0.15);color:var(--mtp-color)">MTP +12 %</span></td></tr>
+      <tr><td class="num">15</td><td class="num">544.3 (C=15.1)</td><td class="num">— (sweep ended)</td><td><span class="badge mtp" style="background:rgba(188,55,84,0.15);color:var(--mtp-color)">MTP wins</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="findings">
+    <strong>Conclusions from the full sweep:</strong>
+    <ul>
+      <li><strong>Solo / low concurrency (C ≤ 6)</strong>: DFlash wins, sometimes by a lot (+53 % chat at C=1, +63 % codegen).</li>
+      <li><strong>Medium concurrency (C = 6–8)</strong>: roughly tied. Per-request latency is the tiebreaker — DFlash gives faster individual responses, MTP shaves a few percent of aggregate.</li>
+      <li><strong>High concurrency (C ≥ 10)</strong>: MTP holds aggregate throughput better. DFlash's 15-token verify batches cause batching pressure that compounds.</li>
+      <li><strong>Long prompts</strong> (RAG, summarization, agentic): both methods give only modest gains. Prefill dominates; decode speculation has limited impact regardless of method.</li>
+    </ul>
+  </div>
+</section>
+
 </main>
 
 <footer>
@@ -753,6 +859,90 @@ new Chart(document.getElementById('chartRuns'), {
       y: { grid: { color: gridColor }, ticks: { color: tickColor },
            title: { display: true, text: 'tok/s', color: tickColor },
            min: 0, suggestedMax: 110 }
+    }
+  }
+});
+
+// MTP vs DFlash chat concurrency curves
+const mtpChat = [
+  {x:1.0, y:66.6}, {x:2.2, y:129.0}, {x:3.3, y:185.6}, {x:4.4, y:237.2},
+  {x:6.0, y:303.8}, {x:7.5, y:357.7}, {x:9.7, y:426.4}, {x:12.3, y:491.7}, {x:15.1, y:544.3}
+];
+const dflashChat = [
+  {x:1.0, y:102.1}, {x:1.5, y:141.8}, {x:2.1, y:175.0}, {x:2.5, y:201.4},
+  {x:3.3, y:242.7}, {x:4.0, y:275.6}, {x:5.3, y:314.4}, {x:7.0, y:355.9}, {x:9.6, y:381.3}
+];
+new Chart(document.getElementById('chartConcChat'), {
+  type: 'line',
+  data: {
+    datasets: [
+      {
+        label: 'FP8 + MTP',
+        data: mtpChat,
+        borderColor: mtpBorder,
+        backgroundColor: 'rgba(188,55,84,0.15)',
+        pointBackgroundColor: mtpBorder,
+        pointRadius: 5, tension: 0.25, fill: false,
+      },
+      {
+        label: 'FP8 + DFlash',
+        data: dflashChat,
+        borderColor: dflashBorder,
+        backgroundColor: 'rgba(252,255,164,0.15)',
+        pointBackgroundColor: dflashBorder,
+        pointRadius: 5, tension: 0.25, fill: false,
+      },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor, boxWidth: 14, padding: 16 } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(0)} tok/s @ C=${ctx.parsed.x.toFixed(1)}` } },
+    },
+    scales: {
+      x: { type: 'linear', grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'Mean active concurrency', color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'Aggregate output tok/s (chat)', color: tickColor },
+           beginAtZero: true }
+    }
+  }
+});
+
+// C=1 by scenario: MTP vs DFlash side-by-side bars
+new Chart(document.getElementById('chartC1ByScenario'), {
+  type: 'bar',
+  data: {
+    labels: ['Codegen', 'Chat', 'Agentic', 'Summarization', 'RAG'],
+    datasets: [
+      {
+        label: 'FP8 + MTP @ C=1',
+        data: [60.6, 66.6, 38.2, 40.5, 50.7],
+        backgroundColor: mtpColor,
+        borderColor: mtpBorder,
+        borderWidth: 2, borderRadius: 6,
+      },
+      {
+        label: 'FP8 + DFlash @ C=1',
+        data: [98.9, 102.1, 51.9, 47.9, 55.8],
+        backgroundColor: dflashColor,
+        borderColor: dflashBorder,
+        borderWidth: 2, borderRadius: 6,
+      },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor, boxWidth: 14, padding: 16 } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} tok/s` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tok/s @ C=1', color: tickColor },
+           beginAtZero: true }
     }
   }
 });
