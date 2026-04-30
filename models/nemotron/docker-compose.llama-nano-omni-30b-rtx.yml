@@ -1,0 +1,98 @@
+# Nemotron-3-Nano-Omni-30B-A3B-Reasoning via llama.cpp — multimodal MoE
+#
+# Uses unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF: Q4_K_M quant.
+# 30B total / ~3B active per token, hybrid Mamba-2 + MoE + Attention (NemotronH).
+# Native multimodal (text + image + video + audio) with 256K context.
+# Released 2026-04-28.
+#
+# The GGUF model is downloaded automatically on first start (~18 GB for UD-Q4_K_M).
+# Downloads are cached in the shared qwen35_huggingface_cache volume.
+#
+# Multimodal note: the unsloth repo ships the multimodal projector as a SEPARATE
+# file (mmproj-F16.gguf, mmproj-BF16.gguf, mmproj-F32.gguf — pick F16 for size).
+# This compose file currently runs text-only. To enable image/video/audio, add:
+#   - --mmproj-url
+#   - https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF/resolve/main/mmproj-F16.gguf
+#
+# Repo file list: https://huggingface.co/unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF
+#
+# Usage: docker compose -f docker-compose.llama-nano-omni-30b-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+
+name: nemotron-nano-omni-30b-llama
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: nemotron-nano-omni-30b-llama
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_CUDA_GRAPH_OPT=1
+
+    command:
+      - --hf-repo
+      - unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF
+      - --hf-file
+      - NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -np
+      - "1"
+      - -b
+      - "4096"
+      - -ub
+      - "2048"
+      - -t
+      - "8"
+      - --threads-batch
+      - "8"
+      - --mlock
+      - --special
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - -a
+      - nemotron-nano-omni-30b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen35_huggingface_cache
+    external: true

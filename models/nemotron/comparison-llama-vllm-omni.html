@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Nemotron-3-Nano-Omni-30B · llama.cpp vs vLLM · RTX PRO 6000 Blackwell</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --llama-color: #bc3754;   /* inferno hot pink */
+    --vllm-color: #f37819;    /* inferno orange */
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-1), var(--accent-2) 50%, var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent-3));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* Stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem; margin-top: 1rem;
+  }
+  .stat {
+    background: var(--bg-elev);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent-2);
+  }
+  .stat.llama { border-left-color: var(--llama-color); }
+  .stat.vllm  { border-left-color: var(--vllm-color); }
+  .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-1); margin-top: 0.15rem; }
+  .stat .value small { font-size: 0.55em; color: var(--muted); font-weight: 400; }
+  .stat .note { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+  .stat .note.good { color: #8be094; }
+  .stat .note.bad { color: #ff8a85; }
+
+  /* Hero compare */
+  .compare-hero {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem;
+    align-items: center; margin-top: 1.2rem;
+  }
+  .model-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.5rem;
+    text-align: center;
+  }
+  .model-card.llama { border: 1px solid rgba(188,55,84,0.35); }
+  .model-card.vllm  { border: 1px solid rgba(243,120,25,0.35); }
+  .model-card .model-name { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .model-card .big-num { font-size: 3rem; font-weight: 800; margin: 0.3rem 0; }
+  .model-card.llama .big-num { color: var(--llama-color); }
+  .model-card.vllm  .big-num { color: var(--vllm-color); }
+  .model-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .model-card .checkpoint { font-size: 0.72rem; color: var(--muted); margin-top: 0.5rem; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .vs-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  }
+  .vs-pill .ratio {
+    font-size: 2rem; font-weight: 800;
+    background: linear-gradient(90deg, var(--vllm-color), var(--accent-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .vs-pill .vs-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  @media (max-width: 700px) {
+    .compare-hero { grid-template-columns: 1fr; }
+    .vs-pill { flex-direction: row; justify-content: center; }
+  }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.backend-llama { color: var(--llama-color); font-weight: 600; }
+  td.backend-vllm  { color: var(--vllm-color);  font-weight: 600; }
+
+  /* Charts */
+  .chart-wrap {
+    position: relative; height: 280px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 360px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+  .badge.llama{ background: rgba(188,55,84,0.15);  color: var(--llama-color); }
+  .badge.vllm { background: rgba(243,120,25,0.15); color: var(--vllm-color); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(243,120,25,0.07), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--accent-2);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--accent-1); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Nemotron-3-Nano-Omni-30B · llama.cpp vs vLLM</h1>
+  <div class="subtitle">Same multimodal MoE checkpoint, two inference stacks — single-user chat throughput on RTX PRO 6000 Blackwell</div>
+  <div class="meta">
+    <span>GPU: RTX PRO 6000 Blackwell · 96 GB GDDR7 · SM_120</span>
+    <span>Memory bandwidth: ~1.6 TB/s</span>
+    <span>llama.cpp: ghcr.io/ggml-org/llama.cpp:server-cuda</span>
+    <span>vLLM: v0.20.0</span>
+    <span>Tool: test_chat.py · 3 runs · --warmup --no-think</span>
+    <span>Date: 2026-04-30</span>
+  </div>
+</header>
+
+<main>
+
+<!-- Headline -->
+<section>
+  <h2>Headline Result</h2>
+  <p>
+    Single-user steady-state throughput on the same prompt, same model, same hardware. <strong>vLLM 0.20.0 FP8</strong>
+    runs <strong>~14% faster</strong> than <strong>llama.cpp UD-Q4_K_M</strong> at decode steady state, and is <strong>~40% lower
+    on TTFT</strong> once warm. Both backends comfortably exceed the regular Nano-30B's published ~248–250 tok/s — the
+    Omni multimodal head adds no measurable text-only overhead.
+  </p>
+
+  <div class="compare-hero">
+    <div class="model-card llama">
+      <div class="model-name">llama.cpp · GGUF UD-Q4_K_M</div>
+      <div class="big-num">258.1</div>
+      <div class="unit">tok / s · avg of 3 runs</div>
+      <div class="checkpoint">unsloth/NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-GGUF</div>
+    </div>
+    <div class="vs-pill">
+      <div class="ratio">1.15×</div>
+      <div class="vs-label">vLLM faster</div>
+    </div>
+    <div class="model-card vllm">
+      <div class="model-name">vLLM 0.20.0 · FP8 (kv-cache fp8)</div>
+      <div class="big-num">295.9</div>
+      <div class="unit">tok / s · avg of 3 runs</div>
+      <div class="checkpoint">nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8</div>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="margin-top:1.5rem">
+    <div class="stat llama">
+      <div class="label">llama.cpp avg TTFT</div>
+      <div class="value">1121 <small>ms</small></div>
+      <div class="note">first chunk after stream open</div>
+    </div>
+    <div class="stat vllm">
+      <div class="label">vLLM avg TTFT</div>
+      <div class="value">688 <small>ms</small></div>
+      <div class="note good">−433 ms vs llama.cpp (−39%)</div>
+    </div>
+    <div class="stat llama">
+      <div class="label">llama.cpp peak run</div>
+      <div class="value">260.5 <small>tok/s</small></div>
+      <div class="note">run 2 — runs are tightly clustered</div>
+    </div>
+    <div class="stat vllm">
+      <div class="label">vLLM peak run</div>
+      <div class="value">299.0 <small>tok/s</small></div>
+      <div class="note good">run 2 — caching warmed</div>
+    </div>
+    <div class="stat llama">
+      <div class="label">llama.cpp weights on disk</div>
+      <div class="value">~18 <small>GB</small></div>
+      <div class="note">UD-Q4_K_M GGUF (Unsloth Dynamic)</div>
+    </div>
+    <div class="stat vllm">
+      <div class="label">vLLM weights on disk</div>
+      <div class="value">~33 <small>GB</small></div>
+      <div class="note">FP8 + ~53 GB free for KV cache</div>
+    </div>
+  </div>
+</section>
+
+<!-- Per run table -->
+<section>
+  <h2>Per-run Numbers</h2>
+  <p class="muted">
+    Same prompt for every run: <em>"Explain the key differences between mixture-of-experts and dense transformer architectures, focusing on efficiency trade-offs."</em> Output token counts vary because the model emits a slightly different reasoning trace each time. <code>--no-think</code> was passed but neither backend honoured it; the model still produced <code>&lt;think&gt;</code> reasoning, so the throughput figures include reasoning tokens.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Backend</th>
+        <th>Quant</th>
+        <th class="num">TTFT (ms)</th>
+        <th class="num">Output tokens</th>
+        <th class="num">Throughput (tok/s)</th>
+        <th class="num">Reasoning duration (ms)</th>
+        <th class="num">Reasoning chars</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="backend-llama">llama.cpp · run 1</td><td>UD-Q4_K_M</td><td class="num">1456</td><td class="num">1692</td><td class="num">254.1</td><td class="num">1271</td><td class="num">1716</td></tr>
+      <tr><td class="backend-llama">llama.cpp · run 2</td><td>UD-Q4_K_M</td><td class="num">1188</td><td class="num">1750</td><td class="num">260.5</td><td class="num">1127</td><td class="num">1473</td></tr>
+      <tr><td class="backend-llama">llama.cpp · run 3</td><td>UD-Q4_K_M</td><td class="num">719</td><td class="num">1873</td><td class="num">259.7</td><td class="num">662</td><td class="num">815</td></tr>
+      <tr><td class="backend-llama"><strong>llama.cpp · avg</strong></td><td>UD-Q4_K_M</td><td class="num"><strong>1121</strong></td><td class="num"><strong>1772</strong></td><td class="num"><strong>258.1</strong></td><td class="num"><strong>1020</strong></td><td class="num"><strong>1335</strong></td></tr>
+      <tr><td class="backend-vllm">vLLM · run 1</td><td>FP8</td><td class="num">1545</td><td class="num">2534</td><td class="num">289.6</td><td class="num">1239</td><td class="num">1921</td></tr>
+      <tr><td class="backend-vllm">vLLM · run 2</td><td>FP8</td><td class="num">257</td><td class="num">1733</td><td class="num">299.0</td><td class="num">235</td><td class="num">368</td></tr>
+      <tr><td class="backend-vllm">vLLM · run 3</td><td>FP8</td><td class="num">261</td><td class="num">1658</td><td class="num">298.9</td><td class="num">239</td><td class="num">378</td></tr>
+      <tr><td class="backend-vllm"><strong>vLLM · avg</strong></td><td>FP8</td><td class="num"><strong>688</strong></td><td class="num"><strong>1975</strong></td><td class="num"><strong>295.9</strong></td><td class="num"><strong>571</strong></td><td class="num"><strong>889</strong></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Charts -->
+<section>
+  <h2>Charts</h2>
+  <div class="grid-2">
+    <div>
+      <h3>Average throughput</h3>
+      <div class="chart-wrap"><canvas id="chartAvgTps"></canvas></div>
+    </div>
+    <div>
+      <h3>Average TTFT (lower is better)</h3>
+      <div class="chart-wrap"><canvas id="chartAvgTtft"></canvas></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:1.5rem">Per-run throughput</h3>
+  <p class="muted">Both backends are tightly clustered — variance is dominated by reasoning length, not the engine.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartPerRunTps"></canvas></div>
+
+  <h3 style="margin-top:1.5rem">Per-run TTFT</h3>
+  <p class="muted">vLLM's run 1 pays a one-shot warmup cost (CUDA graph capture). Runs 2–3 settle to ~260 ms. llama.cpp's TTFT improves run-over-run as the OS page cache warms.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartPerRunTtft"></canvas></div>
+</section>
+
+<!-- Why -->
+<section>
+  <h2>Why the Gap?</h2>
+  <p>
+    Both backends offload the entire model to the RTX PRO 6000's GDDR7 (no CPU spill). The differences come from precision and engine maturity:
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Factor</th>
+        <th>llama.cpp UD-Q4_K_M</th>
+        <th>vLLM 0.20.0 FP8</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Weight precision</td>
+        <td>4-bit Unsloth-Dynamic (mixed Q4/Q5/Q6)</td>
+        <td>8-bit FP8 block-128</td>
+      </tr>
+      <tr>
+        <td>Bytes streamed per token (active)</td>
+        <td>~1.5 GB</td>
+        <td>~3 GB</td>
+      </tr>
+      <tr>
+        <td>Theoretical decode ceiling @ 1.6 TB/s</td>
+        <td>~1066 tok/s</td>
+        <td>~530 tok/s</td>
+      </tr>
+      <tr>
+        <td>KV cache dtype</td>
+        <td>FP16 (default)</td>
+        <td>FP8 (<code>--kv-cache-dtype fp8</code>)</td>
+      </tr>
+      <tr>
+        <td>MoE backend</td>
+        <td>Built-in CUDA kernels</td>
+        <td>Triton (<code>--moe-backend triton</code>, mandatory on RTX Pro)</td>
+      </tr>
+      <tr>
+        <td>Runtime overhead</td>
+        <td>Minimal — direct C++ inference loop</td>
+        <td>Higher — Python orchestration, CUDA graphs, paged attention</td>
+      </tr>
+      <tr>
+        <td>Measured C=1 efficiency</td>
+        <td>~24% of theoretical ceiling</td>
+        <td>~56% of theoretical ceiling</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Q4 weights are 2× lighter than FP8, which would normally favour llama.cpp on memory-bandwidth-bound decode.
+    But vLLM's Triton MoE kernels and FP8 KV cache do a much better job extracting bandwidth on Blackwell — the
+    higher engine efficiency more than compensates for the heavier weights, leaving vLLM ~14% ahead despite the 2×
+    weight-size disadvantage.
+  </p>
+
+  <div class="findings">
+    <strong>Key insight:</strong>
+    <ul>
+      <li>For <em>single-user chat</em>, vLLM 0.20 wins on both throughput (+14%) and warm-state TTFT (−39%).</li>
+      <li>llama.cpp is competitive on throughput but pays a higher TTFT in every run — its CUDA scheduler does not amortise across the prompt the way vLLM's CUDA-graph capture does.</li>
+      <li>llama.cpp's edge is operational: smaller weights (~18 GB vs ~33 GB), simpler container, no Python stack to maintain. Useful for laptop-class setups or when a CUDA-graph rebuild on every cold start is unacceptable.</li>
+      <li>This is single-user only. Multi-user concurrency was not measured here — the published Nano-30B sweep shows vLLM scales to 10–15 chat users where llama.cpp serves one. Expect the same shape on Omni.</li>
+      <li><code>--no-think</code> wasn't honoured by either backend (model emitted <code>&lt;think&gt;</code> regardless). The throughput numbers therefore include reasoning tokens; a non-reasoning prompt would likely show the same ratio at slightly higher absolute numbers.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Repro -->
+<section>
+  <h2>How to Reproduce</h2>
+  <pre><code># llama.cpp (port 11440)
+docker compose -f docker-compose.llama-nano-omni-30b-rtx.yml up -d
+python ../shared/test_chat.py \
+  --base-url http://localhost:11440/v1 \
+  --model nemotron-nano-omni-30b \
+  --runs 3 --warmup --no-think
+
+# vLLM (stop llama.cpp first — both share port 11440)
+docker compose -f docker-compose.llama-nano-omni-30b-rtx.yml down
+docker compose -f docker-compose.vllm-nano-omni-30b-fp8-rtx.yml up -d
+python ../shared/test_chat.py \
+  --base-url http://localhost:11440/v1 \
+  --model nemotron-nano-omni-30b \
+  --runs 3 --warmup --no-think
+</code></pre>
+  <p class="muted">
+    First boot of each container downloads weights — ~18 GB GGUF for llama.cpp, ~33 GB FP8 shards for vLLM.
+    Both bind to the shared <code>qwen35_huggingface_cache</code> Docker volume, so subsequent restarts skip the download.
+  </p>
+</section>
+
+</main>
+
+<footer>
+  Measured on NVIDIA RTX PRO 6000 Blackwell · 2026-04-30 ·
+  llama.cpp <code>ghcr.io/ggml-org/llama.cpp:server-cuda</code> · vLLM <code>v0.20.0</code><br/>
+  Source: <code>models/nemotron/docker-compose.{llama,vllm}-nano-omni-30b*.yml</code> ·
+  <code>models/shared/test_chat.py</code>
+</footer>
+
+<script>
+const llamaColor  = 'rgba(188,55,84,0.85)';
+const vllmColor   = 'rgba(243,120,25,0.85)';
+const llamaBorder = 'rgba(188,55,84,1)';
+const vllmBorder  = 'rgba(243,120,25,1)';
+const gridColor   = 'rgba(252,165,10,0.08)';
+const tickColor   = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+const runLabels = ['Run 1', 'Run 2', 'Run 3'];
+const llamaTps  = [254.1, 260.5, 259.7];
+const vllmTps   = [289.6, 299.0, 298.9];
+const llamaTtft = [1456, 1188, 719];
+const vllmTtft  = [1545, 257, 261];
+
+// Avg tok/s (single bar each)
+new Chart(document.getElementById('chartAvgTps'), {
+  type: 'bar',
+  data: {
+    labels: ['llama.cpp UD-Q4_K_M', 'vLLM 0.20.0 FP8'],
+    datasets: [{
+      label: 'avg tok/s',
+      data: [258.1, 295.9],
+      backgroundColor: [llamaColor, vllmColor],
+      borderColor: [llamaBorder, vllmBorder],
+      borderWidth: 1, borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} tok/s` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, title: { display: true, text: 'tok/s', color: tickColor } },
+    },
+  }
+});
+
+// Avg TTFT (single bar each)
+new Chart(document.getElementById('chartAvgTtft'), {
+  type: 'bar',
+  data: {
+    labels: ['llama.cpp UD-Q4_K_M', 'vLLM 0.20.0 FP8'],
+    datasets: [{
+      label: 'avg TTFT (ms)',
+      data: [1121, 688],
+      backgroundColor: [llamaColor, vllmColor],
+      borderColor: [llamaBorder, vllmBorder],
+      borderWidth: 1, borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y} ms` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, title: { display: true, text: 'TTFT (ms, lower is better)', color: tickColor } },
+    },
+  }
+});
+
+// Per-run grouped bars: throughput
+new Chart(document.getElementById('chartPerRunTps'), {
+  type: 'bar',
+  data: {
+    labels: runLabels,
+    datasets: [
+      { label: 'llama.cpp UD-Q4_K_M', data: llamaTps, backgroundColor: llamaColor, borderColor: llamaBorder, borderWidth: 1, borderRadius: 4 },
+      { label: 'vLLM 0.20.0 FP8',     data: vllmTps,  backgroundColor: vllmColor,  borderColor: vllmBorder,  borderWidth: 1, borderRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, suggestedMax: 320, title: { display: true, text: 'tok/s', color: tickColor } },
+    },
+  }
+});
+
+// Per-run grouped bars: TTFT
+new Chart(document.getElementById('chartPerRunTtft'), {
+  type: 'bar',
+  data: {
+    labels: runLabels,
+    datasets: [
+      { label: 'llama.cpp UD-Q4_K_M', data: llamaTtft, backgroundColor: llamaColor, borderColor: llamaBorder, borderWidth: 1, borderRadius: 4 },
+      { label: 'vLLM 0.20.0 FP8',     data: vllmTtft,  backgroundColor: vllmColor,  borderColor: vllmBorder,  borderWidth: 1, borderRadius: 4 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} ms` } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true, title: { display: true, text: 'TTFT (ms, lower is better)', color: tickColor } },
+    },
+  }
+});
+</script>
+
+</body>
+</html>

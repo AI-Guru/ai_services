@@ -12,6 +12,21 @@ The standout release. Same form factor as Qwen3.5-35B-A3B (30B MoE, ~3B active) 
 
 The base model behind Cascade-2. General-purpose chat, RAG, and tool use. Well-tested with 1.4M+ FP8 downloads. Supports 1M context. Official FP8 and NVFP4 quantizations from NVIDIA.
 
+### Nemotron-3-Nano-Omni-30B-A3B (Reasoning, Apr 28 2026)
+
+Native multimodal sibling of Nano-30B: text + image + video + audio in one model. Same hybrid Mamba-2 + MoE + Attention (NemotronH) backbone, ~30B total / ~3B active, 256K context. Designed as a multimodal sub-agent — strong on document AI, GUI/agentic computer use, long-form audio/video reasoning, and OCR/ASR. Official NVIDIA FP8 and NVFP4 quants; unsloth GGUFs for llama.cpp (mmproj-F16.gguf is shipped as a separate file in the GGUF repo, not embedded).
+
+**Initial measurement** — `test_chat.py --runs 3 --warmup --no-think` (text-only), 2026-04-30:
+
+| Backend | Quant | Avg TTFT | Avg tok/s | Run 1 (TTFT / tok/s) | Run 2 | Run 3 |
+|---|---|---|---|---|---|---|
+| llama.cpp | UD-Q4_K_M | 1121 ms | **258.1** | 1456 / 254.1 | 1188 / 260.5 | 719 / 259.7 |
+| vLLM 0.20.0 | FP8 (kv-cache fp8) | **688 ms** | **295.9** | 1545 / 289.6 | 257 / 299.0 | 261 / 298.9 |
+
+vLLM wins on both axes — ~14% higher steady-state throughput (~300 vs ~258 tok/s) and ~40% lower TTFT once warm. Same ballpark as Nano-30B (~248 tok/s llama.cpp / ~250 tok/s vLLM FP8 from the existing scenario sweep) — the multimodal head adds no measurable overhead for text-only chat. `--no-think` was passed but not honored by either backend; the model still emitted `<think>` reasoning, so the throughput figures include reasoning tokens. Full `test_scenarios.py` sweep pending.
+
+vLLM upstream requirements (per the model card) that this compose file follows: image `vllm/vllm-openai:v0.20.0` (earlier images don't register `NemotronH_Nano_Omni_Reasoning_V3`), `--reasoning-parser nemotron_v3`, `--moe-backend triton` (mandatory on RTX Pro), `--kv-cache-dtype fp8`, plus the `--video-pruning-rate / --media-io-kwargs / --allowed-local-media-path` set required for video inputs. Audio uploads need `pip install "vllm[audio]"` inside the running container.
+
 ### Nemotron-Terminal-8B / 14B / 32B (Feb 2026)
 
 Qwen3 fine-tuned for terminal/CLI agent tasks. Dense Transformer (no Mamba, no MoE). Standard vLLM compatibility with no special flags.
@@ -46,6 +61,10 @@ What do you need?
 │  ├─ llama.cpp ────────────── llama-nano-30b-rtx.yml (248 tok/s)
 │  ├─ vLLM FP8 ─────────────── vllm-nano-30b-fp8-rtx.yml
 │  └─ vLLM NVFP4 ───────────── vllm-nano-30b-nvfp4-rtx.yml (max KV cache)
+│
+├─ Multimodal (image / video / audio)?
+│  ├─ llama.cpp ────────────── llama-nano-omni-30b-rtx.yml
+│  └─ vLLM FP8 ─────────────── vllm-nano-omni-30b-fp8-rtx.yml
 │
 ├─ Terminal/CLI agent?
 │  ├─ llama.cpp 32B ─────────── llama-terminal-32b-rtx.yml (65 tok/s)
@@ -201,6 +220,8 @@ Measured with `guidellm benchmark --profile sweep --max-seconds 120` per scenari
 | Nano-30B | NVFP4 (official) | 19.3 GB | ~67 GB | Yes |
 | Nano-30B | FP8 (official) | 32.7 GB | ~53 GB | Yes |
 | Nano-30B | BF16 | ~63 GB | ~23 GB | Yes — tight |
+| Nano-Omni-30B | Q4_K_M GGUF | ~22-28 GB | — | Yes |
+| Nano-Omni-30B | FP8 (official) | ~33 GB | ~53 GB | Yes — minus vision/audio encoders |
 | Cascade-8B | Q8_0 GGUF | ~9 GB | — | Yes |
 | Cascade-8B | BF16 | ~16 GB | ~70 GB | Yes |
 | Terminal-8B | BF16 | ~16 GB | ~70 GB | Yes |
@@ -237,6 +258,8 @@ All Nemotron models use port 11440 to avoid conflicts with Qwen3.5 (11435) and Q
 | Nano-30B llama.cpp | `docker compose -f docker-compose.llama-nano-30b-rtx.yml up -d` | `nemotron-nano-30b` | ~23 GB Q4_K_XL |
 | Nano-30B vLLM FP8 | `docker compose -f docker-compose.vllm-nano-30b-fp8-rtx.yml up -d` | `nemotron-nano-30b` | ~33 GB FP8 |
 | Nano-30B vLLM NVFP4 | `docker compose -f docker-compose.vllm-nano-30b-nvfp4-rtx.yml up -d` | `nemotron-nano-30b` | ~19 GB NVFP4 |
+| Nano-Omni-30B llama.cpp | `docker compose -f docker-compose.llama-nano-omni-30b-rtx.yml up -d` | `nemotron-nano-omni-30b` | ~22-28 GB Q4_K_M |
+| Nano-Omni-30B vLLM FP8 | `docker compose -f docker-compose.vllm-nano-omni-30b-fp8-rtx.yml up -d` | `nemotron-nano-omni-30b` | ~33 GB FP8 |
 | Cascade-8B llama.cpp | `docker compose -f docker-compose.llama-cascade-8b-rtx.yml up -d` | `nemotron-cascade-8b` | ~9 GB Q8_0 |
 | Cascade-8B vLLM | `docker compose -f docker-compose.vllm-cascade-8b-rtx.yml up -d` | `nemotron-cascade-8b` | ~16 GB BF16 |
 | Terminal-32B llama.cpp | `docker compose -f docker-compose.llama-terminal-32b-rtx.yml up -d` | `nemotron-terminal-32b` | ~20 GB Q4_K_M |

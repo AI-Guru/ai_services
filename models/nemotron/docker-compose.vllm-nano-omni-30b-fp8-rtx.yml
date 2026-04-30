@@ -1,0 +1,113 @@
+# Nemotron-3-Nano-Omni-30B-A3B-Reasoning FP8 — multimodal MoE (text + image + video + audio)
+#
+# Uses nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8: official NVIDIA FP8 quantization.
+# Architecture: NemotronH_Nano_Omni_Reasoning_V3.
+# 30B total / ~3B active per token, hybrid Mamba-2 + MoE + Attention (NemotronH).
+# Native multimodal (text + image + video + audio) with 256K context.
+# Released 2026-04-28. Model card: https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+#
+# Image: v0.20.0 is REQUIRED per upstream. Earlier images (v0.17, v0.19) do NOT
+# register the NemotronH_Nano_Omni_Reasoning_V3 architecture and crash on startup
+# with `Model architectures [...] are not supported`. v0.17 also lacks mamba-ssm.
+#
+# Audio uploads (or use_audio_in_video=true) require an extra step inside the running
+# container:  docker exec nemotron-nano-omni-30b-fp8 pip install "vllm[audio]" && docker restart ...
+# Text + image + video work out of the box without that.
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120):
+# Weights: ~33 GB FP8 → ~53 GB free for KV cache at 0.90 util.
+# --moe-backend triton is REQUIRED on RTX Pro per upstream platform notes.
+#
+# Usage: docker compose -f docker-compose.vllm-nano-omni-30b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1
+# Model name served as: nemotron-nano-omni-30b
+
+name: nemotron-nano-omni-30b-fp8
+
+services:
+  nemotron-nano-omni-30b-fp8:
+    image: vllm/vllm-openai:v0.20.0
+    container_name: nemotron-nano-omni-30b-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-FP8
+      - --served-model-name
+      - nemotron-nano-omni-30b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - --max-model-len
+      - "131072"
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --trust-remote-code
+      - --video-pruning-rate
+      - "0.5"
+      - --max-num-seqs
+      - "384"
+      - --allowed-local-media-path
+      - "/"
+      - --media-io-kwargs
+      - '{"video": {"fps": 2, "num_frames": 256}}'
+      - --reasoning-parser
+      - nemotron_v3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --kv-cache-dtype
+      - fp8
+      - --moe-backend
+      - triton
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+    external: true
