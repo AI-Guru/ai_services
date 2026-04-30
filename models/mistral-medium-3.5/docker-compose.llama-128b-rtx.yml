@@ -1,0 +1,114 @@
+# Mistral Medium 3.5 (128B dense) via llama.cpp on RTX PRO 6000 Blackwell
+#
+# Released open-weights 2026-04-29 under modified MIT. Dense 128B with hybrid
+# instruction/reasoning/coding training, 256K context, multimodal (text+vision)
+# but served text-only here. SWE-Bench Verified 77.6 %, τ³-Telecom 91.4.
+#
+# Quant choice: Q4_K_M (~78 GB on disk). The 96 GB RTX PRO 6000 has ~13 GB
+# headroom for KV cache after weights — sufficient for the conservative 64 K
+# context configured here. Bartowski quants are used (unsloth's GGUF repo
+# was empty as of 2026-04-30, only README+config).
+#
+# Performance expectation on RTX PRO 6000 (~1.6 TB/s): 12-18 tok/s decode
+# (1600 GB/s ÷ 78 GB ≈ 20 tok/s theoretical ceiling). Acceptable for
+# single-user coding/reasoning where the dense 128B's quality justifies the
+# slower decode speed vs MoE alternatives.
+#
+# vLLM and SGLang are NOT used here — community reports describe Blackwell
+# (SM_120) support as still maturing for this size class. llama.cpp with the
+# server-cuda image is the reliable single-user path.
+#
+# First start downloads ~78 GB of GGUF shards; expect 10-15 min on a fast
+# HF connection plus ~3-5 min to load weights to GPU. The healthcheck
+# start_period is set to 30 minutes accordingly.
+#
+# Usage: docker compose -f docker-compose.llama-128b-rtx.yml up -d
+# API endpoint: http://localhost:11470/v1
+# Model name served as: mistral-medium-3.5
+#
+# Refs:
+#   https://mistral.ai/news/vibe-remote-agents-mistral-medium-3-5
+#   https://huggingface.co/mistralai/Mistral-Medium-3.5-128B (gated, native weights)
+#   https://huggingface.co/bartowski/mistralai_Mistral-Medium-3.5-128B-GGUF (public, used here)
+
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: mistral-medium-128b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11470:11470"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      # GGUF is pre-downloaded into the volume at /root/.cache/huggingface/manual/...
+      # because llama.cpp's --hf-file cannot fetch files from subdirectories in HF
+      # repos (gives a 404 probe). Bartowski layouts Q4_K_M as a subdirectory with
+      # split shards. To rebuild the cache:
+      #   docker run --rm -v mistral_huggingface_cache:/cache python:3.12-slim sh -c '
+      #     pip install -q huggingface_hub && python3 -c "
+      #       from huggingface_hub import hf_hub_download
+      #       for n in [1, 2]:
+      #         hf_hub_download(repo_id=\"bartowski/mistralai_Mistral-Medium-3.5-128B-GGUF\",
+      #           filename=f\"mistralai_Mistral-Medium-3.5-128B-Q4_K_M/mistralai_Mistral-Medium-3.5-128B-Q4_K_M-{n:05d}-of-00002.gguf\",
+      #           local_dir=\"/cache/manual\")"'
+      # llama.cpp auto-loads all shards from the directory once given the first one.
+      - -m
+      - /root/.cache/huggingface/manual/mistralai_Mistral-Medium-3.5-128B-Q4_K_M/mistralai_Mistral-Medium-3.5-128B-Q4_K_M-00001-of-00002.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "65536"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --mlock
+      - --no-mmproj
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11470"
+      - -a
+      - mistral-medium-3.5
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11470/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1800s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: mistral_huggingface_cache
+    external: true
