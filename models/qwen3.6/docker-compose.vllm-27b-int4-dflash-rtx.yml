@@ -1,0 +1,122 @@
+# Qwen3.6-27B INT4 (AutoRound, W4A16) + DFlash drafter — best of both
+#
+# Combines the two configs that tied at 102.8 / 103 tok/s on RTX PRO 6000:
+#   - Target: Lorbus/Qwen3.6-27B-int4-AutoRound (INT4 W4A16-GPTQ, ~16.9 GiB)
+#   - Drafter: z-lab/Qwen3.6-27B-DFlash (BF16 2 B, ~4 GiB)
+#
+# Why this should work:
+#   - vLLM's spec-decode pipeline runs target and drafter in independent
+#     model runners; drafter dtype need NOT match target dtype.
+#   - Confirmed working pattern in hec-ovi/vllm-awq4-qwen (AWQ-INT4 target
+#     + z-lab DFlash drafter, single-stream).
+#   - 4-bit target weights → fewer bytes streamed per accepted token.
+#     DFlash → more accepted tokens per target forward pass.
+#     The two effects compound.
+#
+# Measured (test_chat.py, --no-think, 3 runs, RTX PRO 6000):
+#   - N=15 (DFlash default):  138.9 avg / 145.3 steady-state
+#   - N=12:                   140.5 avg / 147.95 steady-state (low variance)
+#   - N=8 (chosen):           140.6 avg / 147.95 steady-state, peak 152.9
+#   - N=10:                   137.3 avg / 140.15 steady-state
+#   - N=6:                    143.4 avg / 145.75 steady-state
+#   - N=18+:                  fails to start (max_num_batched_tokens=16384
+#                             too small for 19+1 draft slots × max_num_seqs)
+#
+# Picked num_speculative_tokens=8: matches community optimum reported by
+# hec-ovi/vllm-awq4-qwen (AWQ-INT4 + DFlash); ties N=12 on steady-state
+# with the highest peak observed (152.9 tok/s, run 2/3 average).
+#
+# Risk: DFlash drafter was trained against BF16 target activations, not
+# INT4. Acceptance rate may be slightly lower than against the FP8 target,
+# but the measured ~+45% over either parent (FP8+DFlash 103, INT4+MTP 102.8)
+# proves the combination compounds anyway.
+#
+# DFlash needs HF_TOKEN (gated repo). Use --env-file ../../.env.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-int4-dflash-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-int4-dflash:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-int4-dflash
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Lorbus/Qwen3.6-27B-int4-AutoRound
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/Qwen3.6-27B-DFlash","num_speculative_tokens":8}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 360s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

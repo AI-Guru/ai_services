@@ -1,41 +1,27 @@
-# Qwen3.6-27B INT4 (AutoRound, W4A16) + MTP — community recipe variant
+# Qwen3.6-27B INT4 (AutoRound, W4A16) — baseline, NO speculative decoding
 #
-# Uses Lorbus/Qwen3.6-27B-int4-AutoRound: AutoRound-quantised W4A16 INT4
-# with group size 128, stored in GPTQ-compatible format. ~14 GB weights.
-# vLLM auto-detects the quantization config from the model itself.
+# Companion to docker-compose.vllm-27b-int4-rtx.yml (INT4 + MTP) and
+# docker-compose.vllm-27b-int4-dflash-rtx.yml (INT4 + DFlash).
 #
-# Why try this:
-#   - INT4 weights are ~half the size of FP8, leaving more KV headroom
-#   - Memory-bandwidth-bound decode benefits proportionally
-#   - Combined with MTP, expected ~80-130 tok/s on RTX PRO 6000 (vs 47
-#     baseline FP8, 66 FP8+MTP, 103 FP8+DFlash)
+# Purpose: isolate the contribution of speculative decoding from the
+# contribution of 4-bit weights. Comparison anchor for:
+#   INT4 alone → INT4 + MTP → INT4 + DFlash
+#
+# Same model, same flags, just no --speculative-config.
 #
 # Measured (test_chat.py, --no-think, 3 runs, RTX PRO 6000):
-#   - Decode: 102.8 tok/s avg (100.6 / 104.1 / 103.7) — 2.19x FP8 baseline,
-#     ties FP8+DFlash on throughput, with 16.87 GiB weights vs ~28 GiB FP8
-#     (frees ~10 GiB of KV headroom).
-#   - Stacking with the DFlash drafter (see -int4-dflash-rtx.yml) reaches
-#     140.2 avg / 146 steady, the highest single-user number on this
-#     hardware. INT4+MTP remains the simplest path (no nightly drafter).
+#   - Decode: 80.7 tok/s avg / 80.85 steady-state — 1.72x FP8 baseline (47.0)
+#     from quantisation alone. Adding MTP brings it to 102.8 (+27%); adding
+#     DFlash N=8 brings it to 140.2 / 146 steady (+81% over INT4 alone).
 #
-# Adjustments from the user's recipe:
-#   - Drop --quantization auto_round (NOT a valid vLLM value); auto-detect
-#     handles W4A16-GPTQ format from the model config
-#   - Drop --kv-cache-dtype fp8_e4m3 (vllm-project/vllm#26646: silent
-#     corruption on Qwen3.6 hybrid DeltaNet, not yet fixed in nightly)
-#   - Use method "qwen3_next_mtp" (vLLM-specific) not generic "mtp"
-#   - num_speculative_tokens=1 (we proved 1 works on dense 27B; 3 likely
-#     fails on hybrid)
-#   - Drop --performance-mode interactivity for now (test as a follow-up)
-#
-# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-int4-rtx.yml up -d
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-int4-baseline-rtx.yml up -d
 # API endpoint: http://localhost:11436/v1
 # Model name served as: qwen3.6-27b
 
 services:
-  qwen36-27b-int4:
+  qwen36-27b-int4-baseline:
     image: vllm/vllm-openai:cu130-nightly
-    container_name: qwen36-27b-int4
+    container_name: qwen36-27b-int4-baseline
     restart: unless-stopped
 
     deploy:
@@ -92,8 +78,6 @@ services:
       - "16384"
       - --chat-template
       - /chat_template.jinja
-      - --speculative-config
-      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11436/health"]

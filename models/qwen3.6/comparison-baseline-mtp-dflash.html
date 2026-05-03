@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Qwen3.6 · Baseline vs MTP vs DFlash · RTX PRO 6000</title>
+<title>Qwen3.6 · Baseline vs MTP vs DFlash vs 4-bit · RTX PRO 6000</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root {
@@ -23,6 +23,9 @@
     --baseline-color: #6a176e;  /* inferno purple */
     --mtp-color: #bc3754;       /* inferno hot pink */
     --dflash-color: #fcffa4;    /* inferno bright */
+    --nvfp4-color: #d65a2c;     /* inferno deep orange */
+    --int4-color: #f37819;      /* inferno orange */
+    --champion-color: #ffb43d;  /* int4 + dflash blend, brightest accent */
   }
   * { box-sizing: border-box; }
   html, body {
@@ -108,10 +111,17 @@
   .config-card.mtp      { border-color: rgba(188,55,84,0.4); }
   .config-card.dflash   { border-color: rgba(252,255,164,0.4);
                           box-shadow: 0 0 30px rgba(252,255,164,0.08); }
+  .config-card.nvfp4    { border-color: rgba(214,90,44,0.4); }
+  .config-card.int4     { border-color: rgba(243,120,25,0.5); }
+  .config-card.champion { border-color: rgba(255,180,61,0.6);
+                          box-shadow: 0 0 40px rgba(255,180,61,0.15); }
   .config-card .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
   .config-card.baseline .tag { color: #c49ad0; }
   .config-card.mtp .tag      { color: #e48caa; }
   .config-card.dflash .tag   { color: var(--dflash-color); }
+  .config-card.nvfp4 .tag    { color: #f0a587; }
+  .config-card.int4 .tag     { color: var(--int4-color); }
+  .config-card.champion .tag { color: var(--champion-color); }
   .config-card h3 {
     margin: 0.3rem 0 0.8rem;
     font-size: 1.05rem; color: var(--fg); font-weight: 600;
@@ -123,6 +133,9 @@
   .config-card.baseline .big-num { color: var(--baseline-color); filter: brightness(1.6); }
   .config-card.mtp      .big-num { color: var(--mtp-color); }
   .config-card.dflash   .big-num { color: var(--dflash-color); }
+  .config-card.nvfp4    .big-num { color: var(--nvfp4-color); filter: brightness(1.15); }
+  .config-card.int4     .big-num { color: var(--int4-color); }
+  .config-card.champion .big-num { color: var(--champion-color); filter: drop-shadow(0 0 8px rgba(255,180,61,0.4)); }
   .config-card .unit { font-size: 0.95rem; color: var(--muted); }
   .config-card .delta {
     margin-top: 0.8rem; font-size: 0.85rem;
@@ -163,6 +176,9 @@
   td.config-baseline { color: #c49ad0; font-weight: 600; }
   td.config-mtp      { color: var(--mtp-color); font-weight: 600; }
   td.config-dflash   { color: var(--dflash-color); font-weight: 600; }
+  td.config-nvfp4    { color: #f0a587; font-weight: 600; }
+  td.config-int4     { color: var(--int4-color); font-weight: 600; }
+  td.config-champion { color: var(--champion-color); font-weight: 700; }
 
   /* Charts */
   .chart-wrap {
@@ -227,15 +243,16 @@
 <body>
 
 <header>
-  <h1>Qwen3.6 · Baseline vs MTP vs DFlash</h1>
-  <div class="subtitle">Three speculative-decoding strategies — measured on the dense 27B and the MoE 35B-A3B</div>
+  <h1>Qwen3.6 · Baseline · MTP · DFlash · 4-bit · stacked</h1>
+  <div class="subtitle">Eight configurations on the dense 27B — pure quants, MTP, DFlash, and the INT4 + DFlash stack at 146 tok/s steady</div>
   <div class="meta">
     <span>Targets: <code>Qwen/Qwen3.6-27B-FP8</code>, <code>Qwen/Qwen3.6-35B-A3B-FP8</code></span>
+    <span>4-bit: <code>Lorbus/…-int4-AutoRound</code>, <code>sakamakismile/…-NVFP4-MTP</code></span>
     <span>Drafters: <code>z-lab/Qwen3.6-27B-DFlash</code> (2 B), <code>z-lab/Qwen3.6-35B-A3B-DFlash</code> (0.5 B)</span>
-    <span>vLLM v0.19.0-cu130 (baseline, MTP) · vLLM nightly (DFlash)</span>
+    <span>vLLM v0.19.0-cu130 (baseline, MTP) · vLLM nightly (DFlash, 4-bit)</span>
     <span>GPU: RTX PRO 6000 · 96 GB GDDR7 · ~1.6 TB/s</span>
     <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
-    <span>Date: 2026-04-24</span>
+    <span>Dates: 2026-04-24 (FP8 trio) · 2026-05-03 (4-bit + stacked)</span>
   </div>
 </header>
 
@@ -642,6 +659,186 @@
   </table>
 </section>
 
+<!-- ── Bonus: 4-bit weights compounded with DFlash ──────────── -->
+<section>
+  <h2>Bonus: stacking 4-bit weights with DFlash — 146 tok/s steady state</h2>
+  <p>
+    The original three configs all keep <strong>FP8 weights</strong> and vary the speculator.
+    Stacking the two best ideas — <strong>INT4 weights</strong> for less bandwidth pressure
+    plus <strong>DFlash drafting</strong> for higher tokens-per-target-pass — compounds. The
+    drafter remains BF16; vLLM's spec-decode pipeline runs target and drafter in independent
+    runners, so the dtypes need not match.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card nvfp4">
+      <div class="tag">recipe · modelopt nvfp4 + mtp</div>
+      <h3>NVFP4 + MTP</h3>
+      <div class="big-num">83.5</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta pos">+ 78 % vs FP8 baseline</div>
+      <div class="detail">sakamakismile/…-NVFP4-MTP · 18.4 GiB</div>
+    </div>
+
+    <div class="config-card int4">
+      <div class="tag">recipe · w4a16 gptq + mtp</div>
+      <h3>INT4 AutoRound + MTP</h3>
+      <div class="big-num">102.8</div>
+      <div class="unit">tok / s (average)</div>
+      <div class="delta pos">+ 119 % vs FP8 baseline</div>
+      <div class="detail">Lorbus/…-int4-AutoRound · 16.9 GiB</div>
+    </div>
+
+    <div class="config-card champion">
+      <div class="crown">new champion</div>
+      <div class="tag">stack · int4 target + dflash drafter</div>
+      <h3>INT4 + DFlash · N=8</h3>
+      <div class="big-num">146</div>
+      <div class="unit">tok / s (steady state)</div>
+      <div class="delta pos">+ 211 % vs FP8 baseline</div>
+      <div class="detail">3-run avg 140.2 · peak 152.9 · 19.98 GiB total</div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:1.5rem">All eight 27B configs ranked</h3>
+  <p class="muted">
+    Same target architecture across all bars. Two pure-quant baselines (no speculation), three
+    quant × MTP variants, two FP8 × spec variants, plus the stacked champion at the top.
+  </p>
+  <div class="chart-wrap chart-tall"><canvas id="chartAllEight"></canvas></div>
+
+  <h3 style="margin-top:1.2rem">The full ranking</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Weights</th>
+        <th class="num">Decode tok/s</th>
+        <th class="num">vs FP8 baseline</th>
+        <th class="num">Weight VRAM</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline">FP8 baseline</td>
+        <td>FP8 (8-bit)</td>
+        <td class="num">47.0</td>
+        <td class="num">1.00×</td>
+        <td class="num">~28 GiB</td>
+        <td>reference</td>
+      </tr>
+      <tr>
+        <td class="config-nvfp4">NVFP4 baseline</td>
+        <td>NVFP4 group=16</td>
+        <td class="num">57.4</td>
+        <td class="num">1.22×</td>
+        <td class="num">18.4 GiB</td>
+        <td>quant gain alone — modest on this hybrid</td>
+      </tr>
+      <tr>
+        <td class="config-mtp">FP8 + MTP</td>
+        <td>FP8 (8-bit)</td>
+        <td class="num">66.6</td>
+        <td class="num">1.42×</td>
+        <td class="num">~28 GiB</td>
+        <td>baked-in draft head</td>
+      </tr>
+      <tr>
+        <td class="config-int4">INT4 baseline</td>
+        <td>INT4 W4A16 GPTQ</td>
+        <td class="num">80.7</td>
+        <td class="num">1.72×</td>
+        <td class="num">16.9 GiB</td>
+        <td>quant gain alone — Marlin INT4 is the real winner</td>
+      </tr>
+      <tr>
+        <td class="config-nvfp4">NVFP4 + MTP</td>
+        <td>NVFP4 group=16</td>
+        <td class="num">83.5</td>
+        <td class="num">1.78×</td>
+        <td class="num">18.4 GiB</td>
+        <td>+45 % over NVFP4 alone via MTP</td>
+      </tr>
+      <tr>
+        <td class="config-int4">INT4 + MTP</td>
+        <td>INT4 W4A16 GPTQ</td>
+        <td class="num">102.8</td>
+        <td class="num">2.19×</td>
+        <td class="num">16.9 GiB</td>
+        <td>+27 % over INT4 alone via MTP</td>
+      </tr>
+      <tr>
+        <td class="config-dflash">FP8 + DFlash · N=15</td>
+        <td>FP8 + 2 B drafter</td>
+        <td class="num">103.0</td>
+        <td class="num">2.19×</td>
+        <td class="num">~32 GiB</td>
+        <td>+119 % over FP8 alone via DFlash</td>
+      </tr>
+      <tr>
+        <td class="config-champion">INT4 + DFlash · N=8</td>
+        <td>INT4 + 2 B drafter</td>
+        <td class="num"><strong>140.2 avg / 146 steady</strong></td>
+        <td class="num"><strong>2.98×</strong></td>
+        <td class="num"><strong>19.98 GiB</strong></td>
+        <td><strong>compounding stack — beats either parent by ~+45 %</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 style="margin-top:1.2rem">DFlash <code>num_speculative_tokens</code> sweep on the INT4 target</h3>
+  <p class="muted">
+    DFlash defaults to N=15. We swept N ∈ {6, 8, 10, 12, 15, 18+} against the INT4 target.
+    N=18+ failed startup (<code>max_num_batched_tokens=16384</code> too small for the
+    19+1 draft slots × <code>max_num_seqs</code>). Steady state = avg of run 2 and 3 (run 1 is
+    consistently cold).
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th class="num">N</th>
+        <th class="num">3-run avg tok/s</th>
+        <th class="num">Run 1</th>
+        <th class="num">Run 2</th>
+        <th class="num">Run 3</th>
+        <th class="num">Steady state</th>
+        <th>Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">6</td>  <td class="num">143.4</td><td class="num">138.7</td><td class="num">146.3</td><td class="num">145.2</td><td class="num">145.75</td><td>most consistent across all 3 runs</td></tr>
+      <tr style="background:rgba(255,180,61,0.06)">
+        <td class="num"><strong>8</strong></td>  <td class="num"><strong>140.6</strong></td><td class="num">125.8</td><td class="num"><strong>152.9</strong></td><td class="num">143.0</td><td class="num"><strong>147.95</strong></td><td><strong>chosen — highest peak, matches community optimum</strong></td>
+      </tr>
+      <tr><td class="num">10</td> <td class="num">137.3</td><td class="num">131.5</td><td class="num">140.0</td><td class="num">140.3</td><td class="num">140.15</td><td>local dip</td></tr>
+      <tr><td class="num">12</td> <td class="num">140.5</td><td class="num">125.7</td><td class="num">148.6</td><td class="num">147.3</td><td class="num">147.95</td><td>tied with N=8 on steady state, lower variance</td></tr>
+      <tr><td class="num">15</td> <td class="num">138.9</td><td class="num">126.1</td><td class="num">146.5</td><td class="num">144.1</td><td class="num">145.30</td><td>DFlash default</td></tr>
+      <tr><td class="num">18+</td><td class="num">—</td>    <td class="num">—</td>    <td class="num">—</td>    <td class="num">—</td>    <td class="num">—</td>    <td>fails startup (batched-tokens budget)</td></tr>
+    </tbody>
+  </table>
+
+  <div class="findings">
+    <strong>Why the stack compounds:</strong>
+    <ul>
+      <li><strong>Effects multiply, not add.</strong> INT4 weights cut bytes-per-target-pass by ~40 %; DFlash multiplies tokens-emitted-per-target-pass by ~2×. The product gets us to ~3× FP8 baseline — well above either pure improvement.</li>
+      <li><strong>~12 GiB freed for KV cache vs FP8 + DFlash</strong> (19.98 GiB total vs ~32 GiB). Means longer context within the same 96 GB budget while running at 1.4× the throughput.</li>
+      <li><strong>NVFP4 group=16 dequant overhead is real.</strong> Pure-quant gains: INT4 +72 % over FP8, NVFP4 only +22 %. Despite Blackwell's INT4 tensor cores, NVFP4's per-layer dequant on this hybrid 27B costs more than it saves at decode time.</li>
+      <li><strong>Lossy by construction.</strong> Unlike speculative decoding, 4-bit quantisation changes the output distribution. Quality smoke tests (haiku, 17×23, multilingual) pass; serious work should validate on its own benchmarks.</li>
+      <li><strong>Caveat.</strong> Single-user benchmarks only; we didn't run the GuideLLM concurrency sweep on these stacked configs. May not scale as cleanly under load as the lighter MTP variants.</li>
+    </ul>
+  </div>
+
+  <p class="muted" style="margin-top:1rem">
+    Composes: <code>docker-compose.vllm-27b-int4-baseline-rtx.yml</code>,
+    <code>…-nvfp4-baseline-rtx.yml</code>,
+    <code>…-int4-rtx.yml</code> (INT4+MTP),
+    <code>…-nvfp4-mtp-rtx.yml</code>,
+    <code>…-int4-dflash-rtx.yml</code> (champion at N=8).
+    All skip the broken <code>fp8_e4m3</code> KV cache (vllm-project/vllm#26646).
+  </p>
+</section>
+
 <!-- ── Under concurrency (full GuideLLM sweep) ───────────────── -->
 <section>
   <h2>Under concurrency: MTP vs DFlash on the 27B</h2>
@@ -754,6 +951,12 @@ const mtpColor      = 'rgba(188,55,84,0.85)';
 const mtpBorder     = 'rgba(188,55,84,1)';
 const dflashColor   = 'rgba(252,255,164,0.85)';
 const dflashBorder  = 'rgba(252,255,164,1)';
+const nvfp4Color    = 'rgba(214,90,44,0.85)';
+const nvfp4Border   = 'rgba(214,90,44,1)';
+const int4Color     = 'rgba(243,120,25,0.9)';
+const int4Border    = 'rgba(243,120,25,1)';
+const championColor = 'rgba(255,180,61,0.95)';
+const championBorder = 'rgba(255,200,90,1)';
 const gridColor     = 'rgba(252,165,10,0.08)';
 const tickColor     = '#9890c4';
 
@@ -943,6 +1146,59 @@ new Chart(document.getElementById('chartC1ByScenario'), {
       y: { grid: { color: gridColor }, ticks: { color: tickColor },
            title: { display: true, text: 'tok/s @ C=1', color: tickColor },
            beginAtZero: true }
+    }
+  }
+});
+
+// All eight 27B configs, ranked low-to-high
+new Chart(document.getElementById('chartAllEight'), {
+  type: 'bar',
+  data: {
+    labels: [
+      'FP8 baseline',
+      'NVFP4 baseline',
+      'FP8 + MTP',
+      'INT4 baseline',
+      'NVFP4 + MTP',
+      'INT4 + MTP',
+      'FP8 + DFlash · N=15',
+      'INT4 + DFlash · N=8',
+    ],
+    datasets: [{
+      label: 'tok/s (3-run average, --no-think)',
+      data: [47.0, 57.4, 66.6, 80.7, 83.5, 102.8, 103.0, 140.2],
+      backgroundColor: [
+        baselineColor, nvfp4Color, mtpColor, int4Color,
+        nvfp4Color, int4Color, dflashColor, championColor,
+      ],
+      borderColor: [
+        baselineBorder, nvfp4Border, mtpBorder, int4Border,
+        nvfp4Border, int4Border, dflashBorder, championBorder,
+      ],
+      borderWidth: 2, borderRadius: 8,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s`,
+          afterLabel: ctx => {
+            const base = 47.0;
+            const pct = ((ctx.parsed.x - base) / base) * 100;
+            return ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% vs FP8 baseline)`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (3-run average)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
     }
   }
 });
