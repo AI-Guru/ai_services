@@ -244,7 +244,7 @@
 
 <header>
   <h1>Qwen3.6 · Baseline · MTP · DFlash · 4-bit · stacked</h1>
-  <div class="subtitle">Eight configurations on the dense 27B — pure quants, MTP, DFlash, and the INT4 + DFlash stack at 146 tok/s steady</div>
+  <div class="subtitle">Nine configurations on the dense 27B — pure quants, MTP, DFlash, and the INT4 + DFlash stack at 146 tok/s steady</div>
   <div class="meta">
     <span>Targets: <code>Qwen/Qwen3.6-27B-FP8</code>, <code>Qwen/Qwen3.6-35B-A3B-FP8</code></span>
     <span>4-bit: <code>Lorbus/…-int4-AutoRound</code>, <code>sakamakismile/…-NVFP4-MTP</code></span>
@@ -664,20 +664,31 @@
   <h2>Bonus: stacking 4-bit weights with DFlash — 146 tok/s steady state</h2>
   <p>
     The original three configs all keep <strong>FP8 weights</strong> and vary the speculator.
-    Stacking the two best ideas — <strong>INT4 weights</strong> for less bandwidth pressure
-    plus <strong>DFlash drafting</strong> for higher tokens-per-target-pass — compounds. The
-    drafter remains BF16; vLLM's spec-decode pipeline runs target and drafter in independent
-    runners, so the dtypes need not match.
+    Stacking the two best ideas — <strong>4-bit weights</strong> for less bandwidth pressure
+    plus <strong>DFlash drafting</strong> for higher tokens-per-target-pass — compounds for both
+    quant formats. <strong>INT4+DFlash takes the headline at 146 tok/s steady</strong>;
+    NVFP4+DFlash also compounds (115.6 steady, +40 % over NVFP4+MTP) but lags by ~21 % because of
+    NVFP4's group=16 dequant overhead. The drafter remains BF16; vLLM's spec-decode pipeline runs
+    target and drafter in independent runners, so the dtypes need not match.
   </p>
 
-  <div class="hero-row">
+  <div class="hero-row" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
     <div class="config-card nvfp4">
       <div class="tag">recipe · modelopt nvfp4 + mtp</div>
       <h3>NVFP4 + MTP</h3>
-      <div class="big-num">83.5</div>
+      <div class="big-num">82.8</div>
       <div class="unit">tok / s (average)</div>
-      <div class="delta pos">+ 78 % vs FP8 baseline</div>
-      <div class="detail">sakamakismile/…-NVFP4-MTP · 18.4 GiB</div>
+      <div class="delta pos">+ 76 % vs FP8 baseline</div>
+      <div class="detail">sakamakismile/…-NVFP4-MTP · 18.4 GiB · re-run 2026-05-03</div>
+    </div>
+
+    <div class="config-card nvfp4">
+      <div class="tag">stack · nvfp4 target + dflash drafter</div>
+      <h3>NVFP4 + DFlash · N=8</h3>
+      <div class="big-num">115.6</div>
+      <div class="unit">tok / s (steady state)</div>
+      <div class="delta pos">+ 146 % vs FP8 baseline</div>
+      <div class="detail">3-run avg 92.5 · DFlash compounds on NVFP4 too · ~22 GiB</div>
     </div>
 
     <div class="config-card int4">
@@ -700,7 +711,7 @@
     </div>
   </div>
 
-  <h3 style="margin-top:1.5rem">All eight 27B configs ranked</h3>
+  <h3 style="margin-top:1.5rem">All nine 27B configs ranked</h3>
   <p class="muted">
     Same target architecture across all bars. Two pure-quant baselines (no speculation), three
     quant × MTP variants, two FP8 × spec variants, plus the stacked champion at the top.
@@ -755,10 +766,18 @@
       <tr>
         <td class="config-nvfp4">NVFP4 + MTP</td>
         <td>NVFP4 group=16</td>
-        <td class="num">83.5</td>
-        <td class="num">1.78×</td>
+        <td class="num">82.8</td>
+        <td class="num">1.76×</td>
         <td class="num">18.4 GiB</td>
-        <td>+45 % over NVFP4 alone via MTP</td>
+        <td>+44 % over NVFP4 alone via MTP (re-run 2026-05-03: 81.6 / 82.7 / 84.0)</td>
+      </tr>
+      <tr>
+        <td class="config-nvfp4">NVFP4 + DFlash · N=8</td>
+        <td>NVFP4 + 2 B drafter</td>
+        <td class="num">92.5 avg / 115.6 steady</td>
+        <td class="num">1.97× / 2.46×</td>
+        <td class="num">~22 GiB</td>
+        <td>DFlash compounds on NVFP4 too (+40 % steady vs NVFP4+MTP); MTP layer in sakamakismile ckpt is dead weight here, but mmangkad/Qwen3.6-27B-NVFP4 unusable (forces fp8 KV) (2026-05-03: 46.2 / 113.3 / 117.8)</td>
       </tr>
       <tr>
         <td class="config-int4">INT4 + MTP</td>
@@ -823,7 +842,7 @@
     <ul>
       <li><strong>Effects multiply, not add.</strong> INT4 weights cut bytes-per-target-pass by ~40 %; DFlash multiplies tokens-emitted-per-target-pass by ~2×. The product gets us to ~3× FP8 baseline — well above either pure improvement.</li>
       <li><strong>~12 GiB freed for KV cache vs FP8 + DFlash</strong> (19.98 GiB total vs ~32 GiB). Means longer context within the same 96 GB budget while running at 1.4× the throughput.</li>
-      <li><strong>NVFP4 group=16 dequant overhead is real.</strong> Pure-quant gains: INT4 +72 % over FP8, NVFP4 only +22 %. Despite Blackwell's INT4 tensor cores, NVFP4's per-layer dequant on this hybrid 27B costs more than it saves at decode time.</li>
+      <li><strong>NVFP4 group=16 dequant overhead is real — and persists under speculation.</strong> Pure-quant gains: INT4 +72 % over FP8, NVFP4 only +22 %. The same gap shows up at the spec-decoded layer: NVFP4+DFlash 115.6 tok/s steady vs INT4+DFlash 146 — both with the same 2 B drafter, so the ~21 % delta is purely the dequant tax. Despite Blackwell's INT4 tensor cores, NVFP4's per-layer dequant on this hybrid 27B costs more than it saves at decode time, regardless of the speculation method.</li>
       <li><strong>Lossy by construction.</strong> Unlike speculative decoding, 4-bit quantisation changes the output distribution. Quality smoke tests (haiku, 17×23, multilingual) pass; serious work should validate on its own benchmarks.</li>
       <li><strong>Concurrency sweep</strong> (added 2026-05-03 13:00): the stacked config does scale up at low-to-medium concurrency on chat/codegen — see the section below. The first sweep attempt was killed by an Xid 79 ("GPU has fallen off the bus") fault during the codegen saturation probe, requiring a host reboot. Re-running with <code>MAX_SECONDS=90</code> instead of 120 completed cleanly. See <a href="../../20260503-PROBLEM.md" style="color:var(--accent-2)">the incident report</a>.</li>
     </ul>
@@ -1194,7 +1213,7 @@ new Chart(document.getElementById('chartC1ByScenario'), {
   }
 });
 
-// All eight 27B configs, ranked low-to-high
+// All nine 27B configs, ranked low-to-high
 new Chart(document.getElementById('chartAllEight'), {
   type: 'bar',
   data: {
@@ -1204,20 +1223,38 @@ new Chart(document.getElementById('chartAllEight'), {
       'FP8 + MTP',
       'INT4 baseline',
       'NVFP4 + MTP',
+      'NVFP4 + DFlash · N=8',
       'INT4 + MTP',
       'FP8 + DFlash · N=15',
       'INT4 + DFlash · N=8',
     ],
     datasets: [{
       label: 'tok/s (3-run average, --no-think)',
-      data: [47.0, 57.4, 66.6, 80.7, 83.5, 102.8, 103.0, 140.2],
+      // Bars step through inferno colormap by luminance, low → high.
+      // Named-palette colors (baseline/mtp/nvfp4/int4/champion/dflash) are used at
+      // the matching inferno positions; interpolated stops fill the gaps.
+      data: [47.0, 57.4, 66.6, 80.7, 82.8, 92.5, 102.8, 103.0, 140.2],
       backgroundColor: [
-        baselineColor, nvfp4Color, mtpColor, int4Color,
-        nvfp4Color, int4Color, dflashColor, championColor,
+        'rgba(106, 23,110,0.85)',  // FP8 baseline    · inferno ~0.30
+        'rgba(147, 38,107,0.85)',  // NVFP4 baseline  · inferno ~0.40
+        'rgba(188, 55, 84,0.85)',  // FP8 + MTP       · inferno ~0.50
+        'rgba(204, 66, 72,0.85)',  // INT4 baseline   · inferno ~0.55
+        'rgba(214, 90, 44,0.85)',  // NVFP4 + MTP     · inferno ~0.58
+        'rgba(229,109, 30,0.85)',  // NVFP4 + DFlash  · inferno ~0.65
+        'rgba(243,120, 25,0.90)',  // INT4 + MTP      · inferno ~0.70
+        'rgba(255,180, 61,0.92)',  // FP8 + DFlash    · inferno ~0.85
+        'rgba(252,255,164,0.95)',  // INT4 + DFlash   · inferno ~1.00
       ],
       borderColor: [
-        baselineBorder, nvfp4Border, mtpBorder, int4Border,
-        nvfp4Border, int4Border, dflashBorder, championBorder,
+        'rgba(138, 60,148,1)',
+        'rgba(170, 55,120,1)',
+        'rgba(188, 55, 84,1)',
+        'rgba(204, 66, 72,1)',
+        'rgba(214, 90, 44,1)',
+        'rgba(229,109, 30,1)',
+        'rgba(243,120, 25,1)',
+        'rgba(255,200, 90,1)',
+        'rgba(252,255,164,1)',
       ],
       borderWidth: 2, borderRadius: 8,
     }]

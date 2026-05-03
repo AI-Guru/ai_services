@@ -1,0 +1,131 @@
+# Qwen3.6-27B NVFP4 (modelopt) + DFlash drafter — untested combination
+#
+# First attempt at stacking NVFP4 weights with the DFlash drafter, mirroring
+# the INT4+DFlash recipe that hit 146 tok/s steady-state.
+#
+# Target: sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP
+#   - NVFP4 group_size=16 via NVIDIA modelopt; auto-detected by vLLM from
+#     hf_quant_config.json (quant_algo=NVFP4)
+#   - Has kv_cache_quant_algo=null in hf_quant_config.json, so KV stays BF16
+#     (required — see KV-cache caveat below).
+#   - First attempt used mmangkad/Qwen3.6-27B-NVFP4 (no MTP layer): vLLM
+#     refused to start because that checkpoint forces kv_cache_dtype=fp8_e4m3
+#     and no attention backend supports fp8 KV + non-causal attention on the
+#     Qwen3.6 hybrid DeltaNet (FLASH_ATTN/FLEX_ATTENTION reject fp8 KV;
+#     FLASHINFER/TRITON_ATTN reject non-causal).
+#   - Direct A/B against the 83.5 tok/s NVFP4+MTP run on this same base
+#     (just swapping MTP method → DFlash drafter). The baked MTP layer is
+#     dead weight here but the alternative checkpoint is unusable.
+#
+# Drafter: z-lab/Qwen3.6-27B-DFlash (BF16 2 B, ~4 GiB).
+#
+# Comparable measurements on RTX PRO 6000 (decode tok/s, --no-think, 3 runs):
+#   - NVFP4 baseline (mmangkad, no spec):          44.9
+#   - NVFP4 + MTP (sakamakismile, N=1):            83.5
+#   - INT4 baseline (Lorbus AutoRound, no spec):   80.7
+#   - INT4 + MTP (N=2):                           102.8
+#   - INT4 + DFlash (N=8):                       146.0  ← current SOTA
+#   - NVFP4 + DFlash:                              ?    ← this recipe
+#
+# Hypothesis: DFlash should compound on NVFP4 the same way it did on INT4
+# (drafter is dtype-agnostic w.r.t. target). Plausible landing zone 100-140
+# tok/s; if NVFP4's group_size=16 dequant overhead dominates as it did vs
+# INT4 at decode, this may underperform INT4+DFlash.
+#
+# KV-cache caveat: do NOT set --kv-cache-dtype fp8_e4m3 — silent corruption
+# on Qwen3.6 hybrid DeltaNet (vllm-project/vllm#26646). KV stays BF16/FP16.
+#
+# Tool-calling caveat: DFlash + structured output is documented-broken in
+# vLLM (issues #34650, #38106, #35800). This recipe is for benchmark
+# comparison against the INT4+DFlash result, NOT for OpenCode / agentic
+# workloads. Use docker-compose.vllm-27b-nvfp4-baseline-rtx.yml for those.
+#
+# DFlash needs HF_TOKEN (gated repo). Use --env-file ../../.env.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-dflash-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-nvfp4-dflash:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-nvfp4-dflash
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/Qwen3.6-27B-DFlash","num_speculative_tokens":8}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 360s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
