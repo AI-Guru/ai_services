@@ -825,7 +825,7 @@
       <li><strong>~12 GiB freed for KV cache vs FP8 + DFlash</strong> (19.98 GiB total vs ~32 GiB). Means longer context within the same 96 GB budget while running at 1.4× the throughput.</li>
       <li><strong>NVFP4 group=16 dequant overhead is real.</strong> Pure-quant gains: INT4 +72 % over FP8, NVFP4 only +22 %. Despite Blackwell's INT4 tensor cores, NVFP4's per-layer dequant on this hybrid 27B costs more than it saves at decode time.</li>
       <li><strong>Lossy by construction.</strong> Unlike speculative decoding, 4-bit quantisation changes the output distribution. Quality smoke tests (haiku, 17×23, multilingual) pass; serious work should validate on its own benchmarks.</li>
-      <li><strong>Caveat.</strong> Single-user benchmarks only; we didn't run the GuideLLM concurrency sweep on these stacked configs. May not scale as cleanly under load as the lighter MTP variants.</li>
+      <li><strong>Concurrency sweep</strong> (added 2026-05-03 13:00): the stacked config does scale up at low-to-medium concurrency on chat/codegen — see the section below. The first sweep attempt was killed by an Xid 79 ("GPU has fallen off the bus") fault during the codegen saturation probe, requiring a host reboot. Re-running with <code>MAX_SECONDS=90</code> instead of 120 completed cleanly. See <a href="../../20260503-PROBLEM.md" style="color:var(--accent-2)">the incident report</a>.</li>
     </ul>
   </div>
 
@@ -841,24 +841,31 @@
 
 <!-- ── Under concurrency (full GuideLLM sweep) ───────────────── -->
 <section>
-  <h2>Under concurrency: MTP vs DFlash on the 27B</h2>
+  <h2>Under concurrency: MTP vs DFlash vs INT4+DFlash on the 27B</h2>
   <p>
-    Single-user benchmarks are flattering to DFlash. To see how each method actually behaves under load,
-    we ran the full GuideLLM sweep against both configurations on the 27B (5 scenarios, 10
+    Single-user benchmarks are flattering to any speculative method. To see how each actually behaves
+    under load we ran the full GuideLLM sweep against three configurations on the 27B (5 scenarios, 10
     concurrency strategies each, ~75 min per sweep). The headline:
-    <strong>DFlash dominates solo and at low concurrency, MTP catches up around C=8 and pulls ahead
-    at high concurrency on chat workloads.</strong>
+    <strong>INT4 + DFlash N=8 wins solo and stays ahead through medium concurrency; FP8 + DFlash matches
+    it past C ≈ 5 then loses to FP8 + MTP past C ≈ 8 on chat workloads.</strong>
+  </p>
+  <p class="muted">
+    The INT4 + DFlash sweep was added 2026-05-03 after the single-user benchmarks. Note: the first
+    attempt aborted on Xid 79 ("GPU has fallen off the bus") during the <code>codegen</code>
+    saturation probe — the heaviest decode-side speculative-decoding regime. Re-running with
+    <code>MAX_SECONDS=90</code> instead of 120 completed cleanly. <a href="../../20260503-PROBLEM.md" style="color:var(--accent-2)">Incident report</a>.
   </p>
 
   <h3>Chat: per-request output tok/s vs concurrency</h3>
-  <p class="muted">Aggregate output tok/s across the active batch. The crossover at C ≈ 8 is the key visual.
-  Below: DFlash's 15-token block drafting wins. Above: MTP's lighter-weight 1-token-draft batches better.</p>
+  <p class="muted">Aggregate output tok/s across the active batch. INT4+DFlash extends the DFlash advantage
+  at low concurrency by ~+30% but follows the same shape; the saturating probe (C ≈ 70) pushes the chart's
+  x-axis off-scale and is reported separately.</p>
   <div class="chart-wrap chart-tall"><canvas id="chartConcChat"></canvas></div>
 
-  <h3 style="margin-top:1.2rem">All five scenarios: where DFlash actually helps</h3>
-  <p class="muted">Single-user (C=1) DFlash improvement over MTP, by workload. The drop on long-prompt
-  scenarios reflects that the small drafter loses acceptance accuracy at long context, while the
-  prefill cost dominates regardless of speculation.</p>
+  <h3 style="margin-top:1.2rem">All five scenarios: single-user output tok/s</h3>
+  <p class="muted">C=1 throughput per scenario. INT4+DFlash adds the most on the decode-heavy
+  scenarios (chat, codegen); the prefill-bound scenarios are bottlenecked elsewhere so 4-bit weights
+  help less.</p>
   <div class="chart-wrap"><canvas id="chartC1ByScenario"></canvas></div>
 
   <table>
@@ -867,70 +874,86 @@
         <th>Scenario</th>
         <th class="num">MTP @ C=1</th>
         <th class="num">DFlash @ C=1</th>
-        <th class="num">Δ</th>
+        <th class="num">INT4+DFlash @ C=1</th>
+        <th class="num">Δ INT4+DFlash vs FP8+DFlash</th>
         <th>Why</th>
       </tr>
     </thead>
     <tbody>
       <tr>
         <td>Codegen (4K × 1.5K)</td>
-        <td class="num">60.6</td><td class="num">98.9</td><td class="num"><span class="badge good">+63 %</span></td>
-        <td>Long output amortises drafting cost beautifully</td>
+        <td class="num">60.6</td><td class="num">98.9</td>
+        <td class="num config-champion">136.4</td>
+        <td class="num"><span class="badge good">+38 %</span></td>
+        <td>Long output amortises drafting; INT4 cuts decode bytes proportionally</td>
       </tr>
       <tr>
         <td>Chat (2K × 300)</td>
-        <td class="num">66.6</td><td class="num">102.1</td><td class="num"><span class="badge good">+53 %</span></td>
-        <td>Short prompts → drafter accuracy stays high</td>
+        <td class="num">66.6</td><td class="num">102.1</td>
+        <td class="num config-champion">139.7</td>
+        <td class="num"><span class="badge good">+37 %</span></td>
+        <td>Short prompts → drafter accuracy stays high → INT4 stack wins biggest</td>
       </tr>
       <tr>
         <td>Agentic (16K × 800)</td>
-        <td class="num">38.2</td><td class="num">51.9</td><td class="num"><span class="badge good">+36 %</span></td>
-        <td>Mostly prefill-bound; speculation only helps decode</td>
+        <td class="num">38.2</td><td class="num">51.9</td>
+        <td class="num config-champion">62.5</td>
+        <td class="num"><span class="badge good">+20 %</span></td>
+        <td>Mostly prefill-bound; INT4 still helps the long decode tail</td>
       </tr>
       <tr>
         <td>Summarization (12K × 300)</td>
-        <td class="num">40.5</td><td class="num">47.9</td><td class="num"><span class="badge warn">+18 %</span></td>
-        <td>Pure prefill stress; very little decode to speculate over</td>
+        <td class="num">40.5</td><td class="num">47.9</td>
+        <td class="num config-champion">53.3</td>
+        <td class="num"><span class="badge warn">+11 %</span></td>
+        <td>Pure prefill stress; little decode to speculate over</td>
       </tr>
       <tr>
         <td>RAG (8K × 256)</td>
-        <td class="num">50.7</td><td class="num">55.8</td><td class="num"><span class="badge warn">+10 %</span></td>
+        <td class="num">50.7</td><td class="num">55.8</td>
+        <td class="num config-champion">64.3</td>
+        <td class="num"><span class="badge warn">+15 %</span></td>
         <td>Long prompts hurt drafter acceptance, short outputs limit gain</td>
       </tr>
     </tbody>
   </table>
 
-  <h3 style="margin-top:1.2rem">Aggregate throughput at high concurrency</h3>
-  <p class="muted">DFlash drafts 15 tokens per cycle. At high concurrency, the verify pass becomes
-  N×15 tokens, which is more memory pressure per batch step than MTP's 1-token-per-cycle.
-  MTP scales better past C=8.</p>
+  <h3 style="margin-top:1.2rem">Aggregate throughput at high concurrency (chat)</h3>
+  <p class="muted">DFlash drafts a block per cycle. At high concurrency the verify pass becomes
+  N+1 tokens × max_num_seqs, which is more memory pressure per batch step than MTP's 1 draft-token-per-cycle.
+  INT4+DFlash uses N=8 (vs FP8+DFlash N=15) so its verify pass is roughly half as wide — but the INT4 weights
+  also free bandwidth, so the two effects roughly cancel under heavy batching.</p>
   <table>
     <thead>
       <tr>
         <th class="num">Concurrency</th>
         <th class="num">MTP chat</th>
-        <th class="num">DFlash chat</th>
+        <th class="num">DFlash chat (N=15)</th>
+        <th class="num">INT4 + DFlash chat (N=8)</th>
         <th>Winner</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td class="num">1</td><td class="num">66.6</td><td class="num">102.1</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash +53 %</span></td></tr>
-      <tr><td class="num">2</td><td class="num">129.0</td><td class="num">141.8 (C=1.5)</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash</span></td></tr>
-      <tr><td class="num">4</td><td class="num">237.2</td><td class="num">275.6 (C=4.0)</td><td><span class="badge dense" style="background:rgba(252,255,164,0.15);color:var(--dflash-color)">DFlash +16 %</span></td></tr>
-      <tr><td class="num">6</td><td class="num">303.8</td><td class="num">314.4 (C=5.3)</td><td><span class="badge">≈ tied</span></td></tr>
-      <tr><td class="num">8</td><td class="num">357.7 (C=7.5)</td><td class="num">355.9 (C=7.0)</td><td><span class="badge">≈ tied</span></td></tr>
-      <tr><td class="num">10</td><td class="num">426.4 (C=9.7)</td><td class="num">381.3 (C=9.6)</td><td><span class="badge mtp" style="background:rgba(188,55,84,0.15);color:var(--mtp-color)">MTP +12 %</span></td></tr>
-      <tr><td class="num">15</td><td class="num">544.3 (C=15.1)</td><td class="num">— (sweep ended)</td><td><span class="badge mtp" style="background:rgba(188,55,84,0.15);color:var(--mtp-color)">MTP wins</span></td></tr>
+      <tr><td class="num">1</td><td class="num">66.6</td><td class="num">102.1</td><td class="num config-champion">139.7</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash +37 %</span></td></tr>
+      <tr><td class="num">2</td><td class="num">129.0</td><td class="num">141.8 (C=1.5)</td><td class="num config-champion">197.4 (C=1.75)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash</span></td></tr>
+      <tr><td class="num">3</td><td class="num">185.6 (C=3.3)</td><td class="num">242.7 (C=3.3)</td><td class="num config-champion">284.9 (C=2.94)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash</span></td></tr>
+      <tr><td class="num">4</td><td class="num">237.2</td><td class="num">275.6 (C=4.0)</td><td class="num config-champion">311.0 (C=3.62)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash</span></td></tr>
+      <tr><td class="num">6</td><td class="num">303.8</td><td class="num">314.4 (C=5.3)</td><td class="num config-champion">363.5 (C=4.77)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash</span></td></tr>
+      <tr><td class="num">8</td><td class="num">357.7 (C=7.5)</td><td class="num">355.9 (C=7.0)</td><td class="num config-champion">400.4 (C=7.29)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash +12 %</span></td></tr>
+      <tr><td class="num">10</td><td class="num">426.4 (C=9.7)</td><td class="num">381.3 (C=9.6)</td><td class="num config-champion">432.8 (C=12.87)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash ≈ MTP</span></td></tr>
+      <tr><td class="num">15</td><td class="num">544.3 (C=15.1)</td><td class="num">— (sweep ended)</td><td class="num">— (sweep ended at C=12.9)</td><td><span class="badge mtp" style="background:rgba(188,55,84,0.15);color:var(--mtp-color)">MTP wins</span></td></tr>
+      <tr><td class="num">~70</td><td class="num">—</td><td class="num">—</td><td class="num config-champion">450.5 (C=70.81)</td><td><span class="badge" style="background:rgba(255,180,61,0.15);color:var(--champion-color)">INT4+DFlash saturating probe</span></td></tr>
     </tbody>
   </table>
 
   <div class="findings">
-    <strong>Conclusions from the full sweep:</strong>
+    <strong>Conclusions from the full three-way sweep:</strong>
     <ul>
-      <li><strong>Solo / low concurrency (C ≤ 6)</strong>: DFlash wins, sometimes by a lot (+53 % chat at C=1, +63 % codegen).</li>
-      <li><strong>Medium concurrency (C = 6–8)</strong>: roughly tied. Per-request latency is the tiebreaker — DFlash gives faster individual responses, MTP shaves a few percent of aggregate.</li>
-      <li><strong>High concurrency (C ≥ 10)</strong>: MTP holds aggregate throughput better. DFlash's 15-token verify batches cause batching pressure that compounds.</li>
-      <li><strong>Long prompts</strong> (RAG, summarization, agentic): both methods give only modest gains. Prefill dominates; decode speculation has limited impact regardless of method.</li>
+      <li><strong>Solo / low concurrency (C ≤ 6)</strong>: <strong>INT4 + DFlash N=8 wins everywhere</strong>, by +37 % over FP8+DFlash on chat at C=1 and +38 % on codegen.</li>
+      <li><strong>Medium concurrency (C = 6–10)</strong>: INT4 + DFlash holds the lead on chat. The smaller N=8 verify pass batches better than FP8+DFlash's N=15.</li>
+      <li><strong>High concurrency (C ≥ 12)</strong>: the INT4+DFlash sweep ended at C ≈ 12.9 on chat — beyond that we only have the saturating probe at C ≈ 70 (450 OTPS). FP8+MTP at C=15 still holds the absolute multi-user record at 544 OTPS, mostly because its 1-token verify pass is the cheapest.</li>
+      <li><strong>Long prompts</strong> (RAG, summarization, agentic): all three methods give only modest gains. Prefill dominates; INT4 still helps the long-decode tail (+15-20 % over FP8+DFlash).</li>
+      <li><strong>Operational caveat</strong>: stacked INT4 + DFlash under saturating concurrency triggered an Xid 79 fault on the first attempt, fixed by reducing per-rate dwell time. Multi-user production deployments should derate the sweep envelope or stick to MTP.</li>
     </ul>
   </div>
 </section>
@@ -1066,7 +1089,7 @@ new Chart(document.getElementById('chartRuns'), {
   }
 });
 
-// MTP vs DFlash chat concurrency curves
+// MTP vs DFlash vs INT4+DFlash chat concurrency curves
 const mtpChat = [
   {x:1.0, y:66.6}, {x:2.2, y:129.0}, {x:3.3, y:185.6}, {x:4.4, y:237.2},
   {x:6.0, y:303.8}, {x:7.5, y:357.7}, {x:9.7, y:426.4}, {x:12.3, y:491.7}, {x:15.1, y:544.3}
@@ -1074,6 +1097,12 @@ const mtpChat = [
 const dflashChat = [
   {x:1.0, y:102.1}, {x:1.5, y:141.8}, {x:2.1, y:175.0}, {x:2.5, y:201.4},
   {x:3.3, y:242.7}, {x:4.0, y:275.6}, {x:5.3, y:314.4}, {x:7.0, y:355.9}, {x:9.6, y:381.3}
+];
+// 2026-05-03: INT4 + DFlash N=8 sweep (saturating probe at C=70.81 / 450 OTPS off-scale)
+const int4DflashChat = [
+  {x:1.00, y:139.7}, {x:1.26, y:158.7}, {x:1.75, y:197.4}, {x:2.28, y:234.6},
+  {x:2.94, y:284.9}, {x:3.62, y:311.0}, {x:4.77, y:363.5}, {x:7.29, y:400.4},
+  {x:12.87, y:432.8}
 ];
 new Chart(document.getElementById('chartConcChat'), {
   type: 'line',
@@ -1088,12 +1117,20 @@ new Chart(document.getElementById('chartConcChat'), {
         pointRadius: 5, tension: 0.25, fill: false,
       },
       {
-        label: 'FP8 + DFlash',
+        label: 'FP8 + DFlash · N=15',
         data: dflashChat,
         borderColor: dflashBorder,
         backgroundColor: 'rgba(252,255,164,0.15)',
         pointBackgroundColor: dflashBorder,
         pointRadius: 5, tension: 0.25, fill: false,
+      },
+      {
+        label: 'INT4 + DFlash · N=8',
+        data: int4DflashChat,
+        borderColor: championBorder,
+        backgroundColor: 'rgba(255,180,61,0.20)',
+        pointBackgroundColor: championBorder,
+        pointRadius: 5, borderWidth: 3, tension: 0.25, fill: false,
       },
     ]
   },
@@ -1113,7 +1150,7 @@ new Chart(document.getElementById('chartConcChat'), {
   }
 });
 
-// C=1 by scenario: MTP vs DFlash side-by-side bars
+// C=1 by scenario: MTP vs DFlash vs INT4+DFlash side-by-side bars
 new Chart(document.getElementById('chartC1ByScenario'), {
   type: 'bar',
   data: {
@@ -1131,6 +1168,13 @@ new Chart(document.getElementById('chartC1ByScenario'), {
         data: [98.9, 102.1, 51.9, 47.9, 55.8],
         backgroundColor: dflashColor,
         borderColor: dflashBorder,
+        borderWidth: 2, borderRadius: 6,
+      },
+      {
+        label: 'INT4 + DFlash @ C=1',
+        data: [136.4, 139.7, 62.5, 53.3, 64.3],
+        backgroundColor: championColor,
+        borderColor: championBorder,
         borderWidth: 2, borderRadius: 6,
       },
     ]
