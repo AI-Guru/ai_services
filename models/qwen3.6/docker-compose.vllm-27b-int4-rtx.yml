@@ -1,0 +1,114 @@
+# Qwen3.6-27B INT4 (AutoRound, W4A16) + MTP — community recipe variant
+#
+# Uses Lorbus/Qwen3.6-27B-int4-AutoRound: AutoRound-quantised W4A16 INT4
+# with group size 128, stored in GPTQ-compatible format. ~14 GB weights.
+# vLLM auto-detects the quantization config from the model itself.
+#
+# Why try this:
+#   - INT4 weights are ~half the size of FP8, leaving more KV headroom
+#   - Memory-bandwidth-bound decode benefits proportionally
+#   - Combined with MTP, expected ~80-130 tok/s on RTX PRO 6000 (vs 47
+#     baseline FP8, 66 FP8+MTP, 103 FP8+DFlash)
+#
+# Measured (test_chat.py, --no-think, 3 runs, RTX PRO 6000):
+#   - Decode: 102.8 tok/s avg (100.6 / 104.1 / 103.7) — 2.19x baseline,
+#     ties FP8+DFlash on throughput, with 16.87 GiB weights vs ~28 GiB FP8
+#     (frees ~10 GiB of KV headroom). Best community-recipe result.
+#
+# Adjustments from the user's recipe:
+#   - Drop --quantization auto_round (NOT a valid vLLM value); auto-detect
+#     handles W4A16-GPTQ format from the model config
+#   - Drop --kv-cache-dtype fp8_e4m3 (vllm-project/vllm#26646: silent
+#     corruption on Qwen3.6 hybrid DeltaNet, not yet fixed in nightly)
+#   - Use method "qwen3_next_mtp" (vLLM-specific) not generic "mtp"
+#   - num_speculative_tokens=1 (we proved 1 works on dense 27B; 3 likely
+#     fails on hybrid)
+#   - Drop --performance-mode interactivity for now (test as a follow-up)
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-int4-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-int4:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-int4
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Lorbus/Qwen3.6-27B-int4-AutoRound
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

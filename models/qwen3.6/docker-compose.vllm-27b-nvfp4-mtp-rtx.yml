@@ -1,0 +1,119 @@
+# Qwen3.6-27B NVFP4 (modelopt) + MTP — community recipe variant
+#
+# Uses sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP: NVFP4-quantised
+# (group_size=16) by NVIDIA modelopt 0.43.0, with mtp_num_hidden_layers=1
+# baked into the config. ~19.6 GB safetensors. text-only.
+#
+# vLLM auto-detects modelopt_fp4 from hf_quant_config.json. We verified that
+# kv_cache_quant_algo is null in the model config — so KV stays in BF16/FP16,
+# avoiding vllm bug #26646 (silent corruption with fp8_e4m3 KV on Qwen3.6
+# hybrid DeltaNet).
+#
+# Why try this:
+#   - NVFP4 is the Blackwell-native 4-bit format (uses TF32/INT4 tensor
+#     cores), so on RTX PRO 6000 it should beat AutoRound-W4A16 INT4 in
+#     compute throughput, and it ships with a baked MTP layer
+#   - Earlier test of mmangkad/Qwen3.6-27B-NVFP4 (no MTP) measured 44.9 tok/s;
+#     this MTP-aware variant should land between 50 and 90 tok/s
+#
+# Measured (test_chat.py, --no-think, 3 runs, RTX PRO 6000):
+#   - Decode: 83.5 tok/s avg — 1.78x baseline, +86% over plain NVFP4 (44.9).
+#     Lags Recipe 1 (INT4 AutoRound + MTP, 102.8 tok/s). NVFP4 group_size=16
+#     dequant overhead per layer appears to dominate over the Blackwell
+#     INT4 tensor-core advantage at decode-time on this 27B hybrid.
+#
+# Adjustments from the user's recipe:
+#   - Drop --quantization auto_round (not valid; vLLM auto-detects from
+#     hf_quant_config.json: quant_algo=NVFP4)
+#   - Drop --kv-cache-dtype fp8_e4m3 (vllm-project/vllm#26646)
+#   - Use method "qwen3_next_mtp" (vLLM-specific)
+#   - num_speculative_tokens=1 (proven to work; 3 likely fails on hybrid)
+#   - --performance-mode interactivity left out for first-pass measurement
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-nvfp4-mtp:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-nvfp4-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
