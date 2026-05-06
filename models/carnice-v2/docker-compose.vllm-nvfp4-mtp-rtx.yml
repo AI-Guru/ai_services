@@ -69,7 +69,7 @@ services:
       - --port
       - "11475"
       - --max-model-len
-      - "65536"
+      - "262144"
       - --gpu-memory-utilization
       - "0.90"
       - --reasoning-parser
