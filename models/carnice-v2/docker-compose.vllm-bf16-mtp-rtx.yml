@@ -1,0 +1,109 @@
+# Carnice-V2-27B native BF16 + MTP speculative decoding
+#
+# !!! THIS COMPOSE DOES NOT START !!!
+#
+# kai-os/Carnice-V2-27b's checkpoint does NOT include the MTP draft-head
+# weights. The base Qwen/Qwen3.6-27B has mtp_num_hidden_layers=1 in its
+# config (inherited by Carnice), so vLLM expects MTP weights to load —
+# but the Unsloth merge that produced Carnice's BF16 safetensors did not
+# preserve them. vLLM bails with:
+#
+#   ValueError: Following weights were not initialized from checkpoint:
+#     {'model.pre_fc_norm_hidden.weight', 'model.layers.0.*',
+#      'model.norm.weight', 'model.fc.weight',
+#      'model.pre_fc_norm_embedding.weight', ...}
+#
+# Kept here for documentation. To actually use MTP on this fine-tune,
+# kai-os would need to reissue the checkpoint with the MTP head weights
+# included (or re-tune them post-merge). Until then: use the vanilla BF16
+# compose (docker-compose.vllm-bf16-rtx.yml), or the GGUF variants.
+#
+# If a future Carnice release fixes this, the speculative-config below
+# would lift it to expected ~45-50 tok/s vs the vanilla 28.3 tok/s.
+#
+# Usage: docker compose -f docker-compose.vllm-bf16-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11475/v1
+# Model name served as: carnice-v2
+
+services:
+  carnice-v2-bf16-mtp:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: carnice-v2-bf16-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11475:11475"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - kai-os/Carnice-V2-27b
+      - --served-model-name
+      - carnice-v2
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11475"
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "8192"
+      - --max-num-seqs
+      - "256"
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11475/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: carnice_v2_huggingface_cache
+
+networks:
+  default:
+    name: carnice-v2-network

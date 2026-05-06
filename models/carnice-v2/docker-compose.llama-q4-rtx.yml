@@ -1,0 +1,90 @@
+# Carnice-V2-27B GGUF Q4_K_M via llama.cpp on RTX PRO 6000 Blackwell
+#
+# kai-os/Carnice-V2-27b-GGUF · Q4_K_M shard (15.4 GB single file).
+# llama.cpp's --hf-file path works for single-file GGUF (no subdirectory
+# layout to confuse it, unlike the bartowski Mistral-Medium repo).
+#
+# Performance expectation: ~40-55 tok/s decode on RTX PRO 6000 (1.6 TB/s
+# ÷ ~15 GB ≈ 100 tok/s ceiling, llama.cpp typically reaches 40-55 % of
+# theoretical for dense 27B-class Q4 GGUFs on Blackwell). No spec
+# decoding — llama.cpp has no DFlash/MTP integration for this arch.
+#
+# Q4_K_M is the community sweet spot for dense 27B inference — minimal
+# quality drop vs Q5/Q6, half the bandwidth of Q8.
+#
+# Usage: docker compose -f docker-compose.llama-q4-rtx.yml up -d
+# API endpoint: http://localhost:11475/v1
+# Model name served as: carnice-v2
+
+services:
+  carnice-v2-q4:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: carnice-v2-q4
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11475:11475"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - kai-os/Carnice-V2-27b-GGUF
+      - --hf-file
+      - carnice-v2-27b-Q4_K_M.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11475"
+      - -a
+      - carnice-v2
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11475/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: carnice_v2_llama_cache
+
+networks:
+  default:
+    name: carnice-v2-network

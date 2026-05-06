@@ -1,0 +1,87 @@
+# Carnice-V2-27B GGUF Q8_0 via llama.cpp on RTX PRO 6000 Blackwell
+#
+# kai-os/Carnice-V2-27b-GGUF · Q8_0 shard (26.6 GB single file).
+# Same llama.cpp engine as the Q4 variant; the only meaningful difference
+# is the quant. Serves as the high-fidelity reference: Q8_0 is essentially
+# lossless vs BF16 for inference quality, but takes 1.7× the bandwidth.
+#
+# Performance expectation: ~30-40 tok/s decode (1.6 TB/s ÷ ~27 GB ≈ 60
+# tok/s ceiling). Slower than Q4 because of the larger weight pull, but
+# the quality anchor for the Q4 vs BF16 comparison.
+#
+# Usage: docker compose -f docker-compose.llama-q8-rtx.yml up -d
+# API endpoint: http://localhost:11475/v1
+# Model name served as: carnice-v2
+
+services:
+  carnice-v2-q8:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: carnice-v2-q8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11475:11475"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - kai-os/Carnice-V2-27b-GGUF
+      - --hf-file
+      - carnice-v2-27b-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11475"
+      - -a
+      - carnice-v2
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11475/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: carnice_v2_llama_cache
+
+networks:
+  default:
+    name: carnice-v2-network

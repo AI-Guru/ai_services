@@ -1,0 +1,108 @@
+# Carnice-V2-27B NVFP4 (modelopt) + MTP — community quant
+#
+# sakamakismile/Carnice-V2-27b-NVFP4-TEXT-MTP: NVFP4-quantised
+# (group_size=16) by NVIDIA modelopt, with mtp_num_hidden_layers=1 baked
+# into the config AND the MTP head weights actually present in the
+# safetensors. ~18.3 GB single shard. text-only.
+#
+# This is the same author who made the base Qwen3.6-27B-Text-NVFP4-MTP
+# we benchmarked earlier (83.5 tok/s). They consistently bundle the MTP
+# layer with the quantised target — sidestepping the missing-MTP-head
+# problem we hit on kai-os/Carnice-V2-27b BF16 (see
+# docker-compose.vllm-bf16-mtp-rtx.yml header).
+#
+# vLLM auto-detects modelopt_fp4 from hf_quant_config.json
+# (quant_algo=NVFP4). KV cache is kept at native dtype (kv_cache_quant_algo
+# is None in the config), avoiding vllm-project/vllm#26646.
+#
+# Expected: ~80-90 tok/s on the same hardware where the base Qwen3.6
+# NVFP4-MTP ran 83.5 tok/s. Carnice's SFT may shift the MTP head's
+# acceptance slightly, but we're testing on inference quality / speed
+# only, not training drift.
+#
+# Usage: docker compose -f docker-compose.vllm-nvfp4-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11475/v1
+# Model name served as: carnice-v2
+
+services:
+  carnice-v2-nvfp4-mtp:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: carnice-v2-nvfp4-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11475:11475"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - sakamakismile/Carnice-V2-27b-NVFP4-TEXT-MTP
+      - --served-model-name
+      - carnice-v2
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11475"
+      - --max-model-len
+      - "65536"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "8192"
+      - --max-num-seqs
+      - "256"
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11475/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: carnice_v2_huggingface_cache
+
+networks:
+  default:
+    name: carnice-v2-network
