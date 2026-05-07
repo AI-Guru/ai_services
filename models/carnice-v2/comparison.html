@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Carnice-V2-27B · Inference Variants Compared · RTX PRO 6000</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --accent-5: #160b39;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --bf16-color: #6a176e;       /* inferno purple — bandwidth floor */
+    --q8-color: #bc3754;         /* inferno hot pink */
+    --q4-color: #f37819;         /* inferno orange */
+    --champion-color: #ffb43d;   /* champion gold — NVFP4 + MTP */
+    --broken-color: #f44336;     /* red — BF16+MTP failure */
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--bf16-color), var(--accent-3) 35%, var(--accent-2) 65%, var(--champion-color));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent-2), var(--champion-color));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* Hero variant cards */
+  .hero-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .hero-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .hero-row { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.4rem;
+    position: relative;
+    border: 1px solid transparent;
+  }
+  .config-card.bf16     { border-color: rgba(106,23,110,0.4); }
+  .config-card.q8       { border-color: rgba(188,55,84,0.4); }
+  .config-card.q4       { border-color: rgba(243,120,25,0.5); }
+  .config-card.champion { border-color: rgba(255,180,61,0.6);
+                          box-shadow: 0 0 40px rgba(255,180,61,0.15); }
+  .config-card .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .config-card.bf16 .tag     { color: #c49ad0; }
+  .config-card.q8 .tag       { color: #e48caa; }
+  .config-card.q4 .tag       { color: var(--q4-color); }
+  .config-card.champion .tag { color: var(--champion-color); }
+  .config-card h3 {
+    margin: 0.3rem 0 0.8rem;
+    font-size: 1.05rem; color: var(--fg); font-weight: 600;
+  }
+  .config-card .big-num {
+    font-size: 2.6rem; font-weight: 800; margin: 0.2rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .config-card.bf16     .big-num { color: var(--bf16-color); filter: brightness(1.6); }
+  .config-card.q8       .big-num { color: var(--q8-color); }
+  .config-card.q4       .big-num { color: var(--q4-color); }
+  .config-card.champion .big-num { color: var(--champion-color);
+                                   filter: drop-shadow(0 0 10px rgba(255,180,61,0.4)); }
+  .config-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .config-card .delta {
+    margin-top: 0.8rem; font-size: 0.85rem;
+    padding: 0.25rem 0.6rem; border-radius: 999px;
+    display: inline-block;
+  }
+  .config-card .delta.pos { background: rgba(76,175,80,0.15); color: #8be094; }
+  .config-card .delta.neutral { background: rgba(152,144,196,0.15); color: var(--muted); }
+  .config-card .detail {
+    margin-top: 0.8rem; font-size: 0.78rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--champion-color); color: #1a1430;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.2rem 0.6rem; border-radius: 999px;
+  }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(255,180,61,0.07);
+  }
+  tbody tr:hover td { background: rgba(255,180,61,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.config-bf16     { color: #c49ad0; font-weight: 600; }
+  td.config-q8       { color: var(--q8-color); font-weight: 600; }
+  td.config-q4       { color: var(--q4-color); font-weight: 600; }
+  td.config-champion { color: var(--champion-color); font-weight: 700; }
+  td.config-broken   { color: var(--broken-color); font-weight: 600; }
+
+  /* Charts */
+  .chart-wrap {
+    position: relative; height: 360px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 420px; }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(255,180,61,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.18); color: #ff8a85; }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(255,180,61,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--champion-color);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion-color); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  .alert {
+    background: rgba(244,67,54,0.08);
+    border-left: 4px solid var(--broken-color);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .alert strong { color: var(--broken-color); }
+  .alert code { background: rgba(244,67,54,0.12); }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(255,180,61,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Carnice-V2-27B · Inference Variants Compared</h1>
+  <div class="subtitle">Five compose recipes for the kai-os Hermes-style SFT of Qwen3.6-27B — measured single-user on RTX PRO 6000 Blackwell</div>
+  <div class="meta">
+    <span>Date: 2026-05-06</span>
+    <span>Base: <code>kai-os/Carnice-V2-27b</code></span>
+    <span>NVFP4-MTP: <code>sakamakismile/Carnice-V2-27b-NVFP4-TEXT-MTP</code></span>
+    <span>GGUF: <code>kai-os/Carnice-V2-27b-GGUF</code></span>
+    <span>vLLM: cu130-nightly · llama.cpp: server-cuda</span>
+    <span>GPU: RTX PRO 6000 (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
+  </div>
+</header>
+
+<main>
+
+<!-- Hero variant cards -->
+<section>
+  <h2>Headline: same model, four working recipes</h2>
+  <p>
+    Carnice-V2-27B inherits Qwen3.6-27B's hybrid Gated DeltaNet + Gated Attention architecture
+    (16 full-attention layers, 48 linear-attention layers, ~51 GB BF16). Decode is bandwidth-bound:
+    on the 1.6 TB/s RTX PRO 6000 the BF16 ceiling is ~32 tok/s. Every variant below trades
+    weight precision and/or speculation to climb above that ceiling.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card bf16">
+      <div class="tag">vllm · bf16 native</div>
+      <h3>BF16 vanilla</h3>
+      <div class="big-num">28.3</div>
+      <div class="unit">tok / s</div>
+      <div class="delta neutral">starting point</div>
+      <div class="detail">50.2 GiB · 88 % of theoretical ceiling</div>
+    </div>
+
+    <div class="config-card q8">
+      <div class="tag">llama.cpp · gguf q8_0</div>
+      <h3>Q8_0 GGUF</h3>
+      <div class="big-num">47.6</div>
+      <div class="unit">tok / s</div>
+      <div class="delta pos">+ 68 % vs BF16</div>
+      <div class="detail">~27 GiB · quality anchor</div>
+    </div>
+
+    <div class="config-card q4">
+      <div class="tag">llama.cpp · gguf q4_k_m</div>
+      <h3>Q4_K_M GGUF</h3>
+      <div class="big-num">70.7</div>
+      <div class="unit">tok / s</div>
+      <div class="delta pos">+ 150 % vs BF16</div>
+      <div class="detail">~15 GiB · text-only · simplest</div>
+    </div>
+
+    <div class="config-card champion">
+      <div class="crown">winner</div>
+      <div class="tag">vllm · nvfp4 + mtp</div>
+      <h3>NVFP4 + MTP</h3>
+      <div class="big-num">83.7</div>
+      <div class="unit">tok / s</div>
+      <div class="delta pos">+ 196 % vs BF16</div>
+      <div class="detail">18.4 GiB · ties base Qwen3.6 NVFP4-MTP</div>
+    </div>
+  </div>
+</section>
+
+<!-- Ranked bar chart -->
+<section>
+  <h2>Ranked: aggregate decode throughput</h2>
+  <p class="muted">
+    Three-run average from <code>test_chat.py</code>, <code>--no-think</code>, with warm-up.
+    Same prompt, same harness, same hardware — only the inference recipe changes.
+  </p>
+  <div class="chart-wrap chart-tall"><canvas id="chartRanked"></canvas></div>
+</section>
+
+<!-- Detail table -->
+<section>
+  <h2>Detail breakdown</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Variant</th>
+        <th>Engine · format</th>
+        <th class="num">Avg tok/s</th>
+        <th>Per-run</th>
+        <th class="num">Avg TTFT</th>
+        <th class="num">Weights</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-bf16">BF16 vanilla</td>
+        <td>vLLM · BF16 (native)</td>
+        <td class="num">28.3</td>
+        <td class="num">28.3 · 28.3 · 28.3</td>
+        <td class="num">45.5 s</td>
+        <td class="num">50.2 GiB</td>
+      </tr>
+      <tr>
+        <td class="config-q8">Q8_0 GGUF</td>
+        <td>llama.cpp · GGUF Q8_0</td>
+        <td class="num">47.6</td>
+        <td class="num">47.4 · 47.7 · 47.7</td>
+        <td class="num">30.2 s</td>
+        <td class="num">~27 GiB</td>
+      </tr>
+      <tr>
+        <td class="config-q4">Q4_K_M GGUF</td>
+        <td>llama.cpp · GGUF Q4_K_M</td>
+        <td class="num">70.7</td>
+        <td class="num">70.7 · 70.7 · 70.6</td>
+        <td class="num">16.3 s</td>
+        <td class="num">~15 GiB</td>
+      </tr>
+      <tr style="background:rgba(255,180,61,0.07)">
+        <td class="config-champion"><strong>NVFP4 + MTP</strong></td>
+        <td>vLLM · NVFP4 + qwen3_next_mtp</td>
+        <td class="num"><strong>83.7</strong></td>
+        <td class="num">82.7 · 84.3 · 84.1</td>
+        <td class="num">17.6 s</td>
+        <td class="num"><strong>18.4 GiB</strong></td>
+      </tr>
+      <tr>
+        <td class="config-broken">BF16 + MTP</td>
+        <td>vLLM · BF16 + qwen3_next_mtp</td>
+        <td class="num">—</td>
+        <td>does not start</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted" style="margin-top:0.8rem">
+    <strong>Q4 first-cold-run anomaly</strong>: llama.cpp's first chat completion after server start
+    emitted a <code>failed to truncate tokens</code> log line and decoded at 31.6 tok/s; subsequent
+    runs settled at 70.7. The 70.7 figure here is the warm steady-state.
+  </p>
+</section>
+
+<!-- Why NVFP4+MTP wins -->
+<section>
+  <h2>Why NVFP4 + MTP is the right default</h2>
+  <p>
+    Decode on a dense 27 B is memory-bandwidth-bound. Each generated token requires streaming the full
+    weight set through tensor cores, so anything that cuts <em>bytes per token</em> or
+    <em>tokens per forward pass</em> shows up directly in tok/s. NVFP4 + MTP wins both axes:
+  </p>
+  <ul>
+    <li><strong>NVFP4</strong> compresses weights to 4-bit on Blackwell's native FP4 tensor cores with group=16 scales — same parameter count, ~28 % the bytes of BF16 (18.4 GiB vs 50.2 GiB).</li>
+    <li><strong>MTP</strong> is the model's baked-in <code>qwen3_next_mtp</code> draft head. With <code>num_speculative_tokens=1</code> it amortises one draft token per target forward pass, ~1.4× per-pass yield in our measurements on the base.</li>
+  </ul>
+
+  <div class="findings">
+    <strong>Most-interesting finding</strong> — NVFP4 + MTP on Carnice (83.7 tok/s) matches base
+    Qwen3.6-27B-NVFP4-MTP (83.5 tok/s) almost exactly. The Hermes SFT did <em>not</em> degrade MTP
+    draft acceptance, and sakamakismile's quantisation preserves the MTP head correctly. So the
+    speculation gain you measure on the base model is what you keep on the fine-tune.
+  </div>
+
+  <h3 style="margin-top:1.5rem">vs the GGUF path</h3>
+  <p>
+    The Q4_K_M GGUF is the practical runner-up at 70.7 tok/s — simpler stack, no nightly vLLM, runs
+    with a <code>--hf-repo</code> + <code>--hf-file</code> one-liner. But it gives up ~15 % to the
+    NVFP4 + MTP path because llama.cpp can't fuse the MTP draft head into its forward pass and the
+    Q4_K_M block-quant kernel doesn't get full Blackwell FP4-tensor-core treatment.
+  </p>
+</section>
+
+<!-- Failure callout -->
+<section>
+  <h2>Known issue: kai-os BF16 ships without MTP head weights</h2>
+  <div class="alert">
+    <strong>BF16 + MTP does not start.</strong> The kai-os BF16 safetensors don't contain the MTP
+    head parameters even though <code>config.json</code> declares
+    <code>mtp_num_hidden_layers: 1</code> (inherited from the base Qwen3.6-27B). vLLM bails with
+    <code>ValueError: Following weights were not initialized from checkpoint: …</code> listing the
+    missing <code>model.fc.weight</code>, <code>model.pre_fc_norm_*</code>, and the entire MTP
+    layer's parameters. This is a side-effect of the Unsloth LoRA-merge step; the LoRA adapter
+    only covered the main model and the merge dropped the MTP layer.
+  </div>
+  <p class="muted" style="margin-top:0.8rem">
+    The <code>docker-compose.vllm-bf16-mtp-rtx.yml</code> compose is preserved as documentation.
+    The community NVFP4-TEXT-MTP repackage by sakamakismile rebundles the MTP head correctly,
+    which is why that variant works (and is the default recommendation).
+  </p>
+</section>
+
+<!-- Decision aid -->
+<section>
+  <h2>Which compose should you run?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Situation</th>
+        <th>Pick</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Default — fastest single-user agent</td>
+        <td class="config-champion">NVFP4 + MTP</td>
+        <td>Best tok/s, smallest weights, full speculation. <code>vllm-nvfp4-mtp-rtx.yml</code></td>
+      </tr>
+      <tr>
+        <td>Don't want vLLM nightly / want the simplest stack</td>
+        <td class="config-q4">Q4_K_M GGUF</td>
+        <td>llama.cpp server-cuda with <code>--hf-repo</code>; ~15 % slower than the champion.</td>
+      </tr>
+      <tr>
+        <td>Quality reference for evals</td>
+        <td class="config-q8">Q8_0 GGUF</td>
+        <td>Effectively lossless vs BF16; useful when you need to discriminate quant artefacts from model behaviour.</td>
+      </tr>
+      <tr>
+        <td>Maximum fidelity, no compromises</td>
+        <td class="config-bf16">BF16 vanilla</td>
+        <td>Native weights, deterministic with the model card's recommended sampling. Slowest at 28 tok/s.</td>
+      </tr>
+      <tr>
+        <td>BF16 + MTP</td>
+        <td class="config-broken">— (broken)</td>
+        <td>Wait for kai-os to reissue the checkpoint with MTP head weights, or convert via NVFP4.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- Quick start -->
+<section>
+  <h2>Quick start</h2>
+  <pre><code># Champion: NVFP4 + MTP
+docker compose -f docker-compose.vllm-nvfp4-mtp-rtx.yml up -d
+
+# Smoke test
+curl http://localhost:11475/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "carnice-v2",
+    "messages": [{"role":"user","content":"Write a Python iterative Fibonacci."}],
+    "max_tokens": 400
+  }'</code></pre>
+  <p class="muted">All variants serve on port <code>11475</code> as <code>carnice-v2</code>. See
+  <code>README.md</code> for the full set of compose files and notes.</p>
+</section>
+
+</main>
+
+<footer>
+  Measured 2026-05-06 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) ·
+  vLLM cu130-nightly &amp; llama.cpp server-cuda · single-user.
+  Related: <a href="../qwen3.6/comparison-baseline-mtp-dflash.html" style="color:var(--accent-2)">base Qwen3.6 comparison</a>.
+</footer>
+
+<script>
+const bf16Color    = 'rgba(106,23,110,0.85)';
+const bf16Border   = 'rgba(138,60,148,1)';
+const q8Color      = 'rgba(188,55,84,0.85)';
+const q8Border     = 'rgba(188,55,84,1)';
+const q4Color      = 'rgba(243,120,25,0.9)';
+const q4Border     = 'rgba(243,120,25,1)';
+const championColor  = 'rgba(255,180,61,0.95)';
+const championBorder = 'rgba(255,200,90,1)';
+const gridColor    = 'rgba(255,180,61,0.08)';
+const tickColor    = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+new Chart(document.getElementById('chartRanked'), {
+  type: 'bar',
+  data: {
+    labels: ['BF16 vanilla', 'Q8_0 GGUF', 'Q4_K_M GGUF', 'NVFP4 + MTP'],
+    datasets: [{
+      label: 'tok/s (3-run average, --no-think)',
+      data: [28.3, 47.6, 70.7, 83.7],
+      backgroundColor: [bf16Color, q8Color, q4Color, championColor],
+      borderColor:     [bf16Border, q8Border, q4Border, championBorder],
+      borderWidth: 2, borderRadius: 8,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s`,
+          afterLabel: ctx => {
+            const base = 28.3;
+            const pct = ((ctx.parsed.x - base) / base) * 100;
+            return ` (${pct >= 0 ? '+' : ''}${pct.toFixed(0)}% vs BF16 floor)`;
+          }
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (single-user, 3-run avg)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
