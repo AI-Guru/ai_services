@@ -9,8 +9,8 @@ aggregate WER.
 
 Usage:
     python test_asr.py
-    python test_asr.py --endpoint http://localhost:11437/v1 --model qwen3-asr-1.7b
-    python test_asr.py --endpoint http://localhost:11438/v1 --model qwen3-asr-0.6b
+    python test_asr.py --endpoint http://localhost:12434/v1 --model qwen3-asr-1.7b
+    python test_asr.py --endpoint http://localhost:12435/v1 --model qwen3-asr-0.6b
     python test_asr.py --langs en de fr es --n 3   # custom mix
 
 FLEURS audio is 16 kHz mono — vLLM's transcription endpoint accepts it directly.
@@ -139,7 +139,7 @@ def transcribe(client: OpenAI, model: str, path: Path) -> tuple[str, float]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--endpoint", default="http://localhost:11437/v1",
+    parser.add_argument("--endpoint", default="http://localhost:12434/v1",
                         help="Base URL of the OpenAI-compatible server")
     parser.add_argument("--model", default="qwen3-asr-1.7b",
                         help="served-model-name to send")

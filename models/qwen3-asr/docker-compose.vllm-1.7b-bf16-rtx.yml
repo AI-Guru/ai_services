@@ -22,7 +22,7 @@
 # soundfile) are not in the base image, so we install them at container start.
 #
 # Usage: docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml up -d
-# API endpoint: http://localhost:11437/v1
+# API endpoint: http://localhost:12434/v1
 # Model name served as: qwen3-asr-1.7b
 
 services:
@@ -50,7 +50,7 @@ services:
       stack: 67108864
 
     ports:
-      - "11437:11437"
+      - "12434:12434"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -72,7 +72,7 @@ services:
           --model Qwen/Qwen3-ASR-1.7B \
           --served-model-name qwen3-asr-1.7b \
           --host 0.0.0.0 \
-          --port 11437 \
+          --port 12434 \
           --gpu-memory-utilization 0.09 \
           --max-num-seqs 16 \
           --max-model-len 4096 \
@@ -80,7 +80,7 @@ services:
           --trust-remote-code
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:12434/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -395,7 +395,7 @@ uv run python test_asr.py --warmup --json benchmarks/run-1.7b.json
 # 0.6B
 docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml down
 docker compose -f docker-compose.vllm-0.6b-bf16-rtx.yml up -d
-uv run python test_asr.py --endpoint http://localhost:11438/v1 --model qwen3-asr-0.6b --warmup --json benchmarks/run-0.6b.json
+uv run python test_asr.py --endpoint http://localhost:12435/v1 --model qwen3-asr-0.6b --warmup --json benchmarks/run-0.6b.json
   </pre>
 </section>
 

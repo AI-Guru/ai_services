@@ -34,14 +34,14 @@ docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml up -d
 docker compose -f docker-compose.vllm-1.7b-bf16.yaml up -d
 
 # Wait for healthcheck, then transcribe a clip
-curl -s http://localhost:11437/v1/models | jq
+curl -s http://localhost:12434/v1/models | jq
 
-curl -s http://localhost:11437/v1/audio/transcriptions \
+curl -s http://localhost:12434/v1/audio/transcriptions \
   -F model=qwen3-asr-1.7b \
   -F file=@samples/asr_en.wav
 ```
 
-API endpoint: `http://localhost:11437/v1`, model name: `qwen3-asr-1.7b`
+API endpoint: `http://localhost:12434/v1`, model name: `qwen3-asr-1.7b`
 
 ## Compose variants
 
@@ -54,7 +54,7 @@ API endpoint: `http://localhost:11437/v1`, model name: `qwen3-asr-1.7b`
 | `docker-compose.vllm-aligner-0.6b-rtx.yml` | vLLM nightly | Qwen3-ForcedAligner-0.6B | RTX PRO 6000 | Word/char-level timestamps |
 | `docker-compose.vllm-aligner-0.6b.yaml` | vLLM nightly | Qwen3-ForcedAligner-0.6B | Any | Word/char-level timestamps |
 
-Ports: 1.7B → 11437, 0.6B → 11438, aligner → 11439 (chosen to avoid colliding with qwen3.6's 11435/11436).
+Ports: 1.7B → 12434, 0.6B → 12435, aligner → 12436 (sit above the 11430–11475 band already used by qwen3.5 / qwen3.6 / qwen3-coder-next / glm-4.7-flash / qwen3guard).
 
 ## Endpoints exposed by vLLM
 
@@ -71,23 +71,23 @@ All three models speak the OpenAI-compatible API. The default served model name 
 
 | Variant | Base URL | `model` param |
 |---------|---|---|
-| Qwen3-ASR-1.7B | `http://localhost:11437/v1` | `qwen3-asr-1.7b` |
-| Qwen3-ASR-0.6B | `http://localhost:11438/v1` | `qwen3-asr-0.6b` |
-| Qwen3-ForcedAligner-0.6B | `http://localhost:11439/v1` | `qwen3-aligner-0.6b` (currently broken, see Known issues) |
+| Qwen3-ASR-1.7B | `http://localhost:12434/v1` | `qwen3-asr-1.7b` |
+| Qwen3-ASR-0.6B | `http://localhost:12435/v1` | `qwen3-asr-0.6b` |
+| Qwen3-ForcedAligner-0.6B | `http://localhost:12436/v1` | `qwen3-aligner-0.6b` (currently broken, see Known issues) |
 
 **Audio format**: 16 kHz mono WAV (or formats `librosa` can decode to that). Non-conforming audio is rejected with `Invalid or unsupported audio file`. To convert: `ffmpeg -i input.mp3 -ar 16000 -ac 1 -sample_fmt s16 output.wav`.
 
 ### Transcription (Whisper-style file upload)
 
 ```bash
-curl -s http://localhost:11437/v1/audio/transcriptions \
+curl -s http://localhost:12434/v1/audio/transcriptions \
   -F model=qwen3-asr-1.7b \
   -F file=@audio.wav
 ```
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:11437/v1", api_key="EMPTY")
+client = OpenAI(base_url="http://localhost:12434/v1", api_key="EMPTY")
 with open("audio.wav", "rb") as f:
     result = client.audio.transcriptions.create(model="qwen3-asr-1.7b", file=f)
 print(result.text)
@@ -98,7 +98,7 @@ Response: `{"text": "..."}`.
 ### Translation (transcribe + translate to English)
 
 ```bash
-curl -s http://localhost:11437/v1/audio/translations \
+curl -s http://localhost:12434/v1/audio/translations \
   -F model=qwen3-asr-1.7b \
   -F file=@spanish_clip.wav
 ```
@@ -134,8 +134,8 @@ The `audio_url` accepts:
 ### Discovery
 
 ```bash
-curl -s http://localhost:11437/v1/models | jq
-curl -s http://localhost:11437/health
+curl -s http://localhost:12434/v1/models | jq
+curl -s http://localhost:12434/health
 ```
 
 `/v1/models` returns the served model list with the exact `id` to pass as the `model` param.
@@ -188,7 +188,7 @@ From the [HuggingFace model card](https://huggingface.co/Qwen/Qwen3-ASR-1.7B); *
 uv run python test_asr.py --warmup --json benchmarks/run-1.7b.json
 
 # 0.6B
-uv run python test_asr.py --endpoint http://localhost:11438/v1 --model qwen3-asr-0.6b --warmup
+uv run python test_asr.py --endpoint http://localhost:12435/v1 --model qwen3-asr-0.6b --warmup
 
 # Custom mix
 uv run python test_asr.py --langs en de fr es ja --n 3 --warmup
@@ -265,10 +265,10 @@ docker logs -f qwen3asr-1.7b  # wait for "Application startup complete"
 # Run benchmark
 uv run python test_asr.py --warmup --json benchmarks/run-1.7b.json
 
-# Repeat with 0.6B on port 11438
+# Repeat with 0.6B on port 12435
 docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml down
 docker compose -f docker-compose.vllm-0.6b-bf16-rtx.yml up -d
-uv run python test_asr.py --endpoint http://localhost:11438/v1 --model qwen3-asr-0.6b --warmup --json benchmarks/run-0.6b.json
+uv run python test_asr.py --endpoint http://localhost:12435/v1 --model qwen3-asr-0.6b --warmup --json benchmarks/run-0.6b.json
 ```
 
 ## Hardware sizing
@@ -318,10 +318,10 @@ docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml ps
 docker logs -f qwen3asr-1.7b | grep -m1 "Uvicorn running"
 
 # 3. confirm endpoint
-curl -s http://localhost:11437/v1/models | jq
+curl -s http://localhost:12434/v1/models | jq
 
 # 4. transcribe + WER smoke test
 uv run python test_asr.py
 ```
 
-Repeat with port 11438 (0.6B) to confirm. **The aligner (port 11439) is currently broken in vLLM** — see "Known issues" above; the compose file is preserved for when upstream support lands.
+Repeat with port 12435 (0.6B) to confirm. **The aligner (port 12436) is currently broken in vLLM** — see "Known issues" above; the compose file is preserved for when upstream support lands.
