@@ -455,6 +455,24 @@
   </div>
 </section>
 
+<!-- ── Full benchmark comparison ──────────────────────────── -->
+<section>
+  <h2>All measured Qwen3.6 configurations on RTX PRO 6000</h2>
+  <p>
+    Single-user decode tok/s across every variant benchmarked on this GPU — vLLM, SGLang, and
+    llama.cpp, 27B Dense and 35B-A3B MoE, FP8 / INT4 / NVFP4 / GGUF, with and without
+    speculative decoding. The four new <strong>llama.cpp + MTP</strong> rows from this report
+    are highlighted in champion gold.
+  </p>
+  <div class="chart-wrap" style="height: 720px"><canvas id="chartAll"></canvas></div>
+  <p class="muted">
+    Same prompt, same harness (<code>test_chat.py --runs 3 --warmup --no-think</code>) for all
+    rows. Engine is annotated in each label. Direct cross-engine comparison is fair for
+    single-user decode throughput but not for multi-user serving, where vLLM's continuous
+    batching dominates.
+  </p>
+</section>
+
 <!-- ── Build notes ─────────────────────────────────────────── -->
 <section>
   <h2>Building the llama.cpp MTP image</h2>
@@ -532,6 +550,74 @@ new Chart(document.getElementById('chartRanked'), {
            title: { display: true, text: 'tokens / second', color: tickColor },
            beginAtZero: true },
       y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
+    }
+  }
+});
+
+// ── Full Qwen3.6 single-user benchmark comparison ─────────────────
+// Bars sorted slowest → fastest; color steps through the inferno
+// colormap by rank (deep purple at the slow end, bright yellow at the
+// fast end). New llama.cpp+MTP rows from this report keep the same
+// rank-based fill but get a thicker bright border + ★ in the label.
+const allConfigs = [
+  { lbl: '27B FP8 vanilla [vLLM]',              v:  47.0, hl: false },
+  { lbl: '27B NVFP4 baseline [vLLM]',           v:  57.4, hl: false },
+  { lbl: '27B Q8_0 + MTP [llama.cpp-mtp] ★',    v:  66.1, hl: true  },
+  { lbl: '27B FP8 + MTP [vLLM]',                v:  66.6, hl: false },
+  { lbl: '27B INT4 baseline [vLLM]',            v:  80.7, hl: false },
+  { lbl: '27B NVFP4 + MTP [vLLM]',              v:  83.5, hl: false },
+  { lbl: '27B Q4_K_XL + MTP [llama.cpp-mtp] ★', v:  85.7, hl: true  },
+  { lbl: '27B INT4 + MTP [vLLM]',               v: 102.8, hl: false },
+  { lbl: '27B FP8 + DFlash [vLLM]',             v: 103.0, hl: false },
+  { lbl: '27B INT4 + DFlash N=8 [vLLM] ◆',      v: 140.2, hl: false },
+  { lbl: '35B Q8_0 + MTP [llama.cpp-mtp] ★',    v: 167.1, hl: true  },
+  { lbl: '35B Q4_K_XL + MTP [llama.cpp-mtp] ★', v: 178.8, hl: true  },
+  { lbl: '35B FP8 + MTP [vLLM]',                v: 202.0, hl: false },
+  { lbl: '35B FP8 vanilla [vLLM]',              v: 203.0, hl: false },
+  { lbl: '35B SGLang FP8 [SGLang]',             v: 204.5, hl: false },
+  { lbl: '35B Q4_K_XL [llama.cpp standard]',    v: 205.3, hl: false },
+  { lbl: '35B FP8 + DFlash steady [vLLM] ◆',    v: 232.3, hl: false },
+];
+
+// matplotlib inferno colormap sampled from 0.18 → 0.95, one stop per bar,
+// monotonically dark purple → bright yellow.
+const infernoStops = [
+  '#420a68', '#561373', '#691b75', '#7c2473', '#8e2c6d',
+  '#a13565', '#b4405b', '#c44d51', '#d35c47', '#e06d3b',
+  '#ea7f2e', '#f29220', '#f7a513', '#fbb90b', '#fbcf1e',
+  '#f0e441', '#fcffa4',
+];
+
+new Chart(document.getElementById('chartAll'), {
+  type: 'bar',
+  data: {
+    labels: allConfigs.map(r => r.lbl),
+    datasets: [{
+      label: 'tok/s (single-user, 3-run avg)',
+      data: allConfigs.map(r => r.v),
+      backgroundColor: infernoStops,
+      borderColor:     allConfigs.map((r, i) => r.hl ? 'rgba(255,255,255,0.95)' : infernoStops[i]),
+      borderWidth:     allConfigs.map(r => r.hl ? 3 : 1.5),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s`,
+        }
+      }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (single-user, --no-think)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false },
+           ticks: { color: tickColor, font: { weight: '600', size: 11 } } }
     }
   }
 });
