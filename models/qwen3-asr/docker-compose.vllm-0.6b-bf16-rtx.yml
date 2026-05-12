@@ -1,0 +1,92 @@
+# Qwen3-ASR-0.6B — lightweight ASR for high-concurrency batch (RTX PRO 6000)
+#
+# The 0.6B sibling of Qwen3-ASR-1.7B. Trades a small amount of accuracy for
+# massive throughput — vendor claims ~2000× real-time at 128 concurrent
+# requests. Good fit for bulk transcription jobs (call-center logs, podcast
+# archives) where per-clip WER difference vs. 1.7B is acceptable.
+#
+# Vendor WER (1.7B → 0.6B): LibriSpeech-clean 1.63 → 2.11, FLEURS-en 3.35 →
+# 4.39, GigaSpeech 8.45 → 8.88. Same 52-language coverage, same Apache-2.0
+# license. Architecture: same Qwen3-Omni backbone, smaller decoder.
+#
+# RTX PRO 6000 Blackwell (96 GB): BF16 weights ≈ 1.2 GB. We pin
+# gpu-memory-utilization low (0.03 ≈ 2.9 GB) so this container coexists with
+# the heavy qwen3.6 models. --max-num-seqs stays at 128 for batch headroom;
+# raise the util fraction if running solo and you want larger KV cache pools.
+#
+# Usage: docker compose -f docker-compose.vllm-0.6b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11438/v1
+# Model name served as: qwen3-asr-0.6b
+
+services:
+  qwen3asr-0.6b:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen3asr-0.6b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11438:11438"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install -q --no-cache-dir librosa soundfile && \
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --model Qwen/Qwen3-ASR-0.6B \
+          --served-model-name qwen3-asr-0.6b \
+          --host 0.0.0.0 \
+          --port 11438 \
+          --gpu-memory-utilization 0.07 \
+          --max-num-seqs 16 \
+          --max-model-len 8192 \
+          --enforce-eager \
+          --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3asr_huggingface_cache
+
+networks:
+  default:
+    name: qwen3asr-network

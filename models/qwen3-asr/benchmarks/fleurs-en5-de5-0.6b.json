@@ -1,0 +1,131 @@
+{
+  "endpoint": "http://localhost:11438/v1",
+  "model": "qwen3-asr-0.6b",
+  "aggregate_wer": 0.04608294930875576,
+  "by_lang_wer": {
+    "en": 0.04854368932038835,
+    "de": 0.043859649122807015
+  },
+  "results": [
+    {
+      "filename": "fleurs_en_00.wav",
+      "lang": "en",
+      "lang_display": "English",
+      "reference": "however due to the slow communication channels styles in the west could lag behind by 25 to 30 year",
+      "samplerate": 16000,
+      "duration_s": 10.56,
+      "hypothesis": "However, due to the slow communication channels, styles in the West could lag behind by 25 to 30 years.",
+      "wer": 0.05263157894736842,
+      "latency_s": 0.20252272400011861,
+      "rtf": 0.019178288257586988
+    },
+    {
+      "filename": "fleurs_en_01.wav",
+      "lang": "en",
+      "lang_display": "English",
+      "reference": "all nouns alongside the word sie for you always begin with a capital letter even in the middle of a sentence",
+      "samplerate": 16000,
+      "duration_s": 8.76,
+      "hypothesis": "All nouns, alongside the world, say for you, always begin with a capital letter, even in the middle of a sentence.",
+      "wer": 0.09523809523809523,
+      "latency_s": 0.25960582500010787,
+      "rtf": 0.029635368150697245
+    },
+    {
+      "filename": "fleurs_en_02.wav",
+      "lang": "en",
+      "lang_display": "English",
+      "reference": "to the north and within easy reach is the romantic and fascinating town of sintra and which was made famous to foreigners after a glowing account of its splendours recorded by lord byron",
+      "samplerate": 16000,
+      "duration_s": 11.46,
+      "hypothesis": "To the north, and within easy reach, is the romantic and fascinating town of Sintra, and which was made famous to foreigners after a glowing account of its splendourous recorded by Lord Byron.",
+      "wer": 0.030303030303030304,
+      "latency_s": 0.36516497299999173,
+      "rtf": 0.03186430828970259
+    },
+    {
+      "filename": "fleurs_en_03.wav",
+      "lang": "en",
+      "lang_display": "English",
+      "reference": "the cabbage juice changes color depending on how acidic or basic alkaline the chemical is",
+      "samplerate": 16000,
+      "duration_s": 5.76,
+      "hypothesis": "The cabbage juice changes color depending on how acidic, basic, alkaline the chemical is.",
+      "wer": 0.06666666666666667,
+      "latency_s": 0.20745791000035751,
+      "rtf": 0.03601699826395096
+    },
+    {
+      "filename": "fleurs_en_04.wav",
+      "lang": "en",
+      "lang_display": "English",
+      "reference": "many people don't think about them as dinosaurs because they have feathers and can fly",
+      "samplerate": 16000,
+      "duration_s": 4.32,
+      "hypothesis": "Many people don't think about them as dinosaurs because they have feathers and can fly.",
+      "wer": 0.0,
+      "latency_s": 0.19581836399993335,
+      "rtf": 0.04532832499998457
+    },
+    {
+      "filename": "fleurs_de_00.wav",
+      "lang": "de",
+      "lang_display": "German",
+      "reference": "für die besten aussichten auf hongkong sollten sie die insel verlassen und zum gegenüberliegenden ufer von kowloon fahren",
+      "samplerate": 16000,
+      "duration_s": 17.94,
+      "hypothesis": "Für die besten Aussichten auf Hongkong sollten Sie die Insel verlassen und zum gegenüberliegenden Ufer von Kowloon fahren.",
+      "wer": 0.0,
+      "latency_s": 0.29709365999997317,
+      "rtf": 0.01656040468227275
+    },
+    {
+      "filename": "fleurs_de_01.wav",
+      "lang": "de",
+      "lang_display": "German",
+      "reference": "er griff auch alles an was ins wasser kam selbst ein großer dinosaurier wie der t rex war ihm nicht gewachsen",
+      "samplerate": 16000,
+      "duration_s": 11.16,
+      "hypothesis": "Er griff auch alles an, was ins Wasser kam, selbst ein großer Dinosaurier wie der T-Rex war ihm nicht gewachsen.",
+      "wer": 0.09523809523809523,
+      "latency_s": 0.29179723700008253,
+      "rtf": 0.026146705824380154
+    },
+    {
+      "filename": "fleurs_de_02.wav",
+      "lang": "de",
+      "lang_display": "German",
+      "reference": "wenn sie den film das vermächtnis der tempelritter gesehen haben denken sie vielleicht dass auf die rückseite der unabhängigkeitserklärung eine schatzkarte gezeichnet wurde",
+      "samplerate": 16000,
+      "duration_s": 12.42,
+      "hypothesis": "Wenn Sie den Film „Das Vermächtnis der Tempeldritter“ gesehen haben, denken Sie vielleicht, dass auf der Rückseite der Unabhängigkeitserklärung eine Schatzkarte gezeichnet wurde.",
+      "wer": 0.08695652173913043,
+      "latency_s": 0.39659221299962155,
+      "rtf": 0.031931740177103186
+    },
+    {
+      "filename": "fleurs_de_03.wav",
+      "lang": "de",
+      "lang_display": "German",
+      "reference": "es leben noch viele männer und frauen die ihre zeit hier überlebt haben und viele weitere mit angehörigen die dort ermordet wurden oder sich zu tode arbeiteten juden und nichtjuden gleichermaßen",
+      "samplerate": 16000,
+      "duration_s": 10.68,
+      "hypothesis": "Es leben noch viele Männer und Frauen, die ihre Zeit hier überlebt haben und viele weitere mit Angehörigen, die dort ermordet wurden oder sich zu Tode arbeiteten, Juden und Nichtjuden gleichermaßen.",
+      "wer": 0.0,
+      "latency_s": 0.41665517399997043,
+      "rtf": 0.03901265674157026
+    },
+    {
+      "filename": "fleurs_de_04.wav",
+      "lang": "de",
+      "lang_display": "German",
+      "reference": "die höhle befindet sich auf der spitze eines der berge nördlich von mekka und ist vom rest der welt völlig isoliert",
+      "samplerate": 16000,
+      "duration_s": 9.9,
+      "hypothesis": "Die Höhle befindet sich auf der Spitze eines der Berge nördlich von Mecca und ist vom Rest der Welt völlig isoliert.",
+      "wer": 0.047619047619047616,
+      "latency_s": 0.29897212300011233,
+      "rtf": 0.03019920434344569
+    }
+  ]
+}

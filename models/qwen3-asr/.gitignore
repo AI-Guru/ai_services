@@ -1,0 +1,7 @@
+# Auto-downloaded FLEURS clips (test_asr.py streams these from HF on first run)
+samples/*.wav
+samples/manifest.json
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -1,0 +1,84 @@
+# Qwen3-ForcedAligner-0.6B — word/char-level timestamp prediction (any CUDA GPU)
+#
+# Generic-hardware flavor of docker-compose.vllm-aligner-0.6b-rtx.yml. Same
+# model and command; only gpu-memory-utilization is raised to 0.85 (assume a
+# smaller card where you actually want most of the VRAM for KV cache).
+#
+# See docker-compose.vllm-aligner-0.6b-rtx.yml for full model notes and
+# caveats about the vLLM API surface for forced alignment.
+#
+# Hardware: any CUDA 12.x GPU with ≥6 GB VRAM.
+#
+# Usage: docker compose -f docker-compose.vllm-aligner-0.6b.yaml up -d
+# API endpoint: http://localhost:11439/v1
+# Model name served as: qwen3-aligner-0.6b
+
+services:
+  qwen3asr-aligner-0.6b:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen3asr-aligner-0.6b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11439:11439"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install -q --no-cache-dir librosa soundfile && \
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --model Qwen/Qwen3-ForcedAligner-0.6B \
+          --served-model-name qwen3-aligner-0.6b \
+          --host 0.0.0.0 \
+          --port 11439 \
+          --gpu-memory-utilization 0.85 \
+          --max-num-seqs 32 \
+          --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11439/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3asr_huggingface_cache
+
+networks:
+  default:
+    name: qwen3asr-network

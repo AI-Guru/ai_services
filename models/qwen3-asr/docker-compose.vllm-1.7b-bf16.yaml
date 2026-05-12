@@ -1,0 +1,88 @@
+# Qwen3-ASR-1.7B — vendor BF16 weights, vLLM nightly (any CUDA GPU)
+#
+# Generic-hardware flavor of docker-compose.vllm-1.7b-bf16-rtx.yml. Same model,
+# same flags — the only practical difference is the comment annotations and a
+# slightly higher gpu-memory-utilization (0.85) on the assumption that on a
+# small (16-24 GB) card you actually want most of the VRAM for the audio model.
+#
+# See docker-compose.vllm-1.7b-bf16-rtx.yml for full model/architecture notes.
+#
+# Hardware: any CUDA 12.x GPU with ≥16 GB VRAM (BF16). For ≥40 GB cards, raise
+# --max-num-seqs to 64-128 for higher batch throughput.
+#
+# Note: still uses vLLM nightly image — Qwen3-ASR support is not yet in stable
+# v0.19.0 (vendor recipe says `vllm --pre`).
+#
+# Usage: docker compose -f docker-compose.vllm-1.7b-bf16.yaml up -d
+# API endpoint: http://localhost:11437/v1
+# Model name served as: qwen3-asr-1.7b
+
+services:
+  qwen3asr-1.7b:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen3asr-1.7b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11437:11437"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install -q --no-cache-dir librosa soundfile && \
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --model Qwen/Qwen3-ASR-1.7B \
+          --served-model-name qwen3-asr-1.7b \
+          --host 0.0.0.0 \
+          --port 11437 \
+          --gpu-memory-utilization 0.85 \
+          --max-num-seqs 32 \
+          --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3asr_huggingface_cache
+
+networks:
+  default:
+    name: qwen3asr-network

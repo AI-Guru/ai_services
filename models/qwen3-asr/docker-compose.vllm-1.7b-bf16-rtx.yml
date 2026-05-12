@@ -1,0 +1,101 @@
+# Qwen3-ASR-1.7B — vendor BF16 weights, vLLM nightly (RTX PRO 6000 Blackwell)
+#
+# Qwen3-ASR is an end-to-end ASR (speech-to-text) model derived from the
+# Qwen3-Omni foundation. The 1.7B variant is the quality-leader: vendor-reported
+# WER 1.63 on LibriSpeech-clean and 3.35 on FLEURS-en — beats Whisper-large-v3.
+# Supports 30 languages + 22 Chinese dialects (52 total), auto language ID
+# (98.7% on FLEURS), and singing-voice transcription. Apache-2.0.
+#
+# Audio expectations: 16 kHz mono. URL / local path / base64 / numpy array.
+# OpenAI-compatible endpoints exposed by vLLM:
+#   POST /v1/audio/transcriptions   (Whisper-style; takes a file upload)
+#   POST /v1/chat/completions       (audio_url content type)
+#
+# RTX PRO 6000 Blackwell (96 GB, SM 120): BF16 weights ≈ 3.4 GB, audio encoder
+# adds ~few hundred MB. We pin gpu-memory-utilization low (0.05 ≈ 4.8 GB) so
+# this container coexists comfortably with the heavy qwen3.6 models on the
+# same card. Bump it up if running solo and you want bigger batches.
+#
+# Note: Qwen3-ASR is not in vLLM stable v0.19.0 yet — the vendor's vLLM recipe
+# (https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3-ASR.html) instructs
+# `vllm --pre`. We use the nightly cu130 image. The audio extras (librosa,
+# soundfile) are not in the base image, so we install them at container start.
+#
+# Usage: docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11437/v1
+# Model name served as: qwen3-asr-1.7b
+
+services:
+  qwen3asr-1.7b:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen3asr-1.7b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11437:11437"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+
+    # vLLM image lacks librosa/soundfile by default (vllm[audio] extras).
+    # Install on container start; ~5-10s overhead on cold start.
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install -q --no-cache-dir librosa soundfile && \
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --model Qwen/Qwen3-ASR-1.7B \
+          --served-model-name qwen3-asr-1.7b \
+          --host 0.0.0.0 \
+          --port 11437 \
+          --gpu-memory-utilization 0.09 \
+          --max-num-seqs 16 \
+          --max-model-len 4096 \
+          --enforce-eager \
+          --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3asr_huggingface_cache
+
+networks:
+  default:
+    name: qwen3asr-network

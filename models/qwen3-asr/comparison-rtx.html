@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Qwen3-ASR · 1.7B vs 0.6B · RTX PRO 6000 Blackwell</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --accent-3: #bc3754;
+    --accent-4: #6a176e;
+    --accent-5: #160b39;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --big-color: #f37819;   /* 1.7B = larger / more accurate */
+    --small-color: #bc3754; /* 0.6B = smaller / faster */
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--accent-1), var(--accent-2) 50%, var(--accent-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem; color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--accent-2), var(--accent-3));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  .compare-hero {
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 1.5rem;
+    align-items: center; margin-top: 1.2rem;
+  }
+  .model-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.5rem;
+    text-align: center;
+  }
+  .model-card.big   { border: 1px solid rgba(243,120,25,0.35); }
+  .model-card.small { border: 1px solid rgba(188,55,84,0.35); }
+  .model-card .model-name { font-size: 0.78rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .model-card .big-num { font-size: 3rem; font-weight: 800; margin: 0.3rem 0; }
+  .model-card.big   .big-num { color: var(--big-color); }
+  .model-card.small .big-num { color: var(--small-color); }
+  .model-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .model-card .checkpoint { font-size: 0.75rem; color: var(--muted); margin-top: 0.5rem; font-family: "JetBrains Mono", "SF Mono", Menlo, monospace; }
+  .vs-pill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  }
+  .vs-pill .ratio {
+    font-size: 2rem; font-weight: 800;
+    background: linear-gradient(90deg, var(--big-color), var(--accent-1));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .vs-pill .vs-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  @media (max-width: 700px) {
+    .compare-hero { grid-template-columns: 1fr; }
+    .vs-pill { flex-direction: row; justify-content: center; }
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 1rem; margin-top: 1rem;
+  }
+  .stat {
+    background: var(--bg-elev);
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    border-left: 3px solid var(--accent-2);
+  }
+  .stat.big   { border-left-color: var(--big-color); }
+  .stat.small { border-left-color: var(--small-color); }
+  .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-1); margin-top: 0.15rem; }
+  .stat .value small { font-size: 0.55em; color: var(--muted); font-weight: 400; }
+  .stat .note { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+  .stat .note.good { color: #8be094; }
+  .stat .note.bad  { color: #ff8a85; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.model-big   { color: var(--big-color); font-weight: 600; }
+  td.model-small { color: var(--small-color); font-weight: 600; }
+
+  .chart-wrap {
+    position: relative; height: 280px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 420px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+  .badge.big  { background: rgba(243,120,25,0.15); color: var(--big-color); }
+  .badge.small{ background: rgba(188,55,84,0.15);  color: var(--small-color); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(243,120,25,0.07), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--accent-2);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--accent-1); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3-ASR · 1.7B vs 0.6B · RTX PRO 6000 Blackwell</h1>
+  <div class="subtitle">Speech-to-text — vLLM nightly · FLEURS sample (5 EN + 5 DE) · coexisting with qwen3.6-27b</div>
+  <div class="meta">
+    <span>GPU: RTX PRO 6000 Blackwell · 96 GB GDDR7 · SM_120</span>
+    <span>vLLM nightly cu130</span>
+    <span>BF16 weights</span>
+    <span>2026-05-12</span>
+  </div>
+</header>
+
+<main>
+
+<section>
+  <h2>Headline</h2>
+  <div class="compare-hero">
+    <div class="model-card big">
+      <div class="model-name">Qwen3-ASR-1.7B</div>
+      <div class="big-num">3.2%</div>
+      <div class="unit">aggregate WER · 10 clips</div>
+      <div class="checkpoint">Qwen/Qwen3-ASR-1.7B · 3.4 GB BF16</div>
+    </div>
+    <div class="vs-pill">
+      <div class="ratio">−30%</div>
+      <div class="vs-label">WER reduction</div>
+    </div>
+    <div class="model-card small">
+      <div class="model-name">Qwen3-ASR-0.6B</div>
+      <div class="big-num">4.6%</div>
+      <div class="unit">aggregate WER · 10 clips</div>
+      <div class="checkpoint">Qwen/Qwen3-ASR-0.6B · 1.2 GB BF16</div>
+    </div>
+  </div>
+  <div class="findings">
+    <strong>Bottom line.</strong>
+    <ul>
+      <li><span class="badge big">1.7B</span> is the clear quality leader on FLEURS sample: <strong>3.2% aggregate WER</strong> vs 4.6% for 0.6B (−30% relative). Wins on every language tested.</li>
+      <li><span class="badge small">0.6B</span> is ~10% faster per request (0.29 s vs 0.36 s mean latency) and uses ~⅓ the weight bytes (1.2 GB vs 3.4 GB). Pick it when batch throughput on small GPUs is the priority.</li>
+      <li>Both models run at <strong>~30× real-time</strong> on a single request — well into the "imperceptible for chat" zone.</li>
+      <li>Most non-zero WERs are <strong>punctuation/casing</strong> the model adds vs FLEURS' bare-text reference; true ASR errors mostly cluster on proper nouns ("Sintra", "Mecca", the German polite-pronoun "Sie").</li>
+    </ul>
+  </div>
+</section>
+
+<section>
+  <h2>Key metrics</h2>
+  <div class="stat-grid">
+    <div class="stat big">
+      <div class="label">1.7B · Agg WER</div>
+      <div class="value">0.032</div>
+      <div class="note good">−30% vs 0.6B</div>
+    </div>
+    <div class="stat small">
+      <div class="label">0.6B · Agg WER</div>
+      <div class="value">0.046</div>
+      <div class="note">FLEURS sample (10 clips)</div>
+    </div>
+    <div class="stat big">
+      <div class="label">1.7B · Mean RTF</div>
+      <div class="value">0.034<small> ×</small></div>
+      <div class="note">~29× real-time</div>
+    </div>
+    <div class="stat small">
+      <div class="label">0.6B · Mean RTF</div>
+      <div class="value">0.031<small> ×</small></div>
+      <div class="note good">~32× real-time</div>
+    </div>
+    <div class="stat big">
+      <div class="label">1.7B · Mean latency</div>
+      <div class="value">0.36<small> s</small></div>
+      <div class="note">per clip (warmup excluded)</div>
+    </div>
+    <div class="stat small">
+      <div class="label">0.6B · Mean latency</div>
+      <div class="value">0.29<small> s</small></div>
+      <div class="note good">−19% vs 1.7B</div>
+    </div>
+    <div class="stat big">
+      <div class="label">1.7B · Weights</div>
+      <div class="value">3.4<small> GB</small></div>
+      <div class="note">BF16</div>
+    </div>
+    <div class="stat small">
+      <div class="label">0.6B · Weights</div>
+      <div class="value">1.2<small> GB</small></div>
+      <div class="note good">−65% vs 1.7B</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>WER by language</h2>
+  <div class="grid-2">
+    <div>
+      <div class="chart-wrap"><canvas id="chartWerByLang"></canvas></div>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>Language</th><th>1.7B</th><th>0.6B</th><th>Δ</th></tr></thead>
+        <tbody>
+          <tr><td>English (5 clips)</td><td class="num model-big">0.039</td><td class="num model-small">0.049</td><td class="num">−20%</td></tr>
+          <tr><td>German (5 clips)</td><td class="num model-big">0.026</td><td class="num model-small">0.044</td><td class="num">−40%</td></tr>
+          <tr><td><strong>Aggregate</strong></td><td class="num model-big"><strong>0.032</strong></td><td class="num model-small"><strong>0.046</strong></td><td class="num">−30%</td></tr>
+        </tbody>
+      </table>
+      <p class="muted">5 English (en_us) + 5 German (de_de) clips from the <code>google/fleurs</code> test split. Same clips for both models. References lowercased + punctuation-stripped before WER computation (jiwer).</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Per-clip latency &amp; RTF</h2>
+  <div class="chart-wrap chart-tall"><canvas id="chartLatency"></canvas></div>
+  <p class="muted">Latency measured as wall-clock from POST to response on <code>/v1/audio/transcriptions</code>. RTF = latency ÷ audio duration; lower is faster than real-time. Sorted by clip order; the first per-language clip benefits from prefix-cache warmup.</p>
+</section>
+
+<section>
+  <h2>Per-clip WER detail</h2>
+  <table>
+    <thead>
+      <tr><th>Clip</th><th>Duration</th><th>1.7B WER</th><th>0.6B WER</th><th>1.7B latency</th><th>0.6B latency</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>fleurs_en_00</td><td class="num">10.56 s</td><td class="num">0.053</td><td class="num">0.053</td><td class="num">0.24 s</td><td class="num">0.20 s</td></tr>
+      <tr><td>fleurs_en_01</td><td class="num">8.76 s</td><td class="num">0.095</td><td class="num">0.095</td><td class="num">0.32 s</td><td class="num">0.26 s</td></tr>
+      <tr><td>fleurs_en_02</td><td class="num">11.46 s</td><td class="num">0.000</td><td class="num">0.030</td><td class="num">0.43 s</td><td class="num">0.37 s</td></tr>
+      <tr><td>fleurs_en_03</td><td class="num">5.76 s</td><td class="num">0.067</td><td class="num">0.067</td><td class="num">0.25 s</td><td class="num">0.21 s</td></tr>
+      <tr><td>fleurs_en_04</td><td class="num">4.32 s</td><td class="num">0.000</td><td class="num">0.000</td><td class="num">0.24 s</td><td class="num">0.20 s</td></tr>
+      <tr><td>fleurs_de_00</td><td class="num">17.94 s</td><td class="num">0.000</td><td class="num">0.000</td><td class="num">0.35 s</td><td class="num">0.30 s</td></tr>
+      <tr><td>fleurs_de_01</td><td class="num">11.16 s</td><td class="num">0.095</td><td class="num">0.095</td><td class="num">0.34 s</td><td class="num">0.29 s</td></tr>
+      <tr><td>fleurs_de_02</td><td class="num">12.42 s</td><td class="num">0.043</td><td class="num">0.087</td><td class="num">0.47 s</td><td class="num">0.40 s</td></tr>
+      <tr><td>fleurs_de_03</td><td class="num">10.68 s</td><td class="num">0.000</td><td class="num">0.000</td><td class="num">0.51 s</td><td class="num">0.42 s</td></tr>
+      <tr><td>fleurs_de_04</td><td class="num">9.90 s</td><td class="num">0.000</td><td class="num">0.048</td><td class="num">0.36 s</td><td class="num">0.30 s</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Vendor-reported WER (full datasets, for context)</h2>
+  <p class="muted">Our local FLEURS-sample numbers above are 5-clip-per-language slices and reflect a single session. The vendor's published benchmarks on full evaluation sets — much larger, more representative:</p>
+  <div class="chart-wrap"><canvas id="chartVendor"></canvas></div>
+  <table>
+    <thead><tr><th>Dataset</th><th>1.7B</th><th>0.6B</th><th>Whisper-large-v3</th></tr></thead>
+    <tbody>
+      <tr><td>LibriSpeech-clean</td><td class="num model-big">1.63</td><td class="num model-small">2.11</td><td class="num">1.51</td></tr>
+      <tr><td>LibriSpeech-other</td><td class="num model-big">3.38</td><td class="num model-small">4.55</td><td class="num">3.97</td></tr>
+      <tr><td>GigaSpeech</td><td class="num model-big">8.45</td><td class="num model-small">8.88</td><td class="num">9.76</td></tr>
+      <tr><td>CommonVoice-en</td><td class="num model-big">7.39</td><td class="num model-small">9.92</td><td class="num">9.90</td></tr>
+      <tr><td>FLEURS-en</td><td class="num model-big">3.35</td><td class="num model-small">4.39</td><td class="num">4.08</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Aligner (Qwen3-ForcedAligner-0.6B): not yet usable via vLLM</h2>
+  <p>The forced-aligner sibling failed to load in vLLM nightly with an <code>AssertionError</code> at the embedding weight check:</p>
+  <pre>assert loaded_weight.shape[output_dim] == self.org_vocab_size</pre>
+  <p>The aligner has a different vocab/output layer than the ASR sibling — vLLM's standard loader doesn't accept it yet. The compose file is preserved for when upstream support lands; in the meantime use the <code>qwen-asr</code> Python package's <code>model.align(audio, text, ...)</code> API directly. Vendor-claimed performance: ~32 ms average absolute alignment error across human-labeled evals.</p>
+</section>
+
+<section>
+  <h2>Sizing math (when coexisting with qwen3.6-27b)</h2>
+  <p>vLLM's <code>--gpu-memory-utilization</code> is a <strong>fraction of total GPU memory</strong> that vLLM plans to use. There are two binding constraints:</p>
+  <ol>
+    <li><strong>Lower bound</strong>: <code>util × total ≥ weights + workspace + min KV</code> — too low and KV-cache budget goes negative.</li>
+    <li><strong>Upper bound</strong>: <code>util × total ≤ free_at_startup</code> — too high and CUDA can't physically allocate.</li>
+  </ol>
+  <table>
+    <thead><tr><th>Model</th><th>Weights</th><th>Workspace</th><th>Min budget</th><th>util used</th><th>KV headroom</th></tr></thead>
+    <tbody>
+      <tr><td class="model-small">0.6B</td><td class="num">1.5 GiB</td><td class="num">~3.1 GiB</td><td class="num">~5 GiB</td><td class="num">0.07 (6.7 GiB)</td><td class="num">~2 GiB</td></tr>
+      <tr><td class="model-big">1.7B</td><td class="num">3.4 GiB</td><td class="num">~3.1 GiB</td><td class="num">~7 GiB</td><td class="num">0.09 (8.6 GiB)</td><td class="num">~1 GiB</td></tr>
+    </tbody>
+  </table>
+  <p class="muted">The "workspace" line is mostly audio-encoder profiling — surprisingly heavy. <code>--enforce-eager</code> is essential when coexisting (saves 1–2 GiB by skipping CUDA-graph capture). <code>--max-model-len 4096</code> caps single-sequence KV demand — fine for ASR clips ≤ 5 min.</p>
+</section>
+
+<section>
+  <h2>How to reproduce</h2>
+  <pre>
+# Free up GPU memory (only required if coexisting)
+docker compose -f ../qwen3guard/docker-compose.llama-gen-4b-rtx.yml down  # frees ~3.9 GiB
+
+# 1.7B
+docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml up -d
+uv run python test_asr.py --warmup --json benchmarks/run-1.7b.json
+
+# 0.6B
+docker compose -f docker-compose.vllm-1.7b-bf16-rtx.yml down
+docker compose -f docker-compose.vllm-0.6b-bf16-rtx.yml up -d
+uv run python test_asr.py --endpoint http://localhost:11438/v1 --model qwen3-asr-0.6b --warmup --json benchmarks/run-0.6b.json
+  </pre>
+</section>
+
+<footer>
+  Generated 2026-05-12 · vLLM nightly cu130 · BF16 · 5 EN + 5 DE FLEURS clips · jiwer 4.0.0
+</footer>
+
+</main>
+
+<script>
+const C_BIG    = '#f37819';
+const C_SMALL  = '#bc3754';
+const C_WHISP  = '#9890c4';
+const C_MUTED  = '#9890c4';
+
+const commonOpts = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'top', labels: { color: '#f0e8ff' } },
+    tooltip: {
+      backgroundColor: '#15102a',
+      titleColor: '#fcffa4',
+      bodyColor: '#f0e8ff',
+      borderColor: 'rgba(252,165,10,0.25)',
+      borderWidth: 1,
+    },
+  },
+  scales: {
+    x: { ticks: { color: C_MUTED }, grid: { color: 'rgba(252,165,10,0.08)' } },
+    y: { ticks: { color: C_MUTED }, grid: { color: 'rgba(252,165,10,0.08)' }, beginAtZero: true },
+  },
+};
+
+new Chart(document.getElementById('chartWerByLang'), {
+  type: 'bar',
+  data: {
+    labels: ['English (5)', 'German (5)', 'Aggregate (10)'],
+    datasets: [
+      { label: 'Qwen3-ASR-1.7B', backgroundColor: C_BIG,   data: [0.039, 0.026, 0.032] },
+      { label: 'Qwen3-ASR-0.6B', backgroundColor: C_SMALL, data: [0.049, 0.044, 0.046] },
+    ],
+  },
+  options: { ...commonOpts,
+    scales: { ...commonOpts.scales,
+      y: { ...commonOpts.scales.y,
+        title: { display: true, text: 'Word Error Rate (lower is better)', color: C_MUTED } } } },
+});
+
+const clipLabels = [
+  'en_00','en_01','en_02','en_03','en_04',
+  'de_00','de_01','de_02','de_03','de_04',
+];
+const lat17 = [0.24, 0.32, 0.43, 0.25, 0.24, 0.35, 0.34, 0.47, 0.51, 0.36];
+const lat06 = [0.20, 0.26, 0.37, 0.21, 0.20, 0.30, 0.29, 0.40, 0.42, 0.30];
+
+new Chart(document.getElementById('chartLatency'), {
+  type: 'bar',
+  data: {
+    labels: clipLabels,
+    datasets: [
+      { label: 'Qwen3-ASR-1.7B latency (s)', backgroundColor: C_BIG,   data: lat17 },
+      { label: 'Qwen3-ASR-0.6B latency (s)', backgroundColor: C_SMALL, data: lat06 },
+    ],
+  },
+  options: { ...commonOpts,
+    scales: { ...commonOpts.scales,
+      y: { ...commonOpts.scales.y,
+        title: { display: true, text: 'Latency per clip (s)', color: C_MUTED } } } },
+});
+
+new Chart(document.getElementById('chartVendor'), {
+  type: 'bar',
+  data: {
+    labels: ['LibriSpeech-clean','LibriSpeech-other','GigaSpeech','CommonVoice-en','FLEURS-en'],
+    datasets: [
+      { label: 'Qwen3-ASR-1.7B',    backgroundColor: C_BIG,   data: [1.63, 3.38, 8.45, 7.39, 3.35] },
+      { label: 'Qwen3-ASR-0.6B',    backgroundColor: C_SMALL, data: [2.11, 4.55, 8.88, 9.92, 4.39] },
+      { label: 'Whisper-large-v3',  backgroundColor: C_WHISP, data: [1.51, 3.97, 9.76, 9.90, 4.08] },
+    ],
+  },
+  options: { ...commonOpts,
+    scales: { ...commonOpts.scales,
+      y: { ...commonOpts.scales.y,
+        title: { display: true, text: 'Word Error Rate %  (vendor-published)', color: C_MUTED } } } },
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,98 @@
+# Qwen3-ForcedAligner-0.6B — word/char-level timestamp prediction (RTX PRO 6000)
+#
+# Companion model to Qwen3-ASR: given (audio, text) pairs, returns precise
+# start/end timestamps for each token. Non-autoregressive (NAR) mode — fast.
+# Vendor numbers: 32.4 ms average absolute alignment error across human-labeled
+# evals (Chinese 27.8 ms, English 37.5 ms). Supports 11 languages, up to ~5 min
+# audio per call. Apache-2.0.
+#
+# Typical pipeline: transcribe with Qwen3-ASR-1.7B → feed (audio, transcript)
+# pair to Qwen3-ForcedAligner-0.6B → get word-level timing for subtitles,
+# captions, audio editing, or training data alignment.
+#
+# Note on serving: the aligner's idiomatic Python API is `model.align(audio,
+# text, language=...)` from the `qwen-asr` package. vLLM's OpenAI surface may
+# not expose this 1:1 — calling `/v1/audio/transcriptions` will give you a
+# transcription back, not alignments. For full forced-alignment, you may need
+# to issue a custom prompt via `/v1/chat/completions` (audio_url + text) and
+# parse the model's structured output. Check upstream docs after first boot.
+#
+# RTX PRO 6000 Blackwell (96 GB): BF16 weights ≈ 1.2 GB. gpu-memory-utilization
+# pinned low (0.03 ≈ 2.9 GB) to coexist with the heavy qwen3.6 models.
+#
+# Usage: docker compose -f docker-compose.vllm-aligner-0.6b-rtx.yml up -d
+# API endpoint: http://localhost:11439/v1
+# Model name served as: qwen3-aligner-0.6b
+
+services:
+  qwen3asr-aligner-0.6b:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen3asr-aligner-0.6b
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11439:11439"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        pip install -q --no-cache-dir librosa soundfile && \
+        exec python3 -m vllm.entrypoints.openai.api_server \
+          --model Qwen/Qwen3-ForcedAligner-0.6B \
+          --served-model-name qwen3-aligner-0.6b \
+          --host 0.0.0.0 \
+          --port 11439 \
+          --gpu-memory-utilization 0.07 \
+          --max-num-seqs 16 \
+          --max-model-len 4096 \
+          --enforce-eager \
+          --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11439/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3asr_huggingface_cache
+
+networks:
+  default:
+    name: qwen3asr-network
