@@ -66,10 +66,13 @@ Think time dominates TTFT — the model reasons extensively before answering. De
 |------|--------|-------|----------|-------|
 | `docker-compose.vllm-35b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
 | `docker-compose.vllm-35b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled, fastest vLLM variant |
+| `docker-compose.vllm-35b-nvfp4-unsloth-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Unsloth NVFP4 (group_size=8); no MTP active |
 | `docker-compose.vllm-35b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, saves ~2-3 GB |
 | `docker-compose.vllm-35b-1m.yaml` | vLLM | BF16 | Any | ~1M context via YaRN, util 0.95 |
 | `docker-compose.sglang-35b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
 | `docker-compose.llama-35b-devfix-rtx.yml` | llama.cpp | Q4_K_XL | RTX PRO 6000 | GGUF fallback (~22 GB) |
+| `docker-compose.llama-35b-q4-mtp-rtx.yml` | llama.cpp + MTP | UD-Q4_K_XL | RTX PRO 6000 | Unsloth MTP-GGUF, `--spec-type mtp` — fastest 35B llama.cpp config |
+| `docker-compose.llama-35b-q8-mtp-rtx.yml` | llama.cpp + MTP | Q8_0 | RTX PRO 6000 | Same as above at Q8 fidelity |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -81,14 +84,24 @@ Tested 2026-04-16 with `test_chat.py` (default MoE prompt) and `test_tools.py` (
 |--------|------:|-----:|-----------:|--------|
 | **SGLang FP8** | **204.5** | **9.2s** | 8.4s | SGLang + MTP/NEXTN speculative decoding |
 | **llama.cpp Q4_K_XL** | **205.3** | **9.2s** | 8.9s | llama.cpp GGUF, single slot |
+| **llama.cpp UD-Q4_K_XL + MTP** | **178.8** | **9.5s** | 9.4s | `unsloth/Qwen3.6-35B-A3B-MTP-GGUF` + `--spec-type mtp` (am17an PR #22673 build) |
+| **llama.cpp Q8_0 + MTP** | **167.1** | **10.5s** | 10.5s | Same as above at Q8 fidelity |
 | **vLLM FP8 text-only** | **203.2** | **7.3s** | 7.3s | vLLM v0.19.0, FP8 + vision disabled |
 | **vLLM FP8** | 92.0 | 24.7s | 7.8s | vLLM v0.19.0, prefix caching |
 | **vLLM BF16 text-only** | 86.6 | 27.0s | 10.2s | vLLM v0.19.0, vision disabled |
+| **vLLM NVFP4 (Unsloth)** | 176.7 | 8.9s | 8.9s | vLLM cu130-nightly, `unsloth/Qwen3.6-35B-A3B-NVFP4` (group_size=8), no MTP |
 | **vLLM BF16 1M** | — | — | — | OOM: BF16 weights (66 GB) leave no room for 1M KV cache on 96 GB |
 
 SGLang's MTP speculative decoding and llama.cpp's Q4 quantization both achieve ~200+ tok/s.
 vLLM without speculative decoding sits at ~90 tok/s. The 1M context BF16 config does not fit
 on the RTX PRO 6000 — use FP8 or a larger GPU.
+
+**Unsloth NVFP4 (35B-A3B) — measured 2026-05-10**: 176.7 tok/s steady-state (3 runs, `--no-think`,
+runs 2–3 averaged; run 1 is cold-start at 87.7 tok/s). Within ~13 % of FP8 text-only's 203.2 tok/s
+without speculative decoding. The NVFP4 quant savings barely move the needle on this MoE — only
+3 B params are active per token, so per-token compute is already cheap and FP4 dequant overhead
+roughly offsets the bandwidth win. Checkpoint includes MTP weights, but `--speculative-config` is
+intentionally OFF (the existing 2026-04-23 finding still holds: MTP gives no speedup on 35B-A3B).
 
 ### Tool calling
 
@@ -239,10 +252,16 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.vllm-27b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
 | `docker-compose.vllm-27b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled |
 | `docker-compose.vllm-27b-nvfp4-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Community NVFP4 (mmangkad/Qwen3.6-27B-NVFP4) |
+| `docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Unsloth NVFP4 (group_size=8); no MTP heads |
 | `docker-compose.vllm-27b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, ~54 GB BF16 weights |
 | `docker-compose.sglang-27b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
-
-No llama.cpp config — Qwen3.6-27B is very new and no community GGUF quants are available yet (as of 2026-04-22). Check `unsloth/Qwen3.6-27B-GGUF` or `bartowski/Qwen_Qwen3.6-27B-GGUF` for later availability.
+| `docker-compose.llama-27b-q4-mtp-rtx.yml` | llama.cpp + MTP | UD-Q4_K_XL | RTX PRO 6000 | Unsloth MTP-GGUF, `--spec-type mtp` — best 27B llama.cpp config |
+| `docker-compose.llama-27b-q8-mtp-rtx.yml` | llama.cpp + MTP | Q8_0 | RTX PRO 6000 | Same as above at Q8 fidelity |
+| `docker-compose.vllm-27b-int4-rtx.yml` | vLLM | INT4 AutoRound + MTP | RTX PRO 6000 | `Lorbus/Qwen3.6-27B-int4-AutoRound`, 16.9 GiB |
+| `docker-compose.vllm-27b-int4-dflash-rtx.yml` | vLLM | INT4 + DFlash N=8 | RTX PRO 6000 | **Champion** — 146 tok/s steady state |
+| `docker-compose.vllm-27b-int4-baseline-rtx.yml` | vLLM | INT4 (no spec) | RTX PRO 6000 | Quant-only reference |
+| `docker-compose.vllm-27b-nvfp4-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | `sakamakismile` NVFP4-MTP, group=16 |
+| `docker-compose.vllm-27b-nvfp4-baseline-rtx.yml` | vLLM | NVFP4 (no spec) | RTX PRO 6000 | Quant-only reference |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -252,10 +271,19 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 
 | Config | tok/s | TTFT | Think time | Engine |
 |--------|------:|-----:|-----------:|--------|
-| **vLLM FP8 + MTP** | **66.2** | **26.0s** | 26.0s | vLLM v0.19.0, FP8 + `qwen3_next_mtp` speculative decoding ★ |
+| **vLLM INT4 + DFlash N=8** | **140.2 / 146 steady** | **13.2s** | — | vLLM cu130-nightly, `Lorbus/Qwen3.6-27B-int4-AutoRound` + `z-lab/Qwen3.6-27B-DFlash` ★ champion |
+| **vLLM INT4 + MTP** | **102.8** | — | — | vLLM cu130-nightly, AutoRound INT4 + `qwen3_next_mtp` N=1 |
+| **vLLM FP8 + DFlash** | 103.0 | 19.2s | — | vLLM cu130-nightly, `z-lab/Qwen3.6-27B-DFlash` drafter |
+| **llama.cpp UD-Q4_K_XL + MTP** | **85.7** | **18.9s** | 18.7s | `unsloth/Qwen3.6-27B-MTP-GGUF` + `--spec-type mtp` (am17an PR #22673 build) |
+| **vLLM NVFP4 + MTP (sakamakismile)** | **83.5** | — | — | vLLM cu130-nightly, `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (group_size=16) + `qwen3_next_mtp` N=1 |
+| **vLLM INT4 baseline** | 80.7 | 21.7s | — | INT4 weights alone, no spec — quant-only gain |
+| **vLLM FP8 + MTP** | 66.2 | 26.0s | 26.0s | vLLM v0.19.0, FP8 + `qwen3_next_mtp` speculative decoding |
+| **llama.cpp Q8_0 + MTP** | **66.1** | **26.3s** | 26.2s | `unsloth/Qwen3.6-27B-MTP-GGUF` Q8_0 + `--spec-type mtp` |
+| **vLLM NVFP4 (sakamakismile, MTP dormant)** | 57.4 | — | — | vLLM cu130-nightly, same checkpoint as row 1 with `--speculative-config` omitted (MTP weights present but unused) |
+| **vLLM NVFP4 (Unsloth)** | 49.7 | 37.8s | 37.7s | vLLM cu130-nightly, `unsloth/Qwen3.6-27B-NVFP4` (group_size=8), no MTP |
 | **vLLM FP8 text-only** | 47.0 | 35.4s | 35.3s | vLLM v0.19.0, FP8 + vision disabled (no MTP) |
 | **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal (no MTP) |
-| **vLLM NVFP4** | 44.9 | 36.7s | 36.6s | vLLM v0.19.0, FlashInfer Cutlass NVFP4 backend, single GPU |
+| **vLLM NVFP4 (mmangkad)** | 44.9 | 36.7s | 36.6s | vLLM v0.19.0, FlashInfer Cutlass NVFP4 backend, single GPU |
 | **vLLM BF16 text-only** | 28.3 | 64.9s | 64.8s | vLLM v0.19.0, BF16 + vision disabled |
 | **SGLang FP8 + MTP** | — | — | — | Config present but NEXTN spec decoding produces garbage (EAGLE fallback); fix pending |
 
@@ -277,15 +305,43 @@ upstream community recipe achieves higher throughput by adding `--tensor-paralle
 to split weights across two GPUs — which is the actual source of speedup,
 not NVFP4 itself. NVFP4 may be more advantageous for prefill or multi-GPU setups.
 
+**Unsloth NVFP4 — measured 2026-05-10**: 49.7 tok/s steady-state (3 runs, `--no-think`,
+runs 2–3 averaged; run 1 is cold-start at 37.3 tok/s).
+[`unsloth/Qwen3.6-27B-NVFP4`](https://huggingface.co/unsloth/Qwen3.6-27B-NVFP4) ships with
+group_size=8 (vs 16 in mmangkad/sakamakismile variants) — a finer-grained scale that nudges
+quality up at the cost of slightly more dequant metadata per block. Throughput sits ~5 tok/s
+above the mmangkad NVFP4 baseline (44.9) and within run-to-run noise of FP8 (47.0). **No MTP
+heads** in this checkpoint, so speculative decoding is off; the same checkpoint cannot reach
+the 83.7 tok/s figure the carnice-v2 sister repo gets, because that recipe relies on
+`sakamakismile/Carnice-V2-27b-NVFP4-TEXT-MTP` which bakes MTP weights into the safetensors.
+To get +60 % on the unsloth weights you'd need to pair them with an external drafter
+(z-lab DFlash) or switch to the sakamakismile MTP-bundled checkpoint.
+
 **MTP speculative decoding wins big**: Adding
 `--speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'`
 to the FP8 config jumped throughput from 47 → 66.2 tok/s on long generations
-(+41%). MTP uses Qwen3.6's native draft heads to speculate one token ahead;
-verification batches the draft + target in a single forward pass. Pure-decode
-on short outputs (~64 tokens) dropped slightly (-13%) due to draft+verify
-overhead, but long generations dominate this thinking model's typical
-workload. `num_speculative_tokens=2` was untested — DeltaNet hybrid recurrent
-state can't restore on partial accept, so gains saturate near 1.
+(+41%). On the NVFP4 path the lift is even larger — 44.9 → 83.5 tok/s (+86%),
+because the slower per-step decode leaves more headroom for the speculative
+batched verification to amortize the draft+verify overhead. MTP uses Qwen3.6's
+native draft heads to speculate one token ahead; verification batches the
+draft + target in a single forward pass. Pure-decode on short outputs
+(~64 tokens) dropped slightly (-13%) due to draft+verify overhead, but long
+generations dominate this thinking model's typical workload.
+`num_speculative_tokens=2` was untested — DeltaNet hybrid recurrent state
+can't restore on partial accept, so gains saturate near 1.
+
+**MTP requires baked-in head weights, not just any NVFP4 checkpoint.** Three
+27B NVFP4 quants exist; only one ships the MTP layer in the safetensors:
+
+| Checkpoint | group_size | MTP head | Best measured |
+|---|---:|:---:|---:|
+| `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` | 16 | yes | **83.5 tok/s** (+ MTP) |
+| `unsloth/Qwen3.6-27B-NVFP4` | 8 | no | 49.7 tok/s (no spec) |
+| `mmangkad/Qwen3.6-27B-NVFP4` | 16 | no | 44.9 tok/s (no spec; also forces fp8 KV → vLLM rejects DFlash combo) |
+
+For a no-MTP NVFP4 checkpoint to match 83.5, you'd need to pair it with an
+external drafter (e.g. z-lab DFlash) — see the experimental DFlash section
+below.
 
 The Blackwell flag bundle (`--async-scheduling`, `--cuda-graph-capture-size`,
 `--compilation-config '{"level":3}'`) suggested by community blogs is

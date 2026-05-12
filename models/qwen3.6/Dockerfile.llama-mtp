@@ -1,0 +1,48 @@
+# llama.cpp with MTP speculative decoding support
+#
+# Builds from am17an/llama.cpp:mtp-clean (PR #22673, not yet merged to
+# mainline) which adds --spec-type mtp for Qwen3.6's qwen3_next_mtp head.
+# Required for the unsloth/Qwen3.6-{27B,35B-A3B}-MTP-GGUF repos.
+#
+# Build once:
+#   docker build -t llama.cpp-mtp:latest \
+#     -f models/qwen3.6/Dockerfile.llama-mtp models/qwen3.6/
+#
+# The resulting image exposes /app/llama-server as the entrypoint, drop-in
+# compatible with ggml-org/llama.cpp:server-cuda's command syntax.
+
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ninja-build curl ca-certificates \
+      libcurl4-openssl-dev libssl-dev libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --depth 1 --branch mtp-clean https://github.com/am17an/llama.cpp.git
+
+WORKDIR /src/llama.cpp
+RUN cmake -B build -G Ninja \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="120" \
+      -DLLAMA_CURL=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --config Release -j --target llama-server llama-cli
+
+
+FROM nvidia/cuda:13.0.0-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libcurl4 libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /src/llama.cpp/build/bin/llama-server /app/llama-server
+COPY --from=builder /src/llama.cpp/build/bin/llama-cli    /app/llama-cli
+
+ENV PATH="/app:${PATH}"
+EXPOSE 11475
+ENTRYPOINT ["/app/llama-server"]

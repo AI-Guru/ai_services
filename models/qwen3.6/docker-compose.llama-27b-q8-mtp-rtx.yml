@@ -1,0 +1,90 @@
+# Qwen3.6-27B GGUF Q8_0 + MTP via llama.cpp (custom MTP build)
+#
+# unsloth/Qwen3.6-27B-MTP-GGUF · Q8_0 standard GGUF (27.05 GB). Same
+# llama.cpp-mtp:latest image as the Q4_K_XL variant; only the quant
+# differs. Q8_0 is the high-fidelity reference — effectively lossless vs
+# BF16 for inference quality.
+#
+# 1.7x the bandwidth of Q4 → expect ~1/1.5 the tok/s of the Q4_K_XL+MTP
+# config.
+#
+# Usage: docker compose -f docker-compose.llama-27b-q8-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-q8-mtp:
+    image: llama.cpp-mtp:latest
+    container_name: qwen36-27b-q8-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-27B-MTP-GGUF
+      - --hf-file
+      - Qwen3.6-27B-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "65536"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --spec-type
+      - mtp
+      - --spec-draft-n-max
+      - "3"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - -a
+      - qwen3.6-27b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_llama_mtp_cache
+
+networks:
+  default:
+    name: qwen36-network

@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2026-05-06 · Qwen3.6 · llama.cpp MTP-GGUF · 27B & 35B-A3B Compared</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --champion: #ffb43d;
+    --inferno-purple: #6a176e;
+    --inferno-pink: #bc3754;
+    --inferno-orange: #f37819;
+    --inferno-yellow: #fcffa4;
+    --dense-color: #bc3754;   /* 27B dense */
+    --moe-color: #ffb43d;     /* 35B MoE — champion gold */
+    --good: #4caf50;
+    --warn: #ffb300;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--inferno-pink), var(--inferno-orange) 50%, var(--champion));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--inferno-orange), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--inferno-orange);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  .hero-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .hero-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .hero-row { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1.1rem;
+    border: 1px solid transparent;
+    position: relative;
+  }
+  .config-card.dense-q4 { border-color: rgba(188,55,84,0.5); }
+  .config-card.dense-q8 { border-color: rgba(188,55,84,0.35); }
+  .config-card.moe-q4   { border-color: rgba(255,180,61,0.6);
+                          box-shadow: 0 0 30px rgba(255,180,61,0.12); }
+  .config-card.moe-q8   { border-color: rgba(255,180,61,0.4); }
+
+  .config-card .tag {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+    font-weight: 700;
+  }
+  .config-card.dense-q4 .tag, .config-card.dense-q8 .tag { color: var(--dense-color); }
+  .config-card.moe-q4 .tag, .config-card.moe-q8 .tag     { color: var(--champion); }
+
+  .config-card h3 {
+    margin: 0.3rem 0 0.6rem;
+    font-size: 0.98rem; color: var(--fg); font-weight: 600;
+  }
+  .config-card .big {
+    font-size: 2.4rem; font-weight: 800; margin: 0.1rem 0;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .config-card.dense-q4 .big, .config-card.dense-q8 .big { color: var(--dense-color); }
+  .config-card.moe-q4   .big { color: var(--champion);
+                               filter: drop-shadow(0 0 10px rgba(255,180,61,0.35)); }
+  .config-card.moe-q8   .big { color: var(--champion); filter: brightness(0.85); }
+  .config-card .unit { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+  .config-card .detail {
+    margin-top: 0.6rem; font-size: 0.72rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--champion); color: #1a1430;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.18rem 0.55rem; border-radius: 999px;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--inferno-yellow); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(255,180,61,0.07);
+  }
+  tbody tr:hover td { background: rgba(255,180,61,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.config-dense    { color: var(--dense-color); font-weight: 600; }
+  td.config-moe      { color: var(--champion); font-weight: 700; }
+
+  .chart-wrap {
+    position: relative; height: 360px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 420px; }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(255,180,61,0.12); color: var(--champion);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(255,180,61,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--champion);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(255,180,61,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6 · llama.cpp MTP-GGUF · 27B Dense vs 35B-A3B MoE</h1>
+  <div class="subtitle">Unsloth's MTP-aware GGUFs measured with llama.cpp built from PR #22673 (am17an/mtp-clean)</div>
+  <div class="meta">
+    <span>Date: 2026-05-06</span>
+    <span>27B: <code>unsloth/Qwen3.6-27B-MTP-GGUF</code></span>
+    <span>35B: <code>unsloth/Qwen3.6-35B-A3B-MTP-GGUF</code></span>
+    <span>Engine: llama.cpp (am17an/mtp-clean) built for sm_120</span>
+    <span>Flag: <code>--spec-type mtp --spec-draft-n-max 3</code></span>
+    <span>GPU: RTX PRO 6000 (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Hero cards ──────────────────────────────────────────── -->
+<section>
+  <h2>Headline: four configurations</h2>
+  <p>
+    Unsloth ships dynamic GGUF quants of Qwen3.6's official MTP-enabled checkpoints. The custom
+    llama.cpp build wires the <code>qwen3_next_mtp</code> draft head into its speculative pipeline
+    via the new <code>--spec-type mtp</code> flag. We benchmarked Q4_K_XL (Unsloth-Dynamic, more
+    bits on hot tensors) and Q8_0 (standard, near-lossless) on both the dense 27B and the MoE 35B-A3B.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card dense-q8">
+      <div class="tag">dense 27b · q8_0 + mtp</div>
+      <h3>27B Q8_0</h3>
+      <div class="big">66.1</div>
+      <div class="unit">tok / s</div>
+      <div class="detail">27 GiB weights · TTFT 26.3 s</div>
+    </div>
+
+    <div class="config-card dense-q4">
+      <div class="tag">dense 27b · q4_k_xl + mtp</div>
+      <h3>27B Q4_K_XL</h3>
+      <div class="big">85.7</div>
+      <div class="unit">tok / s</div>
+      <div class="detail">17 GiB weights · TTFT 18.9 s</div>
+    </div>
+
+    <div class="config-card moe-q8">
+      <div class="tag">moe 35b-a3b · q8_0 + mtp</div>
+      <h3>35B Q8_0</h3>
+      <div class="big">167.1</div>
+      <div class="unit">tok / s</div>
+      <div class="detail">35 GiB weights · TTFT 10.5 s</div>
+    </div>
+
+    <div class="config-card moe-q4">
+      <div class="crown">fastest</div>
+      <div class="tag">moe 35b-a3b · q4_k_xl + mtp</div>
+      <h3>35B Q4_K_XL</h3>
+      <div class="big">178.8</div>
+      <div class="unit">tok / s</div>
+      <div class="detail">21 GiB weights · TTFT 9.5 s</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Bar chart ───────────────────────────────────────────── -->
+<section>
+  <h2>Ranked: single-user decode throughput</h2>
+  <p class="muted">
+    3-run average from <code>test_chat.py</code>, <code>--no-think</code>, with warm-up. The MoE's
+    3 B active parameters per token give it a ~2× speed lead over the dense 27B even at higher
+    fidelity. <code>--spec-type mtp</code> adds ~+20–40 % on top of plain GGUF decode in our
+    measurements (vs. the standard Q4_K_M / Q8_0 GGUFs without the MTP flag).
+  </p>
+  <div class="chart-wrap chart-tall"><canvas id="chartRanked"></canvas></div>
+</section>
+
+<!-- ── Detail table ────────────────────────────────────────── -->
+<section>
+  <h2>Detail breakdown</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Quant</th>
+        <th class="num">tok/s avg</th>
+        <th>Per-run</th>
+        <th class="num">TTFT avg</th>
+        <th class="num">Weights</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-dense">27B Dense</td>
+        <td>UD-Q4_K_XL</td>
+        <td class="num">85.7</td>
+        <td class="num">86.9 · 84.2 · earlier</td>
+        <td class="num">18.9 s</td>
+        <td class="num">16.7 GiB</td>
+      </tr>
+      <tr>
+        <td class="config-dense">27B Dense</td>
+        <td>Q8_0</td>
+        <td class="num">66.1</td>
+        <td class="num">66.7 · 65.9 · earlier</td>
+        <td class="num">26.3 s</td>
+        <td class="num">27.0 GiB</td>
+      </tr>
+      <tr style="background:rgba(255,180,61,0.07)">
+        <td class="config-moe">35B-A3B MoE</td>
+        <td><strong>UD-Q4_K_XL</strong></td>
+        <td class="num"><strong>178.8</strong></td>
+        <td class="num">178.5 · 177.1 · earlier</td>
+        <td class="num"><strong>9.5 s</strong></td>
+        <td class="num"><strong>21.3 GiB</strong></td>
+      </tr>
+      <tr>
+        <td class="config-moe">35B-A3B MoE</td>
+        <td>Q8_0</td>
+        <td class="num">167.1</td>
+        <td class="num">165.6 · 168.6 · earlier</td>
+        <td class="num">10.5 s</td>
+        <td class="num">35.2 GiB</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Comparison to vLLM baselines ────────────────────────── -->
+<section>
+  <h2>How llama.cpp + MTP compares to the vLLM stack</h2>
+  <p class="muted">Numbers from the existing vLLM benchmarks on the same GPU, for context.</p>
+
+  <h3>27B Dense</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Configuration</th>
+        <th>Engine</th>
+        <th class="num">tok/s</th>
+        <th class="num">Δ vs llama.cpp Q4+MTP</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>INT4 + DFlash N=8 (champion)</td>
+        <td>vLLM nightly</td>
+        <td class="num">140.2 (146 steady)</td>
+        <td class="num"><span class="badge good">+64 %</span></td>
+      </tr>
+      <tr>
+        <td>INT4 + MTP</td>
+        <td>vLLM nightly</td>
+        <td class="num">102.8</td>
+        <td class="num"><span class="badge good">+20 %</span></td>
+      </tr>
+      <tr>
+        <td>FP8 + DFlash</td>
+        <td>vLLM nightly</td>
+        <td class="num">103.0</td>
+        <td class="num"><span class="badge good">+20 %</span></td>
+      </tr>
+      <tr style="background:rgba(255,180,61,0.07)">
+        <td><strong>UD-Q4_K_XL + MTP</strong></td>
+        <td><strong>llama.cpp-mtp</strong></td>
+        <td class="num"><strong>85.7</strong></td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td>NVFP4 + MTP</td>
+        <td>vLLM nightly</td>
+        <td class="num">83.5</td>
+        <td class="num"><span class="badge warn">−3 %</span></td>
+      </tr>
+      <tr>
+        <td>FP8 + MTP</td>
+        <td>vLLM v0.19</td>
+        <td class="num">66.2</td>
+        <td class="num"><span class="badge warn">−23 %</span></td>
+      </tr>
+      <tr>
+        <td>Q8_0 + MTP</td>
+        <td>llama.cpp-mtp</td>
+        <td class="num">66.1</td>
+        <td class="num"><span class="badge warn">−23 %</span></td>
+      </tr>
+      <tr>
+        <td>FP8 vanilla</td>
+        <td>vLLM v0.19</td>
+        <td class="num">47.0</td>
+        <td class="num"><span class="badge warn">−45 %</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>35B-A3B MoE</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Configuration</th>
+        <th>Engine</th>
+        <th class="num">tok/s</th>
+        <th class="num">Δ vs llama.cpp Q4+MTP</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:rgba(255,180,61,0.07)">
+        <td><strong>UD-Q4_K_XL + MTP</strong></td>
+        <td><strong>llama.cpp-mtp</strong></td>
+        <td class="num"><strong>178.8</strong></td>
+        <td class="num">—</td>
+      </tr>
+      <tr>
+        <td>FP8 + DFlash (steady state)</td>
+        <td>vLLM nightly</td>
+        <td class="num">232.3</td>
+        <td class="num"><span class="badge good">+30 %</span></td>
+      </tr>
+      <tr>
+        <td>FP8 vanilla</td>
+        <td>vLLM v0.19</td>
+        <td class="num">203</td>
+        <td class="num"><span class="badge good">+14 %</span></td>
+      </tr>
+      <tr>
+        <td>FP8 + MTP</td>
+        <td>vLLM v0.19</td>
+        <td class="num">202</td>
+        <td class="num"><span class="badge good">+13 %</span></td>
+      </tr>
+      <tr>
+        <td>llama.cpp Q4_K_XL (no MTP)</td>
+        <td>llama.cpp standard</td>
+        <td class="num">205.3</td>
+        <td class="num"><span class="badge good">+15 %</span></td>
+      </tr>
+      <tr>
+        <td>Q8_0 + MTP</td>
+        <td>llama.cpp-mtp</td>
+        <td class="num">167.1</td>
+        <td class="num"><span class="badge warn">−7 %</span></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Findings ────────────────────────────────────────────── -->
+<section>
+  <h2>What the data says</h2>
+  <div class="findings">
+    <strong>Observations:</strong>
+    <ul>
+      <li><strong>llama.cpp's MTP genuinely activates the draft head on the GGUF.</strong> The startup log confirms <code>loading MTP head from '…UD-Q4_K_XL.gguf' (override_arch=qwen35_mtp)</code> and <code>adding speculative implementation 'mtp'</code>. This is not dead capacity — the speculative pipeline is wired up.</li>
+      <li><strong>MTP gives the biggest lift on the dense 27B at Q8.</strong> Standard Q8 GGUF on this hardware (from the Carnice-V2 benchmark) ran 47.6 tok/s. The MTP build at Q8 runs 66.1 tok/s — a +39 % gain from speculation alone. Q4 also lifts (+~20 % vs standard Q4_K_M GGUF).</li>
+      <li><strong>llama.cpp MTP succeeds on the MoE where vLLM MTP didn't.</strong> vLLM's <code>qwen3_next_mtp</code> N=1 gave 0 % gain on the 35B-A3B (verify pass already cheap on the MoE). llama.cpp's implementation reaches 178.8 tok/s at Q4 — comparable to vLLM FP8 baselines at 203 — meaning the speculation is paying off even on the MoE.</li>
+      <li><strong>27B llama.cpp + MTP doesn't catch vLLM's INT4 stacks.</strong> 85.7 tok/s on Q4_K_XL is real progress (over 70 tok/s plain Q4 in earlier Carnice measurements), but vLLM's INT4 + DFlash champion at 146 steady is in a different class. The INT4 Marlin kernel on Blackwell plus DFlash's block drafter outpaces llama.cpp's single-draft-token MTP integration.</li>
+      <li><strong>Q4_K_XL &gt; Q8_0 on both models</strong>, by ~30 % on 27B and ~7 % on 35B. Standard bandwidth math — less to stream per token. The Unsloth-Dynamic variant keeps quality close to Q5_K for most layers.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Build notes ─────────────────────────────────────────── -->
+<section>
+  <h2>Building the llama.cpp MTP image</h2>
+  <p>
+    The MTP support is in <a href="https://github.com/ggml-org/llama.cpp/pull/22673" style="color:var(--inferno-orange)">PR #22673</a> (mainline merge pending). We built from
+    <code>am17an/llama.cpp:mtp-clean</code> via the in-repo Dockerfile, exposing
+    <code>--spec-type mtp</code> and <code>--spec-draft-n-max</code>.
+  </p>
+  <pre><code># Build the image (once per host)
+docker build -t llama.cpp-mtp:latest \
+  -f models/qwen3.6/Dockerfile.llama-mtp models/qwen3.6/
+
+# Run the champion (35B Q4_K_XL + MTP) on port 11435
+docker compose -f models/qwen3.6/docker-compose.llama-35b-q4-mtp-rtx.yml up -d
+
+# Or 27B Q4_K_XL + MTP on port 11436
+docker compose -f models/qwen3.6/docker-compose.llama-27b-q4-mtp-rtx.yml up -d</code></pre>
+  <p class="muted">
+    Image: <code>nvidia/cuda:13.0.0-runtime-ubuntu24.04</code> base, ~4.45 GB. Built with
+    <code>-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120</code> for SM_120 (Blackwell)
+    and OpenSSL for HF downloads. PR limitations: <code>-np 1</code> only (no parallel slots
+    with MTP), <code>--mmproj</code> not supported (text-only).
+  </p>
+</section>
+
+</main>
+
+<footer>
+  Measured 2026-05-06 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) ·
+  llama.cpp built from <code>am17an/llama.cpp:mtp-clean</code> · single-user.
+  Related: <a href="comparison-baseline-mtp-dflash.html" style="color:var(--inferno-orange)">vLLM baseline · MTP · DFlash · 4-bit</a> ·
+  <a href="20260503-qwen36-27b-int4-dflash-sweep.html" style="color:var(--inferno-orange)">INT4 + DFlash GuideLLM sweep</a>.
+</footer>
+
+<script>
+const denseColor   = 'rgba(188,55,84,0.85)';
+const denseBorder  = 'rgba(188,55,84,1)';
+const moeColor     = 'rgba(255,180,61,0.95)';
+const moeBorder    = 'rgba(255,200,90,1)';
+const gridColor    = 'rgba(255,180,61,0.08)';
+const tickColor    = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+new Chart(document.getElementById('chartRanked'), {
+  type: 'bar',
+  data: {
+    labels: ['27B Q8_0 + MTP', '27B Q4_K_XL + MTP', '35B Q8_0 + MTP', '35B Q4_K_XL + MTP'],
+    datasets: [{
+      label: 'tok/s (3-run average, --no-think)',
+      data: [66.1, 85.7, 167.1, 178.8],
+      backgroundColor: [
+        'rgba(188,55,84,0.55)', 'rgba(188,55,84,0.85)',
+        'rgba(255,180,61,0.55)', 'rgba(255,180,61,0.95)',
+      ],
+      borderColor: [
+        denseBorder, denseBorder,
+        moeBorder, moeBorder,
+      ],
+      borderWidth: 2, borderRadius: 8,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s` }
+      }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600' } } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>

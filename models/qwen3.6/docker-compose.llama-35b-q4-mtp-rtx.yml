@@ -1,0 +1,92 @@
+# Qwen3.6-35B-A3B GGUF UD-Q4_K_XL + MTP via llama.cpp (custom MTP build)
+#
+# unsloth/Qwen3.6-35B-A3B-MTP-GGUF · UD-Q4_K_XL Unsloth Dynamic GGUF
+# (21.28 GB). MoE model with 3B active parameters per token; MTP head is
+# baked into the GGUF. Same llama.cpp-mtp:latest image as the 27B
+# variants; --spec-type mtp activates the qwen3_next_mtp draft head.
+#
+# Earlier work on this MoE (vLLM FP8 baseline 203 tok/s, FP8 + MTP 202
+# tok/s — MTP gave no gain because the MoE's verify pass is already so
+# cheap). llama.cpp's MTP may behave differently due to its different
+# verify/draft fusion. Worth measuring.
+#
+# Usage: docker compose -f docker-compose.llama-35b-q4-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11435/v1
+# Model name served as: qwen3.6-35b
+
+services:
+  qwen36-35b-q4-mtp:
+    image: llama.cpp-mtp:latest
+    container_name: qwen36-35b-q4-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11435:11435"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-35B-A3B-MTP-GGUF
+      - --hf-file
+      - Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "65536"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --spec-type
+      - mtp
+      - --spec-draft-n-max
+      - "3"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11435"
+      - -a
+      - qwen3.6-35b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11435/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_llama_mtp_cache
+
+networks:
+  default:
+    name: qwen36-network
