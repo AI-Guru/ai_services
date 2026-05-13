@@ -1,0 +1,87 @@
+# Qwen3.6-27B Q4_K_M + Lucebox DFlash (HIP) — AMD R9700 (gfx1201, EXPERIMENTAL)
+#
+# Reproduces the amd.md path: Lucebox-Org/lucebox-hub PR #119 (HIP port of
+# rocWMMA flashprefill + DFlash drafter + DDTree verifier) plus PR #159
+# (PFlash compressed-prefill ubatch=512). On Strix Halo (gfx1151) amd.md
+# reports 26.85 tok/s decode and 20.2 s TTFT at 16K.
+#
+# Build the image first:
+#   docker build -t lucebox-dflash:latest \
+#     -f Dockerfile.llama-dflash .
+#
+# WARNING: lucebox-hub's rocWMMA flashprefill tiles are tuned for
+# gfx1100/gfx1151. On R9700 (gfx1201, RDNA 4) the kernels are untested upstream.
+# If startup fails or numerical output is garbage, fall back to the stock
+# Vulkan compose (docker-compose.llama-27b-q4-vulkan.yml).
+#
+# Usage: docker compose -f docker-compose.dflash-27b-q4-rocm.yml up -d
+# API endpoint: http://localhost:11449/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-dflash-rocm:
+    image: lucebox-dflash:latest
+    container_name: qwen36-27b-dflash-rocm
+    restart: unless-stopped
+
+    devices:
+      - /dev/kfd
+      - /dev/dri
+
+    group_add:
+      - "44"
+      - "992"
+
+    ipc: host
+    security_opt:
+      - seccomp=unconfined
+
+    ports:
+      - "11449:11449"
+
+    volumes:
+      - dflash_models:/models
+
+    environment:
+      - HSA_FORCE_FINE_GRAIN_PCIE=1
+      - DFLASH27B_PREFILL_UBATCH=512
+      - DFLASH27B_DRAFT_SWA=2048
+      # Target + drafter paths read by scripts/server.py
+      - DFLASH_TARGET=/models/Qwen3.6-27B-Q4_K_M.gguf
+      - DFLASH_DRAFT=/models/draft/dflash-draft-3.6-q8_0.gguf
+
+    # server.py auto-downloads via huggingface_hub if the path is missing,
+    # but we explicitly pass --target / --draft to avoid relying on that.
+    # Override the image CMD with the model args.
+    command:
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11449"
+      - --target
+      - /models/Qwen3.6-27B-Q4_K_M.gguf
+      - --draft
+      - /models/draft/dflash-draft-3.6-q8_0.gguf
+      - --budget
+      - "22"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11449/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  dflash_models:
+    name: qwen36_dflash_models
+
+networks:
+  default:
+    name: qwen36-network

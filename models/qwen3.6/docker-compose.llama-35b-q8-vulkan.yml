@@ -1,0 +1,79 @@
+# Qwen3.6-35B-A3B (MoE) GGUF Q8_0 via llama.cpp Vulkan — AMD (any GPU with ≥48 GB)
+#
+# unsloth/Qwen3.6-35B-A3B-GGUF · Q8_0 (~36.9 GB).
+#
+# WARNING: This DOES NOT FIT on a 32 GB R9700 — weights alone exceed VRAM.
+# Included for parity with the CUDA variants and for future ≥48 GB AMD cards.
+# On R9700: use the Q4_K_XL variant instead.
+#
+# Usage: docker compose -f docker-compose.llama-35b-q8-vulkan.yml up -d
+# API endpoint: http://localhost:11447/v1
+
+services:
+  qwen36-35b-q8-vulkan:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: qwen36-35b-q8-vulkan
+    restart: unless-stopped
+
+    devices:
+      - /dev/kfd
+      - /dev/dri
+
+    group_add:
+      - "44"
+      - "992"
+
+    ports:
+      - "11447:11447"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-35B-A3B-GGUF
+      - --hf-file
+      - Qwen3.6-35B-A3B-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "16384"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11447"
+      - -a
+      - qwen3.6-35b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11447/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

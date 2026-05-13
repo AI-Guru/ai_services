@@ -1,0 +1,79 @@
+# Qwen3.6-27B GGUF Q8_0 via llama.cpp Vulkan — AMD R9700 (gfx1201, 32 GB)
+#
+# unsloth/Qwen3.6-27B-GGUF · Q8_0 (~28.6 GB).
+#
+# WARNING: Q8 27B + KV cache is very tight on 32 GB GDDR6. Context reduced
+# to 16384 to keep headroom for the KV cache and runtime allocations.
+# If it OOMs at startup, drop further to 8192 or use Q4_K_XL instead.
+#
+# Usage: docker compose -f docker-compose.llama-27b-q8-vulkan.yml up -d
+# API endpoint: http://localhost:11448/v1
+
+services:
+  qwen36-27b-q8-vulkan:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: qwen36-27b-q8-vulkan
+    restart: unless-stopped
+
+    devices:
+      - /dev/kfd
+      - /dev/dri
+
+    group_add:
+      - "44"
+      - "992"
+
+    ports:
+      - "11448:11448"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-27B-GGUF
+      - --hf-file
+      - Qwen3.6-27B-Q8_0.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "16384"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11448"
+      - -a
+      - qwen3.6-27b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11448/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

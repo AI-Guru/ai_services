@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Qwen3.6 · Vulkan · MTP · DFlash · AMD Radeon AI PRO R9700</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --accent-1: #fcffa4;
+    --accent-2: #f37819;
+    --baseline-color: #6a176e;   /* inferno purple */
+    --mtp-color: #bc3754;        /* inferno hot pink */
+    --dflash-color: #fcffa4;     /* inferno bright */
+    --champion-color: #ffb43d;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+    --amd-red: #ed1c24;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #1a0f30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(252,165,10,0.15);
+    background: linear-gradient(180deg, rgba(106,23,110,0.15) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--baseline-color), var(--mtp-color) 50%, var(--dflash-color));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(252,165,10,0.07);
+    border: 1px solid rgba(252,165,10,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(252,165,10,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--accent-1);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--mtp-color), var(--dflash-color));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--accent-2);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  .hero-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.2rem;
+    margin-top: 1.2rem;
+  }
+  .hero-row.two { grid-template-columns: 1fr 1fr; max-width: 720px; margin-left: auto; margin-right: auto; }
+  @media (max-width: 900px) { .hero-row, .hero-row.two { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 14px; padding: 1.4rem;
+    position: relative;
+    border: 1px solid transparent;
+  }
+  .config-card.baseline { border-color: rgba(106,23,110,0.4); }
+  .config-card.mtp      { border-color: rgba(188,55,84,0.4); }
+  .config-card.dflash   { border-color: rgba(252,255,164,0.4);
+                          box-shadow: 0 0 30px rgba(252,255,164,0.08); }
+  .config-card.champion { border-color: rgba(255,180,61,0.6);
+                          box-shadow: 0 0 40px rgba(255,180,61,0.15); }
+  .config-card .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+  .config-card.baseline .tag { color: #c49ad0; }
+  .config-card.mtp .tag      { color: #e48caa; }
+  .config-card.dflash .tag   { color: var(--dflash-color); }
+  .config-card.champion .tag { color: var(--champion-color); }
+  .config-card h3 {
+    margin: 0.3rem 0 0.8rem;
+    font-size: 1.05rem; color: var(--fg); font-weight: 600;
+  }
+  .config-card .big-num {
+    font-size: 2.8rem; font-weight: 800; margin: 0.2rem 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .config-card.baseline .big-num { color: var(--baseline-color); filter: brightness(1.6); }
+  .config-card.mtp      .big-num { color: var(--mtp-color); }
+  .config-card.dflash   .big-num { color: var(--dflash-color); }
+  .config-card.champion .big-num { color: var(--champion-color); filter: drop-shadow(0 0 8px rgba(255,180,61,0.4)); }
+  .config-card .unit { font-size: 0.95rem; color: var(--muted); }
+  .config-card .delta {
+    margin-top: 0.8rem; font-size: 0.85rem;
+    padding: 0.25rem 0.6rem; border-radius: 999px;
+    display: inline-block;
+  }
+  .config-card .delta.pos { background: rgba(76,175,80,0.15); color: #8be094; }
+  .config-card .delta.neg { background: rgba(244,67,54,0.15); color: #ff8a85; }
+  .config-card .delta.neutral { background: rgba(152,144,196,0.15); color: var(--muted); }
+  .config-card .detail {
+    margin-top: 0.8rem; font-size: 0.8rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--dflash-color); color: #1a1430;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.2rem 0.6rem; border-radius: 999px;
+  }
+  .config-card.champion .crown { background: var(--champion-color); }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(106,23,110,0.4), rgba(188,55,84,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--accent-1); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(252,165,10,0.07);
+  }
+  tbody tr:hover td { background: rgba(252,165,10,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.config-baseline { color: #c49ad0; font-weight: 600; }
+  td.config-mtp      { color: var(--mtp-color); font-weight: 600; }
+  td.config-dflash   { color: var(--dflash-color); font-weight: 600; }
+  td.config-champion { color: var(--champion-color); font-weight: 700; }
+
+  .chart-wrap {
+    position: relative; height: 340px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 400px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(252,165,10,0.12); color: var(--accent-1);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.15);  color: #ff8a85; }
+  .badge.amd  { background: rgba(237,28,36,0.12); color: #ff8a85; }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(252,255,164,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--dflash-color);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--dflash-color); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(252,165,10,0.1); border-radius: 8px; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6 · Vulkan · MTP · DFlash · AMD R9700</h1>
+  <div class="subtitle">Three speculative-decoding paths on a 32 GB consumer-class AMD GPU — first measurements for the Qwen3.6 family on gfx1201 / RDNA 4</div>
+  <div class="meta">
+    <span>GPU: <code>AMD Radeon AI PRO R9700</code> · 32 GB GDDR6 · gfx1201 (RDNA 4) <span class="badge amd">AMD</span></span>
+    <span>Stack: ROCm 7.2.0 · Linux 6.17 · Docker 28.2</span>
+    <span>Models: <code>Qwen/Qwen3.6-27B</code> (dense) · <code>Qwen/Qwen3.6-35B-A3B</code> (MoE, 3 B active)</span>
+    <span>Drafters: Unsloth MTP-GGUF · <code>Lucebox/Qwen3.6-27B-DFlash-GGUF</code></span>
+    <span>Tool: <code>test_chat.py --runs 3 --no-think --max-tokens 256</code></span>
+    <span>Date: 2026-05-13</span>
+  </div>
+</header>
+
+<main>
+
+<!-- 27B headline -->
+<section>
+  <h2>Headline · Qwen3.6-27B (dense)</h2>
+  <p>
+    The dense 27B is bandwidth-bound on R9700: GDDR6 256-bit @ 19.5 Gbps gives
+    ~640 GB/s aggregate, against ~17 GB of Q4_K resident weights — a 38 tok/s
+    theoretical ceiling. All three configs converge on that ceiling at different
+    rates depending on how many tokens they emit per target forward pass.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card baseline">
+      <div class="tag">Config 1 · plain Vulkan</div>
+      <h3>llama.cpp Q4 (stock)</h3>
+      <div class="big-num">21.9</div>
+      <div class="unit">tok / s (average of 3)</div>
+      <div class="delta neutral">starting point</div>
+      <div class="detail">ggml-org/llama.cpp:server-vulkan · no speculation</div>
+    </div>
+
+    <div class="config-card mtp">
+      <div class="tag">Config 2 · draft-mtp</div>
+      <h3>llama.cpp Q4 + MTP</h3>
+      <div class="big-num">26.1</div>
+      <div class="unit">tok / s (average of 3)</div>
+      <div class="delta pos">+ 19 % vs baseline</div>
+      <div class="detail">am17an PR #22673 built with Vulkan backend · <code>--spec-type draft-mtp</code></div>
+    </div>
+
+    <div class="config-card champion">
+      <div class="crown">fastest</div>
+      <div class="tag">Config 3 · lucebox dflash</div>
+      <h3>DFlash via HIP/ROCm</h3>
+      <div class="big-num">38.0</div>
+      <div class="unit">tok / s (average of 3)</div>
+      <div class="delta pos">+ 74 % vs baseline</div>
+      <div class="detail">Luce-Org/lucebox-hub PR #119 + #159 built for gfx1201 · DFLASH27B_DRAFT_SWA=2048</div>
+    </div>
+  </div>
+</section>
+
+<!-- 35B headline -->
+<section>
+  <h2>Headline · Qwen3.6-35B-A3B (MoE, 3 B active)</h2>
+  <p>
+    The MoE forward pass touches only ~3 B active parameters per token, so per-step
+    decode is already cheap. Speculative decoding has less work to amortise — and on
+    Vulkan with a lower-throughput draft batch it actually <em>regresses</em>. Same
+    finding as the CUDA Q4 table; just verified on the AMD path.
+  </p>
+
+  <div class="hero-row two">
+    <div class="config-card baseline">
+      <div class="tag">Config 1 · plain Vulkan</div>
+      <h3>llama.cpp Q4 (stock)</h3>
+      <div class="big-num">74.3</div>
+      <div class="unit">tok / s (average of 3)</div>
+      <div class="delta neutral">starting point</div>
+      <div class="detail">ggml-org/llama.cpp:server-vulkan · 32K context</div>
+    </div>
+
+    <div class="config-card mtp">
+      <div class="tag">Config 2 · draft-mtp</div>
+      <h3>llama.cpp Q4 + MTP</h3>
+      <div class="big-num">58.0</div>
+      <div class="unit">tok / s (average of 3)</div>
+      <div class="delta neg">– 22 % vs baseline</div>
+      <div class="detail">draft+verify overhead beats the spec gain on MoE</div>
+    </div>
+  </div>
+</section>
+
+<!-- Throughput vs ceiling -->
+<section>
+  <h2>Throughput against the bandwidth ceiling</h2>
+  <p class="muted">
+    R9700's 640 GB/s memory bandwidth divided by Q4 model size sets the maximum
+    decode rate. The bars below show how close each config gets to that ceiling.
+  </p>
+
+  <div class="grid-2">
+    <div>
+      <h3>27B dense — Q4_K (~17 GB)</h3>
+      <div class="chart-wrap"><canvas id="chart27"></canvas></div>
+    </div>
+    <div>
+      <h3>35B-A3B — Q4_K_XL (~23 GB resident, 3 B active)</h3>
+      <div class="chart-wrap"><canvas id="chart35"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- Per-run consistency -->
+<section>
+  <h2>Per-run consistency</h2>
+  <p class="muted">
+    Three back-to-back runs per config. Run 1 is the cold start (KV not warm,
+    Vulkan shader cache cold). DFlash converges to ~39 tok/s by run 2; stock
+    Vulkan and MTP-Vulkan are stable from run 1.
+  </p>
+  <div class="chart-wrap chart-tall"><canvas id="chartRuns"></canvas></div>
+</section>
+
+<!-- Raw data -->
+<section>
+  <h2>Raw measurements</h2>
+  <h3>Qwen3.6-27B (dense)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Run</th>
+        <th class="num">tok/s</th>
+        <th class="num">TTFT</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline" rowspan="4">Vulkan Q4_K_XL (stock)</td>
+        <td>1</td><td class="num">21.7</td><td class="num">~0.9 s</td>
+        <td rowspan="4"><code>docker-compose.llama-27b-q4-vulkan.yml</code> · port 11448 · ggml-org/llama.cpp:server-vulkan · 65K ctx</td>
+      </tr>
+      <tr><td>2</td><td class="num">22.1</td><td class="num">—†</td></tr>
+      <tr><td>3</td><td class="num">21.9</td><td class="num">—†</td></tr>
+      <tr style="background:rgba(106,23,110,0.12)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>21.9</strong></td><td class="num"></td>
+      </tr>
+
+      <tr>
+        <td class="config-mtp" rowspan="4">Vulkan Q4_K_XL + MTP</td>
+        <td>1</td><td class="num">25.3</td><td class="num">—†</td>
+        <td rowspan="4"><code>docker-compose.llama-27b-q4-mtp-vulkan.yml</code> · port 11448 · custom <code>llama.cpp-mtp-vulkan</code> image (am17an PR #22673 + spirv-headers) · <code>--spec-type draft-mtp --spec-draft-n-max 3</code></td>
+      </tr>
+      <tr><td>2</td><td class="num">27.1</td><td class="num">—†</td></tr>
+      <tr><td>3</td><td class="num">26.0</td><td class="num">—†</td></tr>
+      <tr style="background:rgba(188,55,84,0.08)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>26.1</strong></td><td class="num"></td>
+      </tr>
+
+      <tr>
+        <td class="config-champion" rowspan="4">DFlash via HIP/ROCm</td>
+        <td>1</td><td class="num">36.3</td><td class="num">0.75 s</td>
+        <td rowspan="4"><code>docker-compose.dflash-27b-q4-rocm.yml</code> · port 11449 · custom <code>lucebox-dflash</code> image (Luce-Org/lucebox-hub PR #119 + #159, built with <code>DFLASH27B_HIP_ARCHITECTURES=gfx1201</code>) · Q4_K_M target + Q8_0 drafter · DDTree budget = 22 · SWA = 2048</td>
+      </tr>
+      <tr><td>2</td><td class="num">39.0</td><td class="num">0.38 s</td></tr>
+      <tr><td>3</td><td class="num">38.9</td><td class="num">0.37 s</td></tr>
+      <tr style="background:rgba(255,180,61,0.10)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>38.0</strong></td><td class="num"><strong>0.50 s</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-baseline" rowspan="4">Vulkan Q8_0 (stock)</td>
+        <td>1</td><td class="num">15.4</td><td class="num">—†</td>
+        <td rowspan="4"><code>docker-compose.llama-27b-q8-vulkan.yml</code> · port 11448 · 16K ctx · Q8_0 ~28.6 GB just fits with KV cache · ~1.63× more bandwidth per token vs Q4_K_XL</td>
+      </tr>
+      <tr><td>2</td><td class="num">15.2</td><td class="num">—†</td></tr>
+      <tr><td>3</td><td class="num">15.4</td><td class="num">0.81 s</td></tr>
+      <tr style="background:rgba(106,23,110,0.12)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>15.3</strong></td><td class="num"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Qwen3.6-35B-A3B (MoE, 3 B active)</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Run</th>
+        <th class="num">tok/s</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="config-baseline" rowspan="4">Vulkan UD-Q4_K_XL (stock)</td>
+        <td>1</td><td class="num">67.8</td>
+        <td rowspan="4"><code>docker-compose.llama-35b-q4-vulkan.yml</code> · port 11447 · 32K ctx (squeezed to fit in 32 GB)</td>
+      </tr>
+      <tr><td>2</td><td class="num">77.5</td></tr>
+      <tr><td>3</td><td class="num">77.6</td></tr>
+      <tr style="background:rgba(106,23,110,0.12)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>74.3</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-mtp" rowspan="4">Vulkan UD-Q4_K_XL + MTP</td>
+        <td>1</td><td class="num">50.8</td>
+        <td rowspan="4"><code>docker-compose.llama-35b-q4-mtp-vulkan.yml</code> · port 11447 · same flags as 27B-MTP · MoE pays the verify cost without the spec gain</td>
+      </tr>
+      <tr><td>2</td><td class="num">61.5</td></tr>
+      <tr><td>3</td><td class="num">61.6</td></tr>
+      <tr style="background:rgba(188,55,84,0.08)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>58.0</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    † <code>test_chat.py</code> with <code>--no-think</code> reports TTFT as nan because the
+    server emits the first response token without going through the streamed-reasoning
+    code path the script measures from. Decode tok/s is wall-clock over all generated
+    tokens and is reliable. DFlash's server reports TTFT directly.
+  </p>
+</section>
+
+<!-- Why DFlash wins on AMD too -->
+<section>
+  <h2>Why DFlash wins on AMD</h2>
+  <p>
+    The R9700 sits at one quarter the memory bandwidth of an RTX PRO 6000 GDDR7
+    (640 GB/s vs ~1.6 TB/s) but ROCm 7.2.0 ships full HIP support for gfx1201
+    (RDNA 4) — so Luce-Org's <a href="https://github.com/Luce-Org/lucebox-hub">lucebox-hub</a>
+    PR #119 builds out of the box once you point <code>DFLASH27B_HIP_ARCHITECTURES</code>
+    at the right arch. The rocWMMA flashprefill tiles are tuned upstream for
+    gfx1100 (RX 7900 XTX) and gfx1151 (Strix Halo); gfx1201 is untested but
+    compiles cleanly and the kernels run.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Hardware</th>
+        <th>Memory</th>
+        <th class="num">Bandwidth</th>
+        <th class="num">DFlash 27B</th>
+        <th class="num">Decode ÷ bw ceiling</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>RTX PRO 6000 (CUDA INT4 + DFlash N=8)</td>
+        <td>GDDR7</td>
+        <td class="num">~1.6 TB/s</td>
+        <td class="num">~146 tok/s (steady)</td>
+        <td class="num">~146 %†</td>
+      </tr>
+      <tr>
+        <td class="config-champion">R9700 (HIP Q4_K_M + DFlash)</td>
+        <td>GDDR6</td>
+        <td class="num">~640 GB/s</td>
+        <td class="num"><strong>38.0 tok/s</strong></td>
+        <td class="num"><strong>~95 %</strong></td>
+      </tr>
+      <tr>
+        <td>Strix Halo iGPU (HIP Q4_K_M + DFlash)</td>
+        <td>LPDDR5X-8000</td>
+        <td class="num">~256 GB/s</td>
+        <td class="num">26.85 tok/s ‡</td>
+        <td class="num">~63 %</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="muted">
+    † &gt; 100 % because INT4 weights are smaller than Q4_K_M and spec decode emits multiple tokens per pass.
+    ‡ amd.md / Luce-Org on gfx1151 with end-to-end 16 K + 1 K workload.
+  </p>
+
+  <div class="findings">
+    <strong>Why the result transfers across arch:</strong>
+    <ul>
+      <li><strong>Block drafting amortises the bandwidth tax.</strong> The Lucebox Q8_0 drafter proposes 22 candidates per cycle (DDTree budget=22); the target verifies them in one batched forward pass. Each accepted token piggybacks on the same model load.</li>
+      <li><strong>The drafter is small.</strong> 1.8 GB Q8_0 vs 16.8 GB Q4_K_M target — the drafter forward pass is ~10× cheaper than the target's, so spinning it up costs little.</li>
+      <li><strong>R9700 is bandwidth-bound, not compute-bound.</strong> RDNA 4 has plenty of FP16 throughput for the verify batch; the bottleneck is moving weights to the CUs. Speculation flips the ratio of weight-loads-to-tokens-emitted, which is exactly what this hardware needs.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- Why MTP hurts MoE -->
+<section>
+  <h2>Why MTP <em>hurts</em> the 35B-A3B on Vulkan</h2>
+  <p>
+    Same root cause as on CUDA (see <code>qwen3.6/README.md</code> — "MTP gives no
+    measurable speedup on 35B-A3B"): the MoE forward only touches ~3 B active
+    parameters per token, so per-step decode is already cheap. Adding a draft
+    head and a 2-token verify batch increases the per-step cost without enough
+    spec gain to amortise it.
+  </p>
+  <p>
+    On Vulkan the regression is sharper than on CUDA (−22 % vs ±0 % on CUDA)
+    because Vulkan's draft-batch path emits and verifies less efficiently than
+    CUDA Graph-captured kernels. Conclusion: <strong>don't enable MTP on
+    35B-A3B over Vulkan; stick with the stock <code>server-vulkan</code> image
+    at 74 tok/s.</strong>
+  </p>
+</section>
+
+<!-- Deployment recipe -->
+<section>
+  <h2>Reproduction recipe</h2>
+  <p class="muted">All compose files live in <code>models/qwen3.6/</code>. Two custom images required.</p>
+
+  <h3>1 · Build the two custom images</h3>
+<pre>
+# llama.cpp + MTP draft-mtp, Vulkan backend (am17an PR #22673)
+docker build -t llama.cpp-mtp-vulkan:latest \
+  -f models/qwen3.6/Dockerfile.llama-mtp-vulkan models/qwen3.6/
+
+# Lucebox DFlash for gfx1201 (HIP backend)
+docker build -t lucebox-dflash:latest \
+  -f models/qwen3.6/Dockerfile.llama-dflash models/qwen3.6/
+</pre>
+
+  <h3>2 · Pre-stage the DFlash target + drafter</h3>
+<pre>
+# server.py expects the GGUFs at fixed paths; auto-download is not built-in.
+docker run --rm -v qwen36_dflash_models:/models --entrypoint python3 \
+  lucebox-dflash:latest -c '
+from huggingface_hub import hf_hub_download
+import os, shutil
+os.makedirs("/models/draft", exist_ok=True)
+p = hf_hub_download("unsloth/Qwen3.6-27B-GGUF", "Qwen3.6-27B-Q4_K_M.gguf", cache_dir="/models/.cache")
+shutil.copy(p, "/models/Qwen3.6-27B-Q4_K_M.gguf")
+p = hf_hub_download("Lucebox/Qwen3.6-27B-DFlash-GGUF", "dflash-draft-3.6-q8_0.gguf", cache_dir="/models/.cache")
+shutil.copy(p, "/models/draft/dflash-draft-3.6-q8_0.gguf")
+shutil.rmtree("/models/.cache", ignore_errors=True)
+'
+</pre>
+
+  <h3>3 · Start and bench</h3>
+<pre>
+docker compose -f models/qwen3.6/docker-compose.dflash-27b-q4-rocm.yml up -d
+python models/shared/test_chat.py --base-url http://localhost:11449/v1 \
+  --model luce-dflash --runs 3 --no-think --max-tokens 256
+</pre>
+</section>
+
+<!-- Recommendations -->
+<section>
+  <h2>Which should you run on R9700?</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Situation</th>
+        <th>Pick</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Single-user 27B coding / reasoning</td>
+        <td class="config-champion">DFlash (HIP)</td>
+        <td>1.74× the stock Vulkan baseline — biggest practical win on this card</td>
+      </tr>
+      <tr>
+        <td>27B but want stock images only</td>
+        <td class="config-mtp">MTP-Vulkan</td>
+        <td>+19 % over stock with one custom image (no ROCm build); still safe</td>
+      </tr>
+      <tr>
+        <td>Multi-user / high concurrency</td>
+        <td class="config-baseline">Stock Vulkan</td>
+        <td>MTP and DFlash both go single-slot (<code>-np 1</code>); stock scales to <code>-np N</code></td>
+      </tr>
+      <tr>
+        <td>35B-A3B serving</td>
+        <td class="config-baseline">Stock Vulkan</td>
+        <td>74 tok/s baseline; MTP regresses, no Lucebox DFlash drafter exists for 35B</td>
+      </tr>
+      <tr>
+        <td>Q8 fidelity on 32 GB card</td>
+        <td>27B-Q8 only</td>
+        <td>27B-Q8 fits at 16K ctx (tight). 35B-Q8 OOMs — needs ≥ 48 GB.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="findings">
+    <strong>Caveats called out in the compose-file headers:</strong>
+    <ul>
+      <li><strong>DFlash on gfx1201 is experimental.</strong> The rocWMMA flashprefill tiles are tuned upstream for gfx1100/gfx1151. Compiles cleanly, runs correctly, but performance characteristics on RDNA 4 are not validated by upstream — if Lucebox publishes gfx1201-tuned tiles, expect another step up.</li>
+      <li><strong>MTP+Vulkan needs spirv-headers in the builder.</strong> The am17an branch's Vulkan code uses <code>spv::</code> SPIR-V symbols that <code>libvulkan-dev</code> doesn't provide. The <code>Dockerfile.llama-mtp-vulkan</code> adds the package.</li>
+      <li><strong>--spec-type flag rename.</strong> The am17an branch was rebased: <code>--spec-type mtp</code> → <code>--spec-type draft-mtp</code>. The Vulkan compose files use the new name; the existing CUDA-MTP compose files still use the old one and will need updating if the CUDA build is rebuilt.</li>
+      <li><strong>RADV is "testing only".</strong> Mesa's RADV driver prints a non-conformance warning on every load. Works correctly for our workload; switch to AMDVLK if it regresses.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p>Reproduce with <code>test_chat.py</code> from <code>models/shared/</code>. Source compose files and Dockerfiles in <code>models/qwen3.6/</code>. All numbers measured 2026-05-13 on R9700 / ROCm 7.2.0.</p>
+</footer>
+
+<script>
+const colors = {
+  baseline: '#6a176e',
+  baselineLight: '#9b3aa0',
+  mtp: '#bc3754',
+  dflash: '#fcffa4',
+  champion: '#ffb43d',
+  ceiling: 'rgba(252,255,164,0.25)',
+  muted: '#9890c4',
+};
+
+const commonOpts = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: {
+    legend: { labels: { color: '#f0e8ff', font: { size: 12 } } },
+    tooltip: { callbacks: {} },
+  },
+  scales: {
+    x: { ticks: { color: '#9890c4' }, grid: { color: 'rgba(252,165,10,0.07)' } },
+    y: { ticks: { color: '#9890c4' }, grid: { color: 'rgba(252,165,10,0.07)' }, beginAtZero: true },
+  },
+};
+
+// 27B vs ceiling
+new Chart(document.getElementById('chart27').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['Stock Vulkan', 'MTP-Vulkan', 'DFlash (HIP)', 'BW ceiling (640 GB/s ÷ 17 GB)'],
+    datasets: [{
+      label: 'tok/s',
+      data: [21.9, 26.1, 38.0, 38],
+      backgroundColor: [colors.baseline, colors.mtp, colors.champion, colors.ceiling],
+      borderColor: [colors.baselineLight, colors.mtp, colors.champion, colors.dflash],
+      borderWidth: 1,
+    }]
+  },
+  options: { ...commonOpts, plugins: { legend: { display: false } } }
+});
+
+// 35B vs ceiling
+new Chart(document.getElementById('chart35').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['Stock Vulkan', 'MTP-Vulkan', 'BW ceiling (active ~3 GB)'],
+    datasets: [{
+      label: 'tok/s',
+      data: [74.3, 58.0, 213],
+      backgroundColor: [colors.baseline, colors.mtp, colors.ceiling],
+      borderColor: [colors.baselineLight, colors.mtp, colors.dflash],
+      borderWidth: 1,
+    }]
+  },
+  options: { ...commonOpts, plugins: { legend: { display: false } } }
+});
+
+// Per-run consistency
+new Chart(document.getElementById('chartRuns').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: ['Run 1', 'Run 2', 'Run 3'],
+    datasets: [
+      { label: '27B Stock Vulkan',    data: [21.7, 22.1, 21.9], borderColor: colors.baseline,  backgroundColor: 'rgba(106,23,110,0.18)',  tension: 0.25, pointRadius: 5 },
+      { label: '27B MTP-Vulkan',      data: [25.3, 27.1, 26.0], borderColor: colors.mtp,       backgroundColor: 'rgba(188,55,84,0.18)',   tension: 0.25, pointRadius: 5 },
+      { label: '27B DFlash (HIP)',    data: [36.3, 39.0, 38.9], borderColor: colors.champion,  backgroundColor: 'rgba(255,180,61,0.20)',  tension: 0.25, pointRadius: 6 },
+      { label: '35B Stock Vulkan',    data: [67.8, 77.5, 77.6], borderColor: '#c49ad0',        backgroundColor: 'rgba(196,154,208,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
+      { label: '35B MTP-Vulkan',      data: [50.8, 61.5, 61.6], borderColor: '#e48caa',        backgroundColor: 'rgba(228,140,170,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
+    ]
+  },
+  options: { ...commonOpts }
+});
+</script>
+
+</body>
+</html>

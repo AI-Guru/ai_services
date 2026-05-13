@@ -1,0 +1,92 @@
+# Lucebox DFlash for Qwen3.6-27B on AMD ROCm (HIP backend)
+#
+# Builds Luce-Org/lucebox-hub PR #119 (HIP port of the rocWMMA flashprefill
+# kernels + DFlash drafter + DDTree verifier) and PR #159 (PFlash ubatch=512
+# bump). The amd.md article in the repo root has the full architectural
+# background — written for gfx1151 (Strix Halo, RDNA 3.5), here adapted
+# for gfx1201 (R9700, RDNA 4).
+#
+# EXPERIMENTAL on gfx1201:
+#   - lucebox-hub's rocWMMA flashprefill tiles are tuned for gfx1100/gfx1151.
+#     gfx1201 (RDNA 4) is untested upstream. The kernels may compile and run
+#     but performance characteristics are unknown — may match, beat, or
+#     underperform plain Vulkan llama.cpp.
+#   - DFLASH27B_HIP_SM80_EQUIV=ON is amd.md's recommendation for gfx1151;
+#     left ON here on the assumption RDNA 4 shares the relevant WMMA
+#     capability. If compile fails, set OFF and rebuild.
+#
+# Build:
+#   docker build -t lucebox-dflash:latest \
+#     -f models/qwen3.6/Dockerfile.llama-dflash models/qwen3.6/
+#
+# Runtime: invokes dflash/scripts/server.py (FastAPI, OpenAI-compatible).
+# server.py spawns dflash/build/test_dflash as a daemon subprocess.
+
+FROM rocm/dev-ubuntu-24.04:7.2.2-complete AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ninja-build curl ca-certificates \
+      libcurl4-openssl-dev libssl-dev libgomp1 \
+      python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone https://github.com/Luce-Org/lucebox-hub.git
+WORKDIR /src/lucebox-hub
+# PR #119 (HIP + rocWMMA flashprefill) is the base; #159 (ubatch=512) is an
+# additive fix and may already be merged by the time this builds. Try to
+# fetch both — tolerate either missing.
+RUN git fetch origin pull/119/head:pr119 \
+    && git checkout pr119 \
+    && (git fetch origin pull/159/head:pr159 && git merge --no-edit pr159 || \
+        echo "PR #159 not mergeable cleanly; proceeding without it.") \
+    && git submodule update --init --recursive
+
+WORKDIR /src/lucebox-hub/dflash
+RUN cmake -B build -S . \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DDFLASH27B_GPU_BACKEND=hip \
+      -DDFLASH27B_HIP_ARCHITECTURES=gfx1201 \
+      -DDFLASH27B_HIP_SM80_EQUIV=ON \
+    && cmake --build build -j --target test_dflash pflash_daemon
+# Skipping test_laguna_daemon: links against -lggml-cuda which is CUDA-only,
+# breaks HIP builds. Not needed by scripts/server.py (which spawns test_dflash).
+
+
+FROM rocm/dev-ubuntu-24.04:7.2.2-complete
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip curl ca-certificates libgomp1 libcurl4 \
+    && rm -rf /var/lib/apt/lists/*
+
+# server.py is FastAPI + uvicorn + transformers tokenizer + GGUF reader.
+# The upstream README's setup line: `pip install fastapi uvicorn transformers jinja2`,
+# plus gguf + numpy that server.py imports directly.
+RUN pip install --break-system-packages --no-cache-dir \
+      fastapi==0.115.6 uvicorn[standard]==0.32.1 pydantic==2.10.4 \
+      transformers==4.46.3 jinja2==3.1.4 gguf==0.13.0 numpy==1.26.4 \
+      huggingface_hub==0.26.5
+
+WORKDIR /app
+# Copy the whole dflash tree (binaries + scripts + any runtime files server.py reads)
+COPY --from=builder /src/lucebox-hub/dflash /app/dflash
+
+# server.py expects to find build/test_dflash relative to its ROOT
+ENV PATH="/opt/rocm/bin:${PATH}"
+# test_dflash links against ggml shared libs that build under deps/llama.cpp/.
+# Their RPATHs don't survive the copy, so register the paths with ldconfig.
+RUN echo "/opt/rocm/lib" > /etc/ld.so.conf.d/rocm.conf \
+ && echo "/app/dflash/build/deps/llama.cpp/ggml/src" >> /etc/ld.so.conf.d/dflash.conf \
+ && echo "/app/dflash/build/deps/llama.cpp/ggml/src/ggml-hip" >> /etc/ld.so.conf.d/dflash.conf \
+ && ldconfig
+ENV LD_LIBRARY_PATH="/opt/rocm/lib:/app/dflash/build/deps/llama.cpp/ggml/src:/app/dflash/build/deps/llama.cpp/ggml/src/ggml-hip"
+ENV DFLASH27B_PREFILL_UBATCH=512
+ENV DFLASH27B_DRAFT_SWA=2048
+
+WORKDIR /app/dflash
+EXPOSE 11449
+# Override port to 11449 (matches repo's port convention) and host 0.0.0.0
+ENTRYPOINT ["python3", "scripts/server.py"]
+CMD ["--host", "0.0.0.0", "--port", "11449"]

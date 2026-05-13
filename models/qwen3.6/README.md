@@ -73,6 +73,10 @@ Think time dominates TTFT — the model reasons extensively before answering. De
 | `docker-compose.llama-35b-devfix-rtx.yml` | llama.cpp | Q4_K_XL | RTX PRO 6000 | GGUF fallback (~22 GB) |
 | `docker-compose.llama-35b-q4-mtp-rtx.yml` | llama.cpp + MTP | UD-Q4_K_XL | RTX PRO 6000 | Unsloth MTP-GGUF, `--spec-type mtp` — fastest 35B llama.cpp config |
 | `docker-compose.llama-35b-q8-mtp-rtx.yml` | llama.cpp + MTP | Q8_0 | RTX PRO 6000 | Same as above at Q8 fidelity |
+| `docker-compose.llama-35b-q4-vulkan.yml` | llama.cpp Vulkan | UD-Q4_K_XL | AMD R9700 (32 GB) | stock `server-vulkan` image, 32K context |
+| `docker-compose.llama-35b-q8-vulkan.yml` | llama.cpp Vulkan | Q8_0 | AMD ≥48 GB | DOES NOT fit on 32 GB R9700; for future ≥48 GB cards |
+| `docker-compose.llama-35b-q4-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | UD-Q4_K_XL | AMD R9700 (32 GB) | Custom `llama.cpp-mtp-vulkan` image (am17an PR #22673) |
+| `docker-compose.llama-35b-q8-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | Q8_0 | AMD ≥48 GB | Same as above at Q8; OOM on 32 GB |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -138,6 +142,31 @@ behavior with FP8 quantization, not a vLLM bug.
   expensive (27B vs 3B active). Both 35B FP8 configs leave MTP off by default.
 - **vLLM 1M context (BF16)**: Crashes in a restart loop on 96 GB GPU. BF16 weights consume
   66 GB, leaving insufficient VRAM for 1M-token KV cache. Needs FP8 weights or >128 GB VRAM.
+
+## Benchmarks (AMD Radeon AI PRO R9700, 32 GB)
+
+Tested 2026-05-13 with `test_chat.py --no-think --max-tokens 256 --runs 3`
+on R9700 / gfx1201, ROCm 7.2.0, Vulkan via `radv`.
+
+| Config | tok/s | Engine |
+|--------|------:|--------|
+| **llama.cpp UD-Q4_K_XL (stock)** | **74.3** | `ghcr.io/ggml-org/llama.cpp:server-vulkan`, 32K ctx, `-fa on`, KV q8_0 |
+| **llama.cpp UD-Q4_K_XL + MTP** | 58.0 | `llama.cpp-mtp-vulkan:latest`, `--spec-type draft-mtp` — **regresses, MoE doesn't benefit** |
+| **llama.cpp Q8_0** | OOM | 37 GB weights overflow 32 GB GDDR6 — config exists for ≥48 GB cards |
+| **llama.cpp Q8_0 + MTP** | OOM | Same |
+
+The +19% MTP gain that the dense 27B sees on Vulkan does **not** transfer
+to the 35B-A3B MoE: per-step decode on 3 B active params is already cheap,
+so the draft+verify overhead beats the spec gain. On Vulkan the regression
+is sharper than on CUDA (−22 % vs ±0 %) because Vulkan's draft-batch path
+emits and verifies less efficiently than CUDA Graph-captured kernels.
+**On R9700: stay on stock Vulkan for the 35B-A3B.**
+
+Lucebox DFlash on 35B-A3B is **not available** — no published drafter for
+the MoE variant. The 27B path (see [27B AMD section](#benchmarks-amd-radeon-ai-pro-r9700-32-gb-1) below) gets +74 % over Vulkan baseline.
+
+See [`comparison-amd.html`](comparison-amd.html) for the full AMD comparison
+with charts.
 
 ## DFlash speculative decoding (experimental)
 
@@ -257,6 +286,11 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.sglang-27b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
 | `docker-compose.llama-27b-q4-mtp-rtx.yml` | llama.cpp + MTP | UD-Q4_K_XL | RTX PRO 6000 | Unsloth MTP-GGUF, `--spec-type mtp` — best 27B llama.cpp config |
 | `docker-compose.llama-27b-q8-mtp-rtx.yml` | llama.cpp + MTP | Q8_0 | RTX PRO 6000 | Same as above at Q8 fidelity |
+| `docker-compose.llama-27b-q4-vulkan.yml` | llama.cpp Vulkan | UD-Q4_K_XL | AMD R9700 (32 GB) | stock `server-vulkan` image, 64K context |
+| `docker-compose.llama-27b-q8-vulkan.yml` | llama.cpp Vulkan | Q8_0 | AMD R9700 (32 GB, tight) | 16K context to fit alongside KV cache |
+| `docker-compose.llama-27b-q4-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | UD-Q4_K_XL | AMD R9700 (32 GB) | Custom `llama.cpp-mtp-vulkan` image (am17an PR #22673) |
+| `docker-compose.llama-27b-q8-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | Q8_0 | AMD R9700 (32 GB, tight) | Same as above at Q8 |
+| `docker-compose.dflash-27b-q4-rocm.yml` | Lucebox DFlash (HIP) | Q4_K_M | AMD R9700 (gfx1201, EXPERIMENTAL) | PR #119 + #159; tiles tuned for gfx1151 upstream |
 | `docker-compose.vllm-27b-int4-rtx.yml` | vLLM | INT4 AutoRound + MTP | RTX PRO 6000 | `Lorbus/Qwen3.6-27B-int4-AutoRound`, 16.9 GiB |
 | `docker-compose.vllm-27b-int4-dflash-rtx.yml` | vLLM | INT4 + DFlash N=8 | RTX PRO 6000 | **Champion** — 146 tok/s steady state |
 | `docker-compose.vllm-27b-int4-baseline-rtx.yml` | vLLM | INT4 (no spec) | RTX PRO 6000 | Quant-only reference |
@@ -364,6 +398,48 @@ available from this path.
 - **No GGUF**: community quants not yet published for 27B.
 - **FP8 KV cache**: Omitted on all configs — DeltaNet linear attention state
   produces silent corruption with FP8 KV quantization (vllm-project/vllm#26646).
+
+## Benchmarks (AMD Radeon AI PRO R9700, 32 GB)
+
+Tested 2026-05-13 with `test_chat.py --no-think --max-tokens 256 --runs 3`
+on R9700 / gfx1201, ROCm 7.2.0, kernel 6.17, Vulkan via `radv`. Full charts
+and the corresponding 35B-A3B numbers in [`comparison-amd.html`](comparison-amd.html).
+
+| Config | tok/s | TTFT | Engine |
+|--------|------:|-----:|--------|
+| **Lucebox DFlash (HIP)** | **38.0** | **500 ms** | `lucebox-dflash:latest` (PR #119 + #159 built for gfx1201), Q4_K_M + DFlash drafter Q8_0 |
+| **llama.cpp UD-Q4_K_XL + MTP** | **26.1** | nan† | `llama.cpp-mtp-vulkan:latest` (am17an PR #22673 built with `-DGGML_VULKAN=ON`), `--spec-type draft-mtp`, `--spec-draft-n-max 3` |
+| **llama.cpp UD-Q4_K_XL (stock)** | **21.9** | ~900 ms | `ghcr.io/ggml-org/llama.cpp:server-vulkan`, 65K ctx, `-fa on`, KV q8_0 |
+| **llama.cpp Q8_0 (stock)** | **15.3** | ~810 ms | Same image, 16K ctx — Q8 weights ~28.6 GB just fit with KV cache |
+
+† MTP runs return `usage.completion_tokens=256` with TTFT not surfaced in
+the streamed reasoning protocol; tok/s is wall-clock based and reliable.
+
+**DFlash wins on R9700.** PR #119's HIP port of the rocWMMA flashprefill
+kernels compiles cleanly for gfx1201 (RDNA 4) despite being tuned upstream
+for gfx1100/gfx1151. End-to-end at 256-token decode it's 1.74× the stock
+Vulkan baseline and 1.46× over MTP-Vulkan. Compare to amd.md's 26.85 tok/s
+on Strix Halo (gfx1151 + LPDDR5X-8000) — the R9700's GDDR6 bandwidth
+(~640 GB/s vs ~256 GB/s) explains the lift.
+
+**MTP on Vulkan works.** The am17an PR #22673 branch builds with
+`-DGGML_VULKAN=ON` once `spirv-headers` is added to the builder image
+(see [`Dockerfile.llama-mtp-vulkan`](Dockerfile.llama-mtp-vulkan)). Flag
+name changed since the CUDA branch was wired up: `--spec-type mtp` →
+`--spec-type draft-mtp`. The `+19%` lift (21.9 → 26.1) is smaller than the
+CUDA Q4 + MTP gain on the dense 27B (47 → 85.7, +82%) — Vulkan's lower
+draft-batch parallelism leaves less room for spec verification to amortize.
+
+**Known issues on AMD/Vulkan**:
+- `radv: not a conformant Vulkan implementation, testing use only.` —
+  Mesa's RADV driver reports as testing-only but works correctly for our
+  workload. Use AMDVLK if RADV regresses.
+- DFlash bench on Strix Halo (amd.md) used `Qwen3.6-27B-Q4_K_M.gguf` from
+  the non-MTP repo plus the Lucebox drafter. We use the same combination
+  for parity; the MTP-GGUF variant is **not** the right target for DFlash
+  (DFlash uses its own drafter, not the bundled MTP heads).
+- 35B-Q8 and 35B-Q8-MTP compose files exist but **OOM on 32 GB** (weights
+  alone are ~37 GB). Included for future ≥48 GB AMD cards.
 
 ## Testing
 

@@ -1,0 +1,94 @@
+# Qwen3.6-27B GGUF UD-Q4_K_XL + MTP via llama.cpp Vulkan — AMD R9700 (gfx1201, 32 GB)
+#
+# unsloth/Qwen3.6-27B-MTP-GGUF · UD-Q4_K_XL Unsloth Dynamic GGUF (~17.9 GB).
+# Uses --spec-type mtp from the am17an mtp-clean branch (PR #22673, not yet
+# in mainline llama.cpp). Image built locally as llama.cpp-mtp-vulkan:latest
+# from Dockerfile.llama-mtp-vulkan.
+#
+# Build the image first:
+#   docker build -t llama.cpp-mtp-vulkan:latest \
+#     -f Dockerfile.llama-mtp-vulkan .
+#
+# Limitations of the MTP PR:
+#   - -np 1 only (no parallel slots)
+#   - --mmproj not supported with MTP (text-only is fine here)
+#   - Vulkan + MTP combination is EXPERIMENTAL — am17an's PR was developed
+#     against CUDA. If decode tok/s does not exceed the plain Vulkan baseline
+#     (docker-compose.llama-27b-q4-vulkan.yml), MTP did not engage on Vulkan.
+#
+# Usage: docker compose -f docker-compose.llama-27b-q4-mtp-vulkan.yml up -d
+# API endpoint: http://localhost:11448/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-q4-mtp-vulkan:
+    image: llama.cpp-mtp-vulkan:latest
+    container_name: qwen36-27b-q4-mtp-vulkan
+    restart: unless-stopped
+
+    devices:
+      - /dev/kfd
+      - /dev/dri
+
+    group_add:
+      - "44"
+      - "992"
+
+    ports:
+      - "11448:11448"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      - --hf-repo
+      - unsloth/Qwen3.6-27B-MTP-GGUF
+      - --hf-file
+      - Qwen3.6-27B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "65536"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      - --jinja
+      - --spec-type
+      - draft-mtp
+      - --spec-draft-n-max
+      - "3"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11448"
+      - -a
+      - qwen3.6-27b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11448/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
