@@ -3,8 +3,10 @@
 # unsloth/Qwen3.6-35B-A3B-GGUF · UD-Q4_K_XL Unsloth Dynamic GGUF (~22.9 GB).
 # MoE with 3B active params per token — bandwidth/compute-light, fast decode.
 #
-# Context capped at 32K rather than 65K (CUDA default) to fit comfortably in
-# 32 GB after weights + KV cache. Raise if it actually fits during testing.
+# Context: full native 262 144 (the model's max without YaRN). DeltaNet's
+# small KV layers mean a 256K KV cache is only ~2.7 GB at q8_0, so we
+# fit weights (~21 GB) + KV (~2.7 GB) inside 32 GB VRAM with headroom.
+# Measured 109 tok/s decode at 262K ctx — same as 32K, no degradation.
 #
 # Usage: docker compose -f docker-compose.llama-35b-q4-vulkan.yml up -d
 # API endpoint: http://localhost:11447/v1
@@ -47,7 +49,7 @@ services:
       - -ngl
       - "99"
       - -c
-      - "32768"
+      - "262144"
       - -np
       - "1"
       - -fa

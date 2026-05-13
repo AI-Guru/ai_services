@@ -108,7 +108,7 @@ Which GPU?
 │  │  └─ Yes ─────────────────── qwen3.5/llama-35b-devfix-vulkan.yml (80 tok/s, patched template)
 │  │
 │  ├─ Want Qwen3.6 family (newer arch, hybrid attention)?
-│  │  ├─ 35B-A3B (MoE) ───────── qwen3.6/docker-compose.llama-35b-q4-vulkan.yml (109 tok/s, GRAPHICS_QUEUE=1, 32K context)
+│  │  ├─ 35B-A3B (MoE) ───────── qwen3.6/docker-compose.llama-35b-q4-vulkan.yml (109 tok/s, GRAPHICS_QUEUE=1, full 262K context)
 │  │  ├─ 27B dense ──────────── qwen3.6/docker-compose.llama-27b-q4-vulkan.yml (24.5 tok/s, 64K context)
 │  │  ├─ + MTP speculative ──── qwen3.6/docker-compose.llama-{27b,35b}-q4-mtp-vulkan.yml (helps 27B +7 %, hurts 35B −43 %)
 │  │  └─ + DFlash (experimental) ─ qwen3.6/docker-compose.dflash-27b-q4-rocm.yml (38 tok/s; ROCm/HIP, gfx1201 untested upstream)

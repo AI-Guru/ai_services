@@ -217,7 +217,7 @@
   <div class="meta">
     <span>GPU: <code>AMD Radeon AI PRO R9700</code> · 32 GB GDDR6 · gfx1201 (RDNA 4) <span class="badge amd">AMD</span></span>
     <span>Stack: ROCm 7.2.0 · Linux 6.17 · Docker 28.2</span>
-    <span>Models: <code>Qwen/Qwen3.6-27B</code> (dense) · <code>Qwen/Qwen3.6-35B-A3B</code> (MoE, 3 B active)</span>
+    <span>Models: <code>Qwen/Qwen3.6-27B</code> (dense) · <code>Qwen/Qwen3.6-35B-A3B</code> (MoE, 3 B active, 262 K ctx native)</span>
     <span>Drafters: Unsloth MTP-GGUF · <code>Lucebox/Qwen3.6-27B-DFlash-GGUF</code></span>
     <span>Tool: <code>test_chat.py --runs 3 --no-think --max-tokens 256</code></span>
     <span>Date: 2026-05-13</span>
@@ -299,10 +299,10 @@
       <div class="crown">fastest</div>
       <div class="tag">2026-05 build · GRAPHICS_QUEUE=1</div>
       <h3>llama.cpp Q4 + env tune</h3>
-      <div class="big-num">109.3</div>
-      <div class="unit">tok / s (average; steady-state 116)</div>
+      <div class="big-num">109.7</div>
+      <div class="unit">tok / s (avg, steady 116) at <strong>262 K ctx</strong></div>
       <div class="delta pos">+ 46 % vs initial</div>
-      <div class="detail"><code>GGML_VK_ALLOW_GRAPHICS_QUEUE=1</code></div>
+      <div class="detail"><code>GGML_VK_ALLOW_GRAPHICS_QUEUE=1</code> · full native context</div>
     </div>
   </div>
 

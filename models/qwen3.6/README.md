@@ -73,7 +73,7 @@ Think time dominates TTFT — the model reasons extensively before answering. De
 | `docker-compose.llama-35b-devfix-rtx.yml` | llama.cpp | Q4_K_XL | RTX PRO 6000 | GGUF fallback (~22 GB) |
 | `docker-compose.llama-35b-q4-mtp-rtx.yml` | llama.cpp + MTP | UD-Q4_K_XL | RTX PRO 6000 | Unsloth MTP-GGUF, `--spec-type mtp` — fastest 35B llama.cpp config |
 | `docker-compose.llama-35b-q8-mtp-rtx.yml` | llama.cpp + MTP | Q8_0 | RTX PRO 6000 | Same as above at Q8 fidelity |
-| `docker-compose.llama-35b-q4-vulkan.yml` | llama.cpp Vulkan | UD-Q4_K_XL | AMD R9700 (32 GB) | stock `server-vulkan` image, 32K context |
+| `docker-compose.llama-35b-q4-vulkan.yml` | llama.cpp Vulkan | UD-Q4_K_XL | AMD R9700 (32 GB) | stock `server-vulkan` image, full **262 K** context, `GRAPHICS_QUEUE=1` |
 | `docker-compose.llama-35b-q8-vulkan.yml` | llama.cpp Vulkan | Q8_0 | AMD ≥48 GB | DOES NOT fit on 32 GB R9700; for future ≥48 GB cards |
 | `docker-compose.llama-35b-q4-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | UD-Q4_K_XL | AMD R9700 (32 GB) | Custom `llama.cpp-mtp-vulkan` image (am17an PR #22673) |
 | `docker-compose.llama-35b-q8-mtp-vulkan.yml` | llama.cpp Vulkan + MTP | Q8_0 | AMD ≥48 GB | Same as above at Q8; OOM on 32 GB |
@@ -150,7 +150,7 @@ on R9700 / gfx1201, ROCm 7.2.0, Vulkan via `radv`.
 
 | Config | tok/s | Engine |
 |--------|------:|--------|
-| **llama.cpp UD-Q4_K_XL · 2026-05 build · `GGML_VK_ALLOW_GRAPHICS_QUEUE=1`** | **109.3** | Steady-state ~116. Current default in `docker-compose.llama-35b-q4-vulkan.yml`. |
+| **llama.cpp UD-Q4_K_XL · 2026-05 build · `GGML_VK_ALLOW_GRAPHICS_QUEUE=1` · 262 K ctx** | **109.7** | Steady-state ~116. Current default in `docker-compose.llama-35b-q4-vulkan.yml`. Full native context fits — DeltaNet's KV is only ~2.7 GB at 262 K. |
 | llama.cpp UD-Q4_K_XL · 2026-05 build · default env | 91.9 | Same image, no GRAPHICS_QUEUE env (+18 % from the env alone). |
 | llama.cpp UD-Q4_K_XL · 2026-03 build · default env | 74.3 | Original measurement on stale image. Updating the `:server-vulkan` tag gains +23 % for free. |
 | llama.cpp UD-Q4_K_XL + MTP | 62.2 | Custom `llama.cpp-mtp-vulkan` (am17an PR #22673) + GRAPHICS_QUEUE — **regresses vs stock, MoE doesn't benefit** from MTP. |
