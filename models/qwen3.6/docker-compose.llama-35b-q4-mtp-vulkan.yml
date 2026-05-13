@@ -34,6 +34,10 @@ services:
 
     environment:
       - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      # GGML_VK_ALLOW_GRAPHICS_QUEUE=1 lifts the MTP path 58 → 62 tok/s on
+      # the custom MTP-Vulkan image. MTP still regresses vs stock-Vulkan
+      # (109 tok/s), so prefer the non-MTP file for 35B-A3B.
+      - GGML_VK_ALLOW_GRAPHICS_QUEUE=1
 
     command:
       - --hf-repo

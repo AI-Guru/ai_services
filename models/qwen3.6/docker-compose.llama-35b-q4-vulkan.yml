@@ -30,8 +30,14 @@ services:
     volumes:
       - model_cache:/root/.cache/huggingface
 
+    # Speed-tuned env (measured 2026-05-13 on R9700):
+    #   - GGML_VK_ALLOW_GRAPHICS_QUEUE=1 routes Vulkan submissions through the
+    #     graphics queue. On RDNA 4 MoE decode this gives +18 % over the compute
+    #     queue path (109.7 vs 92.5 tok/s). No effect on dense models.
+    #   - Requires llama.cpp:server-vulkan from 2026-05+ (build b9128 or later).
     environment:
       - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      - GGML_VK_ALLOW_GRAPHICS_QUEUE=1
 
     command:
       - --hf-repo

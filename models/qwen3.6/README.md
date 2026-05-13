@@ -150,17 +150,37 @@ on R9700 / gfx1201, ROCm 7.2.0, Vulkan via `radv`.
 
 | Config | tok/s | Engine |
 |--------|------:|--------|
-| **llama.cpp UD-Q4_K_XL (stock)** | **74.3** | `ghcr.io/ggml-org/llama.cpp:server-vulkan`, 32K ctx, `-fa on`, KV q8_0 |
-| **llama.cpp UD-Q4_K_XL + MTP** | 58.0 | `llama.cpp-mtp-vulkan:latest`, `--spec-type draft-mtp` — **regresses, MoE doesn't benefit** |
+| **llama.cpp UD-Q4_K_XL · 2026-05 build · `GGML_VK_ALLOW_GRAPHICS_QUEUE=1`** | **109.3** | Steady-state ~116. Current default in `docker-compose.llama-35b-q4-vulkan.yml`. |
+| llama.cpp UD-Q4_K_XL · 2026-05 build · default env | 91.9 | Same image, no GRAPHICS_QUEUE env (+18 % from the env alone). |
+| llama.cpp UD-Q4_K_XL · 2026-03 build · default env | 74.3 | Original measurement on stale image. Updating the `:server-vulkan` tag gains +23 % for free. |
+| llama.cpp UD-Q4_K_XL + MTP | 62.2 | Custom `llama.cpp-mtp-vulkan` (am17an PR #22673) + GRAPHICS_QUEUE — **regresses vs stock, MoE doesn't benefit** from MTP. |
 | **llama.cpp Q8_0** | OOM | 37 GB weights overflow 32 GB GDDR6 — config exists for ≥48 GB cards |
 | **llama.cpp Q8_0 + MTP** | OOM | Same |
 
-The +19% MTP gain that the dense 27B sees on Vulkan does **not** transfer
-to the 35B-A3B MoE: per-step decode on 3 B active params is already cheap,
-so the draft+verify overhead beats the spec gain. On Vulkan the regression
-is sharper than on CUDA (−22 % vs ±0 %) because Vulkan's draft-batch path
-emits and verifies less efficiently than CUDA Graph-captured kernels.
-**On R9700: stay on stock Vulkan for the 35B-A3B.**
+**Two optimizations that landed 75 → 109 tok/s (+46 %):**
+
+1. **Pull the latest `ghcr.io/ggml-org/llama.cpp:server-vulkan` image** (build
+   b9128 / 2026-05-13 or newer). The 2026-03 image we originally used is missing
+   recent MoE coopmat tile work ([Discussion #22598](https://github.com/ggml-org/llama.cpp/discussions/22598))
+   and `mat_mul_id` register-pressure fixes ([Discussion #21043](https://github.com/ggml-org/llama.cpp/discussions/21043)).
+   Build-only gain: **+23 %**.
+2. **`GGML_VK_ALLOW_GRAPHICS_QUEUE=1`** routes Vulkan submissions through the
+   graphics queue instead of the compute queue. On RDNA 4 MoE the graphics
+   queue's lower submit latency wins by a clear margin. **+18 % on top of (1)**.
+   No effect on dense 27B (measured 24.5 vs 24.1 tok/s — within noise).
+
+What did **not** help:
+- `-b 16384 -ub 2048` batch tuning — flat on top of the new image.
+- `GGML_VK_DISABLE_MMVQ=1` — flat (+1 % at best).
+- F16 KV cache — catastrophic regression (22 → 6 tok/s) because the fused
+  Gated DeltaNet kernel falls back to CPU at f16.
+- MTP — confirmed regression for 35B-A3B (same as CUDA finding).
+
+Lucebox DFlash on 35B-A3B is **not available** — no published drafter for
+the MoE variant. The 27B path (see [27B AMD section](#benchmarks-amd-radeon-ai-pro-r9700-32-gb-1) below) gets +74 % over Vulkan baseline.
+
+See [`comparison-amd.html`](comparison-amd.html) for the full AMD comparison
+with charts.
 
 Lucebox DFlash on 35B-A3B is **not available** — no published drafter for
 the MoE variant. The 27B path (see [27B AMD section](#benchmarks-amd-radeon-ai-pro-r9700-32-gb-1) below) gets +74 % over Vulkan baseline.
@@ -409,8 +429,12 @@ and the corresponding 35B-A3B numbers in [`comparison-amd.html`](comparison-amd.
 |--------|------:|-----:|--------|
 | **Lucebox DFlash (HIP)** | **38.0** | **500 ms** | `lucebox-dflash:latest` (PR #119 + #159 built for gfx1201), Q4_K_M + DFlash drafter Q8_0 |
 | **llama.cpp UD-Q4_K_XL + MTP** | **26.1** | nan† | `llama.cpp-mtp-vulkan:latest` (am17an PR #22673 built with `-DGGML_VULKAN=ON`), `--spec-type draft-mtp`, `--spec-draft-n-max 3` |
-| **llama.cpp UD-Q4_K_XL (stock)** | **21.9** | ~900 ms | `ghcr.io/ggml-org/llama.cpp:server-vulkan`, 65K ctx, `-fa on`, KV q8_0 |
+| **llama.cpp UD-Q4_K_XL · 2026-05 build (stock)** | **24.5** | nan† | `ghcr.io/ggml-org/llama.cpp:server-vulkan` b9128+, 65K ctx, `-fa on`, KV q8_0 |
+| llama.cpp UD-Q4_K_XL · 2026-03 build | 21.9 | ~900 ms | Earlier stale-image measurement; +13 % from pulling latest |
 | **llama.cpp Q8_0 (stock)** | **15.3** | ~810 ms | Same image, 16K ctx — Q8 weights ~28.6 GB just fit with KV cache |
+
+`GGML_VK_ALLOW_GRAPHICS_QUEUE=1` (the 35B-A3B winner) is **not** added to
+27B compose files — empirically flat on dense 27B (24.5 → 24.1 tok/s, noise).
 
 † MTP runs return `usage.completion_tokens=256` with TTFT not surfaced in
 the streamed reasoning protocol; tok/s is wall-clock based and reliable.

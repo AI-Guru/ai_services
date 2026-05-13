@@ -108,10 +108,10 @@ Which GPU?
 │  │  └─ Yes ─────────────────── qwen3.5/llama-35b-devfix-vulkan.yml (80 tok/s, patched template)
 │  │
 │  ├─ Want Qwen3.6 family (newer arch, hybrid attention)?
-│  │  ├─ 35B-A3B (MoE) ───────── qwen3.6/docker-compose.llama-35b-q4-vulkan.yml (32K context, see qwen3.6/README.md)
-│  │  ├─ 27B dense ──────────── qwen3.6/docker-compose.llama-27b-q4-vulkan.yml (21.9 tok/s, 64K context)
-│  │  ├─ + MTP speculative ──── qwen3.6/docker-compose.llama-{27b,35b}-q4-mtp-vulkan.yml (custom MTP image; EXPERIMENTAL on Vulkan)
-│  │  └─ + DFlash (experimental) ─ qwen3.6/docker-compose.dflash-27b-q4-rocm.yml (ROCm/HIP, gfx1201 untested)
+│  │  ├─ 35B-A3B (MoE) ───────── qwen3.6/docker-compose.llama-35b-q4-vulkan.yml (109 tok/s, GRAPHICS_QUEUE=1, 32K context)
+│  │  ├─ 27B dense ──────────── qwen3.6/docker-compose.llama-27b-q4-vulkan.yml (24.5 tok/s, 64K context)
+│  │  ├─ + MTP speculative ──── qwen3.6/docker-compose.llama-{27b,35b}-q4-mtp-vulkan.yml (helps 27B +7 %, hurts 35B −43 %)
+│  │  └─ + DFlash (experimental) ─ qwen3.6/docker-compose.dflash-27b-q4-rocm.yml (38 tok/s; ROCm/HIP, gfx1201 untested upstream)
 │  │
 │  ├─ Want dense 27B model? (smarter per-token but slower)
 │  │  └─ llama.cpp ───────────── qwen3.5/llama-27b-devfix-vulkan.yml (22 tok/s, patched template)
@@ -182,10 +182,10 @@ Which GPU?
 |---|---|---|---|---|
 | `qwen3.5/llama-35b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | Qwen3.5 35B MoE (3B active) | **79.9** | ~17 s |
 | `qwen3.5/llama-27b-devfix-vulkan.yml` | llama.cpp Q4_K_XL Vulkan | Qwen3.5 27B dense | 21.9 | ~56 s |
-| `qwen3.6/docker-compose.llama-27b-q4-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan | Qwen3.6 27B dense | 21.9 | ~0.9 s |
-| `qwen3.6/docker-compose.llama-27b-q4-mtp-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan + MTP | Qwen3.6 27B dense | 26.1 (+19 %) | — |
-| `qwen3.6/docker-compose.llama-35b-q4-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan | Qwen3.6 35B-A3B MoE (3B active) | **74.3** | — |
-| `qwen3.6/docker-compose.llama-35b-q4-mtp-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan + MTP | Qwen3.6 35B-A3B MoE (3B active) | 58.0 (−22 %) | — |
+| `qwen3.6/docker-compose.llama-27b-q4-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan (2026-05 image) | Qwen3.6 27B dense | 24.5 | — |
+| `qwen3.6/docker-compose.llama-27b-q4-mtp-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan + MTP | Qwen3.6 27B dense | 26.1 (+7 %) | — |
+| `qwen3.6/docker-compose.llama-35b-q4-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan + `GGML_VK_ALLOW_GRAPHICS_QUEUE=1` | Qwen3.6 35B-A3B MoE (3B active) | **109.3** | — |
+| `qwen3.6/docker-compose.llama-35b-q4-mtp-vulkan.yml` | llama.cpp UD-Q4_K_XL Vulkan + MTP | Qwen3.6 35B-A3B MoE (3B active) | 62.2 (−43 %) | — |
 | `qwen3.6/docker-compose.dflash-27b-q4-rocm.yml` | Lucebox DFlash HIP (gfx1201, experimental) | Qwen3.6 27B dense | **38.0** | ~0.5 s |
 
 #### Apple Silicon (M-series, 24+ GB unified memory)

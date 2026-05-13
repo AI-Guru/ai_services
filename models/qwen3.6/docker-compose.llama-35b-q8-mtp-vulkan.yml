@@ -31,6 +31,9 @@ services:
 
     environment:
       - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      # GGML_VK_ALLOW_GRAPHICS_QUEUE=1 helps MoE decode on RDNA 4; see Q4
+      # MTP file for the measurement (Q8 variant doesn't fit on 32 GB).
+      - GGML_VK_ALLOW_GRAPHICS_QUEUE=1
 
     command:
       - --hf-repo

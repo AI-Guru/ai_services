@@ -271,31 +271,46 @@
 <section>
   <h2>Headline · Qwen3.6-35B-A3B (MoE, 3 B active)</h2>
   <p>
-    The MoE forward pass touches only ~3 B active parameters per token, so per-step
-    decode is already cheap. Speculative decoding has less work to amortise — and on
-    Vulkan with a lower-throughput draft batch it actually <em>regresses</em>. Same
-    finding as the CUDA Q4 table; just verified on the AMD path.
+    Two non-obvious optimizations took the 35B-A3B from 74 to <strong>109 tok/s
+    (+46 %)</strong> on the same card. Both are <em>free</em>: a fresh Vulkan image
+    and a one-line env var.
   </p>
 
-  <div class="hero-row two">
+  <div class="hero-row">
     <div class="config-card baseline">
-      <div class="tag">Config 1 · plain Vulkan</div>
-      <h3>llama.cpp Q4 (stock)</h3>
+      <div class="tag">2026-03 build · default env</div>
+      <h3>llama.cpp Q4 (initial measurement)</h3>
       <div class="big-num">74.3</div>
       <div class="unit">tok / s (average of 3)</div>
       <div class="delta neutral">starting point</div>
-      <div class="detail">ggml-org/llama.cpp:server-vulkan · 32K context</div>
+      <div class="detail">ggml-org/llama.cpp:server-vulkan@2026-03</div>
     </div>
 
     <div class="config-card mtp">
-      <div class="tag">Config 2 · draft-mtp</div>
-      <h3>llama.cpp Q4 + MTP</h3>
-      <div class="big-num">58.0</div>
+      <div class="tag">2026-05 build · default env</div>
+      <h3>llama.cpp Q4 (refreshed image)</h3>
+      <div class="big-num">91.9</div>
       <div class="unit">tok / s (average of 3)</div>
-      <div class="delta neg">– 22 % vs baseline</div>
-      <div class="detail">draft+verify overhead beats the spec gain on MoE</div>
+      <div class="delta pos">+ 23 % vs initial</div>
+      <div class="detail">b9128 · MoE coopmat tiles + mat_mul_id fixes</div>
+    </div>
+
+    <div class="config-card champion">
+      <div class="crown">fastest</div>
+      <div class="tag">2026-05 build · GRAPHICS_QUEUE=1</div>
+      <h3>llama.cpp Q4 + env tune</h3>
+      <div class="big-num">109.3</div>
+      <div class="unit">tok / s (average; steady-state 116)</div>
+      <div class="delta pos">+ 46 % vs initial</div>
+      <div class="detail"><code>GGML_VK_ALLOW_GRAPHICS_QUEUE=1</code></div>
     </div>
   </div>
+
+  <p style="margin-top:1.5rem">
+    MTP on the same model still regresses to <strong>62.2 tok/s</strong> (−43 %
+    vs the champion) — speculative decoding doesn't help an MoE with only 3 B
+    active params, same finding as on CUDA.
+  </p>
 </section>
 
 <!-- Throughput vs ceiling -->
@@ -406,9 +421,9 @@
     </thead>
     <tbody>
       <tr>
-        <td class="config-baseline" rowspan="4">Vulkan UD-Q4_K_XL (stock)</td>
+        <td class="config-baseline" rowspan="4">Vulkan UD-Q4_K_XL · 2026-03 image</td>
         <td>1</td><td class="num">67.8</td>
-        <td rowspan="4"><code>docker-compose.llama-35b-q4-vulkan.yml</code> · port 11447 · 32K ctx (squeezed to fit in 32 GB)</td>
+        <td rowspan="4">Original measurement on the 2026-03 server-vulkan image, no env tune</td>
       </tr>
       <tr><td>2</td><td class="num">77.5</td></tr>
       <tr><td>3</td><td class="num">77.6</td></tr>
@@ -418,15 +433,39 @@
       </tr>
 
       <tr>
-        <td class="config-mtp" rowspan="4">Vulkan UD-Q4_K_XL + MTP</td>
-        <td>1</td><td class="num">50.8</td>
-        <td rowspan="4"><code>docker-compose.llama-35b-q4-mtp-vulkan.yml</code> · port 11447 · same flags as 27B-MTP · MoE pays the verify cost without the spec gain</td>
+        <td class="config-mtp" rowspan="4">Vulkan UD-Q4_K_XL · 2026-05 image (b9128)</td>
+        <td>1</td><td class="num">~90</td>
+        <td rowspan="4">Pulled <code>:server-vulkan</code> 2026-05-13 — MoE coopmat tile + mat_mul_id fixes</td>
       </tr>
-      <tr><td>2</td><td class="num">61.5</td></tr>
-      <tr><td>3</td><td class="num">61.6</td></tr>
+      <tr><td>2</td><td class="num">~92</td></tr>
+      <tr><td>3</td><td class="num">~93</td></tr>
       <tr style="background:rgba(188,55,84,0.08)">
         <td><strong>avg</strong></td>
-        <td class="num"><strong>58.0</strong></td>
+        <td class="num"><strong>91.9</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-champion" rowspan="4">Vulkan UD-Q4_K_XL · 2026-05 + GQ=1</td>
+        <td>1</td><td class="num">95.9</td>
+        <td rowspan="4"><strong>current default</strong> in <code>docker-compose.llama-35b-q4-vulkan.yml</code> · <code>GGML_VK_ALLOW_GRAPHICS_QUEUE=1</code> in env · steady-state 116 tok/s</td>
+      </tr>
+      <tr><td>2</td><td class="num">115.8</td></tr>
+      <tr><td>3</td><td class="num">116.0</td></tr>
+      <tr style="background:rgba(255,180,61,0.10)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>109.3</strong></td>
+      </tr>
+
+      <tr>
+        <td class="config-mtp" rowspan="4">Vulkan UD-Q4_K_XL + MTP</td>
+        <td>1</td><td class="num">56.4</td>
+        <td rowspan="4"><code>docker-compose.llama-35b-q4-mtp-vulkan.yml</code> · custom MTP image · with GQ=1 (without it 58 tok/s) · still regresses vs stock — MoE doesn't benefit from MTP</td>
+      </tr>
+      <tr><td>2</td><td class="num">65.6</td></tr>
+      <tr><td>3</td><td class="num">64.5</td></tr>
+      <tr style="background:rgba(188,55,84,0.08)">
+        <td><strong>avg</strong></td>
+        <td class="num"><strong>62.2</strong></td>
       </tr>
     </tbody>
   </table>
@@ -657,16 +696,16 @@ new Chart(document.getElementById('chart27').getContext('2d'), {
   options: { ...commonOpts, plugins: { legend: { display: false } } }
 });
 
-// 35B vs ceiling
+// 35B vs ceiling — three-step optimization
 new Chart(document.getElementById('chart35').getContext('2d'), {
   type: 'bar',
   data: {
-    labels: ['Stock Vulkan', 'MTP-Vulkan', 'BW ceiling (active ~3 GB)'],
+    labels: ['2026-03 image', '2026-05 image', '2026-05 + GQ=1', 'MTP', 'BW ceiling (~3 GB active)'],
     datasets: [{
       label: 'tok/s',
-      data: [74.3, 58.0, 213],
-      backgroundColor: [colors.baseline, colors.mtp, colors.ceiling],
-      borderColor: [colors.baselineLight, colors.mtp, colors.dflash],
+      data: [74.3, 91.9, 109.3, 62.2, 213],
+      backgroundColor: [colors.baseline, colors.mtp, colors.champion, '#6f3a4f', colors.ceiling],
+      borderColor: [colors.baselineLight, colors.mtp, colors.champion, colors.mtp, colors.dflash],
       borderWidth: 1,
     }]
   },
@@ -682,8 +721,9 @@ new Chart(document.getElementById('chartRuns').getContext('2d'), {
       { label: '27B Stock Vulkan',    data: [21.7, 22.1, 21.9], borderColor: colors.baseline,  backgroundColor: 'rgba(106,23,110,0.18)',  tension: 0.25, pointRadius: 5 },
       { label: '27B MTP-Vulkan',      data: [25.3, 27.1, 26.0], borderColor: colors.mtp,       backgroundColor: 'rgba(188,55,84,0.18)',   tension: 0.25, pointRadius: 5 },
       { label: '27B DFlash (HIP)',    data: [36.3, 39.0, 38.9], borderColor: colors.champion,  backgroundColor: 'rgba(255,180,61,0.20)',  tension: 0.25, pointRadius: 6 },
-      { label: '35B Stock Vulkan',    data: [67.8, 77.5, 77.6], borderColor: '#c49ad0',        backgroundColor: 'rgba(196,154,208,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
-      { label: '35B MTP-Vulkan',      data: [50.8, 61.5, 61.6], borderColor: '#e48caa',        backgroundColor: 'rgba(228,140,170,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
+      { label: '35B Stock Vulkan (2026-03 image)',  data: [67.8, 77.5, 77.6], borderColor: '#c49ad0', backgroundColor: 'rgba(196,154,208,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
+      { label: '35B + GQ=1 (2026-05 image)',         data: [95.9, 115.8, 116.0], borderColor: colors.champion, backgroundColor: 'rgba(255,180,61,0.18)', tension: 0.25, pointRadius: 6, borderDash: [4,4] },
+      { label: '35B MTP-Vulkan',                     data: [56.4, 65.6, 64.5], borderColor: '#e48caa', backgroundColor: 'rgba(228,140,170,0.10)', tension: 0.25, pointRadius: 5, borderDash: [4,4] },
     ]
   },
   options: { ...commonOpts }

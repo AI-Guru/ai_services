@@ -29,6 +29,10 @@ services:
 
     environment:
       - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      # GGML_VK_ALLOW_GRAPHICS_QUEUE=1 helps the 35B-A3B MoE +18 % but does
+      # NOT help dense 27B (measured 2026-05-13: 24.5 vs 24.1 tok/s). Skipping
+      # here. New image alone (server-vulkan b9128+, 2026-05+) gives +13 %
+      # over the 2026-03 build: 21.9 → 24.5 tok/s.
 
     command:
       - --hf-repo
