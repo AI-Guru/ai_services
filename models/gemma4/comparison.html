@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Gemma 4 · vLLM and llama.cpp · MTP Experiment · RTX PRO 6000</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --champion: #ffb43d;
+    --inferno-purple: #6a176e;
+    --inferno-pink: #bc3754;
+    --inferno-orange: #f37819;
+    --inferno-yellow: #fcffa4;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--inferno-purple), var(--inferno-pink) 30%, var(--inferno-orange) 60%, var(--champion));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--inferno-orange), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--inferno-orange);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  .hero-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .hero-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .hero-row { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1.1rem;
+    border: 1px solid transparent;
+    position: relative;
+  }
+  .config-card.b31-fp8     { border-color: rgba(243,120,25,0.5); }
+  .config-card.b31-nvfp4   { border-color: rgba(188,55,84,0.4); }
+  .config-card.b31-mtp     { border-color: rgba(106,23,110,0.5); }
+  .config-card.b31-broken  { border-color: rgba(244,67,54,0.5); opacity: 0.85; }
+  .config-card.b26         { border-color: rgba(255,180,61,0.6);
+                             box-shadow: 0 0 30px rgba(255,180,61,0.12); }
+  .config-card.b26-broken  { border-color: rgba(244,67,54,0.5); opacity: 0.85; }
+
+  .config-card .tag {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em;
+    font-weight: 700;
+  }
+  .config-card.b31-fp8 .tag    { color: var(--inferno-orange); }
+  .config-card.b31-nvfp4 .tag  { color: #e48caa; }
+  .config-card.b31-mtp .tag    { color: #c49ad0; }
+  .config-card.b31-broken .tag { color: var(--bad); }
+  .config-card.b26 .tag        { color: var(--champion); }
+  .config-card.b26-broken .tag { color: var(--bad); }
+
+  .config-card h3 {
+    margin: 0.3rem 0 0.6rem;
+    font-size: 0.98rem; color: var(--fg); font-weight: 600;
+  }
+  .config-card .big {
+    font-size: 2.4rem; font-weight: 800; margin: 0.1rem 0;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .config-card.b31-fp8 .big    { color: var(--inferno-orange); }
+  .config-card.b31-nvfp4 .big  { color: var(--inferno-pink); filter: brightness(1.2); }
+  .config-card.b31-mtp .big    { color: var(--inferno-purple); filter: brightness(1.6); }
+  .config-card.b31-broken .big { color: var(--bad); font-size: 1.4rem; }
+  .config-card.b26 .big        { color: var(--champion);
+                                 filter: drop-shadow(0 0 10px rgba(255,180,61,0.4)); }
+  .config-card.b26-broken .big { color: var(--bad); font-size: 1.4rem; }
+  .config-card .unit { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+  .config-card .detail {
+    margin-top: 0.6rem; font-size: 0.72rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--champion); color: #1a1430;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.18rem 0.55rem; border-radius: 999px;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--inferno-yellow); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(255,180,61,0.07);
+  }
+  tbody tr:hover td { background: rgba(255,180,61,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.row-31-fp8    { color: var(--inferno-orange); font-weight: 600; }
+  td.row-31-nvfp4  { color: var(--inferno-pink); font-weight: 600; filter: brightness(1.2); }
+  td.row-31-mtp    { color: #c49ad0; font-weight: 600; }
+  td.row-26        { color: var(--champion); font-weight: 700; }
+  td.row-broken    { color: var(--bad); font-weight: 600; }
+  td.row-llama     { color: #f0a587; font-weight: 600; }
+
+  .chart-wrap {
+    position: relative; height: 460px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(255,180,61,0.12); color: var(--champion);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.bad  { background: rgba(244,67,54,0.18); color: #ff8a85; }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(255,180,61,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--champion);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  .alert {
+    background: rgba(244,67,54,0.08);
+    border-left: 4px solid var(--bad);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .alert strong { color: var(--bad); }
+  .alert code { background: rgba(244,67,54,0.12); }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(255,180,61,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Gemma 4 · vLLM &amp; llama.cpp · MTP Experiment</h1>
+  <div class="subtitle">31B dense and 26B-A4B MoE, with/without MTP — measured on RTX PRO 6000 Blackwell, 2026-05-15</div>
+  <div class="meta">
+    <span>vLLM: <code>vllm/vllm-openai:gemma4-0505-cu130</code> (PR #41745 MTP path)</span>
+    <span>31B target: <code>nvidia/Gemma-4-31B-IT-NVFP4</code> · <code>RedHatAI/gemma-4-31B-it-FP8-block</code></span>
+    <span>26B target: <code>nvidia/Gemma-4-26B-A4B-NVFP4</code></span>
+    <span>Drafter: <code>google/gemma-4-{31B,26B-A4B}-it-assistant</code> (BF16, ~1 GB)</span>
+    <span>GPU: RTX PRO 6000 (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Hero cards ──────────────────────────────────────────── -->
+<section>
+  <h2>Headline: vLLM single-user throughput</h2>
+  <p>
+    Six configurations attempted across two model sizes and two quants, with and without MTP
+    speculative decoding via Google's <code>gemma-4-*-it-assistant</code> draft models. Two of the
+    four MTP variants fail to start; the third runs but is slower than its own vanilla baseline.
+  </p>
+
+  <div class="hero-row">
+    <div class="config-card b26">
+      <div class="crown">winner</div>
+      <div class="tag">26b moe · nvfp4 · vanilla</div>
+      <h3>26B NVFP4</h3>
+      <div class="big">154.4</div>
+      <div class="unit">tok / s · TTFT 21 ms</div>
+      <div class="detail">12 GB on disk · 18 GiB loaded</div>
+    </div>
+
+    <div class="config-card b31-fp8">
+      <div class="tag">31b dense · fp8 · vanilla</div>
+      <h3>31B FP8-block</h3>
+      <div class="big">43.1</div>
+      <div class="unit">tok / s · TTFT 89 ms</div>
+      <div class="detail">RedHatAI · 31 GB weights</div>
+    </div>
+
+    <div class="config-card b31-nvfp4">
+      <div class="tag">31b dense · nvfp4 · vanilla</div>
+      <h3>31B NVFP4</h3>
+      <div class="big">37.1</div>
+      <div class="unit">tok / s · TTFT 120 ms</div>
+      <div class="detail">nvidia · 31 GB weights</div>
+    </div>
+
+    <div class="config-card b31-mtp">
+      <div class="tag">31b dense · fp8 · + mtp</div>
+      <h3>31B FP8 + MTP</h3>
+      <div class="big">33.3</div>
+      <div class="unit">tok / s · TTFT 85 ms</div>
+      <div class="detail">MTP runs, but slower than vanilla</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Bar chart ───────────────────────────────────────────── -->
+<section>
+  <h2>Ranked: single-user decode throughput</h2>
+  <p class="muted">
+    Includes the existing llama.cpp Gemma 4 numbers (E2B / 26B Q4 / E4B / 31B Q4) for context.
+    Inferno-colormap by rank: deep purple at the slow end, bright yellow at the fast end.
+    Failed MTP configs are not plotted — see the table below.
+  </p>
+  <div class="chart-wrap"><canvas id="chartAll"></canvas></div>
+</section>
+
+<!-- ── Detail table ────────────────────────────────────────── -->
+<section>
+  <h2>Detail breakdown</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model · variant</th>
+        <th>Engine · format</th>
+        <th class="num">tok/s</th>
+        <th class="num">TTFT</th>
+        <th class="num">Weights</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:rgba(255,180,61,0.07)">
+        <td class="row-26"><strong>26B-A4B NVFP4 vanilla</strong></td>
+        <td>vLLM NVFP4</td>
+        <td class="num"><strong>154.4</strong></td>
+        <td class="num"><strong>21 ms</strong></td>
+        <td class="num">12 GB</td>
+        <td>✅ best overall</td>
+      </tr>
+      <tr>
+        <td class="row-26 row-broken">26B-A4B NVFP4 + MTP</td>
+        <td>vLLM NVFP4 + spec</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num">13 GB</td>
+        <td><span class="badge bad">drafter shape mismatch</span></td>
+      </tr>
+      <tr>
+        <td class="row-31-fp8">31B FP8-block vanilla</td>
+        <td>vLLM FP8-block</td>
+        <td class="num">43.1</td>
+        <td class="num">89 ms</td>
+        <td class="num">31 GB</td>
+        <td>✅ best 31B</td>
+      </tr>
+      <tr>
+        <td class="row-31-nvfp4">31B NVFP4 vanilla</td>
+        <td>vLLM NVFP4</td>
+        <td class="num">37.1</td>
+        <td class="num">120 ms</td>
+        <td class="num">31 GB</td>
+        <td>✅</td>
+      </tr>
+      <tr>
+        <td class="row-31-mtp">31B FP8-block + MTP (4)</td>
+        <td>vLLM FP8 + spec</td>
+        <td class="num">33.3</td>
+        <td class="num">85 ms</td>
+        <td class="num">32 GB</td>
+        <td>✅ runs, but slower</td>
+      </tr>
+      <tr>
+        <td class="row-31-mtp row-broken">31B NVFP4 + MTP (4)</td>
+        <td>vLLM NVFP4 + spec</td>
+        <td class="num">—</td>
+        <td class="num">—</td>
+        <td class="num">32 GB</td>
+        <td><span class="badge bad">drafter shape mismatch</span></td>
+      </tr>
+      <tr>
+        <td class="row-llama">26B-A4B UD-Q4_K_XL (existing)</td>
+        <td>llama.cpp Q4</td>
+        <td class="num">196.2</td>
+        <td class="num">~3.8 s</td>
+        <td class="num">17 GB</td>
+        <td>llama.cpp throughput leader</td>
+      </tr>
+      <tr>
+        <td class="row-llama">E2B Q8 (existing)</td>
+        <td>llama.cpp Q8</td>
+        <td class="num">276.3</td>
+        <td class="num">~2.5 s</td>
+        <td class="num">5 GB</td>
+        <td>smallest model</td>
+      </tr>
+      <tr>
+        <td class="row-llama">E4B Q8 (existing)</td>
+        <td>llama.cpp Q8</td>
+        <td class="num">171.0</td>
+        <td class="num">~1.8 s</td>
+        <td class="num">8 GB</td>
+        <td>middleweight</td>
+      </tr>
+      <tr>
+        <td class="row-llama">31B Q4_K_M (existing)</td>
+        <td>llama.cpp Q4</td>
+        <td class="num">64.6</td>
+        <td class="num">~9.0 s</td>
+        <td class="num">18 GB</td>
+        <td>cheaper than vLLM 31B</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── MTP failure callout ─────────────────────────────────── -->
+<section>
+  <h2>MTP on Gemma 4: what works and what doesn't</h2>
+  <p>
+    vLLM's official Gemma 4 recipe recommends speculative decoding via the small
+    <code>google/gemma-4-{31B,26B-A4B}-it-assistant</code> draft models with
+    <code>num_speculative_tokens: 4</code>. The recipe was benchmarked on BF16 targets on A100/H100.
+    On a single Blackwell RTX PRO 6000 with only 30 GB host RAM, BF16 targets don't fit, so we have
+    to pair the assistant drafter with a quantised target. That's where things get rocky.
+  </p>
+
+  <div class="alert">
+    <strong>NVFP4 target + assistant drafter: drafter weight-load AssertionError.</strong>
+    Both 31B and 26B-A4B trip an <code>AssertionError</code> in
+    <code>vllm/model_executor/parameter.py:load_merged_column_weight</code> — fused
+    column-projection shapes don't match between the NVFP4 target and the BF16 drafter. Same root
+    cause on both sizes. Matches the symptom reported in vllm issue <code>#41789</code>. Not fixable
+    from outside vLLM.
+  </div>
+
+  <div class="findings">
+    <strong>Image and arch caveats (resolved):</strong>
+    <ul>
+      <li><strong>Older image is silently MTP-less.</strong> The original <code>vllm/vllm-openai:gemma4-cu130</code> tag has Gemma 4 inference but lacks PR #41745 (the dedicated MTP code path). Passing <code>--speculative-config '{"model": "google/gemma-4-...-it-assistant", ...}'</code> falls through to the generic Transformers backend, which errors with <em>"Unrecognized configuration class Gemma4AssistantConfig for this kind of AutoModel"</em>. The <code>gemma4-0505-cu130</code> image fixes both.</li>
+      <li><strong><code>--language-model-only</code> is mandatory.</strong> Gemma 4 is multimodal; without disabling vision/audio, vLLM raises <em>"Speculative Decoding with draft models does not support multimodal models yet"</em>.</li>
+      <li><strong>FP8-block + MTP loads cleanly.</strong> No shape mismatch; the draft head loads, CUDA graphs capture. So the bug is specifically NVFP4-target-related, not a generic blocker.</li>
+    </ul>
+  </div>
+
+  <div class="findings">
+    <strong>FP8-block + MTP: works, but slower than vanilla.</strong>
+    <ul>
+      <li><strong>43.1 tok/s vanilla → 33.3 tok/s with MTP draft=4</strong> on the same FP8 target. -23 %, not a speedup.</li>
+      <li>This is consistent with vllm <code>#41789</code>'s observation of very low draft acceptance (~0.2 %) when the assistant drafter is paired with a quantised target. The draft+verify overhead is a flat cost; with poor acceptance the speculation pays for itself less than 25 % of the time.</li>
+      <li>The recipe-recommended <code>num_speculative_tokens: 4</code> assumes the BF16 acceptance rate; on a quantised target you'd need a different value (lower) — or just don't use MTP.</li>
+      <li>The 31B FP8-block vanilla itself is a useful find: 43.1 tok/s beats the 31B NVFP4 vanilla 37.1 by +16 %. FP8-block kernels on Blackwell are faster than NVFP4 dequant at decode-time on this dense 31B (same pattern we saw earlier on Qwen3.6).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Verdict ─────────────────────────────────────────────── -->
+<section>
+  <h2>What to run on Gemma 4</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Use case</th>
+        <th>Pick</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Fastest throughput</td>
+        <td class="row-26">26B-A4B NVFP4 vanilla</td>
+        <td>3.8B active params per token, 154 tok/s with 21 ms TTFT. MTP is currently broken on this target.</td>
+      </tr>
+      <tr>
+        <td>Highest quality dense, vLLM stack</td>
+        <td class="row-31-fp8">31B FP8-block vanilla</td>
+        <td>43 tok/s at 89 ms TTFT, beats NVFP4 vanilla here. Best 31B until MTP gets fixed on quantised targets.</td>
+      </tr>
+      <tr>
+        <td>Strongest llama.cpp throughput</td>
+        <td class="row-llama">26B-A4B UD-Q4_K_XL</td>
+        <td>196 tok/s. Higher tok/s than vLLM here but ~4 s TTFT — better for batch jobs than interactive.</td>
+      </tr>
+      <tr>
+        <td>Anything + MTP</td>
+        <td class="row-broken">don't</td>
+        <td>NVFP4 + MTP crashes; FP8 + MTP runs but loses 23 %. Wait for upstream fixes (see vllm #41789 and Transformers AutoModel registration for Gemma4Assistant).</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Quick start ─────────────────────────────────────────── -->
+<section>
+  <h2>Quick start</h2>
+  <pre><code># Make sure the shared volume exists (once)
+docker volume create gemma4_huggingface_cache
+
+# Fastest single-user, multilingual chat / agentic
+docker compose -f docker-compose.vllm-26b-nvfp4-rtx.yml up -d   # port 11454
+
+# Highest-quality dense (slower)
+docker compose -f docker-compose.vllm-31b-fp8-rtx.yml up -d     # port 11453
+
+# Smoke test
+curl http://localhost:11454/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma4-26b",
+    "messages": [{"role":"user","content":"Write a short Gemma haiku."}],
+    "max_tokens": 200
+  }'</code></pre>
+</section>
+
+</main>
+
+<footer>
+  Measured 2026-05-15 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) ·
+  <code>vllm/vllm-openai:gemma4-0505-cu130</code> · single-user.
+  Recipe: <a href="https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html" style="color:var(--inferno-orange)">vLLM Gemma 4</a>.
+</footer>
+
+<script>
+const gridColor    = 'rgba(255,180,61,0.08)';
+const tickColor    = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+// Inferno colormap, slowest → fastest. White border on highlighted bars
+// (the new vLLM benchmarks from this report).
+const allConfigs = [
+  { lbl: '31B FP8-block + MTP (4) [vLLM] *',        v:  33.3, hl: true  },
+  { lbl: '31B NVFP4 vanilla [vLLM] *',              v:  37.1, hl: true  },
+  { lbl: '31B FP8-block vanilla [vLLM] *',          v:  43.1, hl: true  },
+  { lbl: '31B Q4_K_M [llama.cpp]',                  v:  64.6, hl: false },
+  { lbl: '26B-A4B NVFP4 vanilla [vLLM] *',          v: 154.4, hl: true  },
+  { lbl: 'E4B Q8_0 [llama.cpp]',                    v: 171.0, hl: false },
+  { lbl: '26B-A4B UD-Q4_K_XL [llama.cpp]',          v: 196.2, hl: false },
+  { lbl: 'E2B Q8_0 [llama.cpp]',                    v: 276.3, hl: false },
+];
+
+const infernoStops = [
+  '#420a68', '#691b75', '#8e2c6d', '#b4405b',
+  '#d35c47', '#ea7f2e', '#f7a513', '#fcffa4',
+];
+
+new Chart(document.getElementById('chartAll'), {
+  type: 'bar',
+  data: {
+    labels: allConfigs.map(r => r.lbl),
+    datasets: [{
+      label: 'tok/s (single-user, 3-run avg)',
+      data: allConfigs.map(r => r.v),
+      backgroundColor: infernoStops,
+      borderColor: allConfigs.map((r, i) => r.hl ? 'rgba(255,255,255,0.95)' : infernoStops[i]),
+      borderWidth: allConfigs.map(r => r.hl ? 3 : 1.5),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (single-user)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600', size: 11 } } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>

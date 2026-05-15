@@ -1,19 +1,23 @@
-# Gemma 4 31B via vLLM — NVFP4 quantized (Blackwell)
+# Gemma 4 31B via vLLM — FP8-block (Blackwell), no speculative decoding
 #
-# Uses nvidia/Gemma-4-31B-IT-NVFP4: ~33 GB NVFP4 weights.
-# Dense transformer, all 30.7B parameters active per token.
-# Requires Blackwell GPU (SM 120+) for NVFP4 support.
+# Target: RedHatAI/gemma-4-31B-it-FP8-block (~31 GB FP8-block weights).
+# Vanilla baseline for the FP8 + MTP comparison.
 #
-# Usage: docker compose -f docker-compose.vllm-31b-nvfp4-rtx.yml up -d
+# Same image as the MTP variant (vllm/vllm-openai:gemma4-0505-cu130) so
+# the FP8 vs FP8+MTP comparison isolates the speculation effect; on this
+# image the FP8 target loads cleanly (NVFP4 target hits a weight-shape
+# bug at drafter load — see vllm-31b-nvfp4-mtp-rtx.yml header).
+#
+# Usage: docker compose -f docker-compose.vllm-31b-fp8-rtx.yml up -d
 # API endpoint: http://localhost:11453/v1
 # Model name served as: gemma4-31b
 
-name: gemma4-31b-nvfp4-vllm
+name: gemma4-31b-fp8-vllm
 
 services:
   vllm-server:
     image: vllm/vllm-openai:gemma4-0505-cu130
-    container_name: gemma4-vllm-31b
+    container_name: gemma4-vllm-31b-fp8
     restart: unless-stopped
     ipc: host
     dns:
@@ -46,7 +50,7 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
     command:
-      - nvidia/Gemma-4-31B-IT-NVFP4
+      - RedHatAI/gemma-4-31B-it-FP8-block
       - --served-model-name
       - gemma4-31b
       - --host

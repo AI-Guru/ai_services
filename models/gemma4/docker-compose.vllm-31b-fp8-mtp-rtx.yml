@@ -1,19 +1,34 @@
-# Gemma 4 31B via vLLM — NVFP4 quantized (Blackwell)
+# Gemma 4 31B via vLLM — FP8-block + assistant-model MTP speculative decoding
 #
-# Uses nvidia/Gemma-4-31B-IT-NVFP4: ~33 GB NVFP4 weights.
-# Dense transformer, all 30.7B parameters active per token.
-# Requires Blackwell GPU (SM 120+) for NVFP4 support.
+# Target: RedHatAI/gemma-4-31B-it-FP8-block (~31 GB FP8-block weights, dense 30.7B).
+# Drafter: google/gemma-4-31B-it-assistant (~0.9 GB BF16) — Google's small
+# Gemma 4 speculative drafter.
 #
-# Usage: docker compose -f docker-compose.vllm-31b-nvfp4-rtx.yml up -d
+# Why this exists alongside the NVFP4 + MTP compose: vLLM v0.20.2rc1 (the
+# gemma4-0505-cu130 image) trips an AssertionError at drafter weight-load
+# when the target is NVFP4 — fused column-projection shapes don't match
+# between the NVFP4 target and the BF16 drafter. FP8-block uses simpler
+# block scaling that doesn't reshape fused projections, so it should
+# pair cleanly with the BF16 drafter.
+#
+# vLLM image: vllm/vllm-openai:gemma4-0505-cu130 contains the dedicated
+# Gemma 4 MTP code path (PR #41745) and Transformers with Gemma 4 +
+# Gemma4Assistant support. The older gemma4-cu130 tag does NOT.
+#
+# Recipe-recommended num_speculative_tokens=4 (range 4-8 for 31B).
+#
+# Requires Blackwell GPU for FP8 tensor cores at peak throughput.
+#
+# Usage: docker compose -f docker-compose.vllm-31b-fp8-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11453/v1
 # Model name served as: gemma4-31b
 
-name: gemma4-31b-nvfp4-vllm
+name: gemma4-31b-fp8-mtp-vllm
 
 services:
   vllm-server:
     image: vllm/vllm-openai:gemma4-0505-cu130
-    container_name: gemma4-vllm-31b
+    container_name: gemma4-vllm-31b-fp8-mtp
     restart: unless-stopped
     ipc: host
     dns:
@@ -46,7 +61,7 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
     command:
-      - nvidia/Gemma-4-31B-IT-NVFP4
+      - RedHatAI/gemma-4-31B-it-FP8-block
       - --served-model-name
       - gemma4-31b
       - --host
@@ -61,13 +76,16 @@ services:
       - --max-num-batched-tokens
       - "16384"
       - --trust-remote-code
+      - --language-model-only
+      - --speculative-config
+      - '{"model":"google/gemma-4-31B-it-assistant","num_speculative_tokens":4}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11453/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 600s
+      start_period: 900s
 
     logging:
       driver: "json-file"

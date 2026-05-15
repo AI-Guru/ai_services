@@ -1,19 +1,25 @@
-# Gemma 4 31B via vLLM — NVFP4 quantized (Blackwell)
+# Gemma 4 26B-A4B via vLLM — NVFP4 quantized (Blackwell)
 #
-# Uses nvidia/Gemma-4-31B-IT-NVFP4: ~33 GB NVFP4 weights.
-# Dense transformer, all 30.7B parameters active per token.
-# Requires Blackwell GPU (SM 120+) for NVFP4 support.
+# Target: nvidia/Gemma-4-26B-A4B-NVFP4 (~12 GB NVFP4 weights). MoE with
+# 128 experts (top-8 + 1 shared, 3.8B active per token). 256K native
+# context; we run at 131K to match the 31B and llama-26b composes.
 #
-# Usage: docker compose -f docker-compose.vllm-31b-nvfp4-rtx.yml up -d
-# API endpoint: http://localhost:11453/v1
-# Model name served as: gemma4-31b
+# This is the vLLM 26B-A4B variant the previous README marked impossible
+# due to BF16 weights (~52 GB) exceeding the 30 GB host RAM. NVFP4 at
+# 12 GB fits comfortably.
+#
+# Requires Blackwell GPU (SM 120+) for NVFP4 + the gemma4-cu130 image.
+#
+# Usage: docker compose -f docker-compose.vllm-26b-nvfp4-rtx.yml up -d
+# API endpoint: http://localhost:11454/v1
+# Model name served as: gemma4-26b
 
-name: gemma4-31b-nvfp4-vllm
+name: gemma4-26b-nvfp4-vllm
 
 services:
   vllm-server:
     image: vllm/vllm-openai:gemma4-0505-cu130
-    container_name: gemma4-vllm-31b
+    container_name: gemma4-vllm-26b
     restart: unless-stopped
     ipc: host
     dns:
@@ -34,7 +40,7 @@ services:
               capabilities: [gpu]
 
     ports:
-      - "11453:11453"
+      - "11454:11454"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -46,13 +52,13 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
     command:
-      - nvidia/Gemma-4-31B-IT-NVFP4
+      - nvidia/Gemma-4-26B-A4B-NVFP4
       - --served-model-name
-      - gemma4-31b
+      - gemma4-26b
       - --host
       - "0.0.0.0"
       - --port
-      - "11453"
+      - "11454"
       - --max-model-len
       - "131072"
       - --gpu-memory-utilization
@@ -63,7 +69,7 @@ services:
       - --trust-remote-code
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11453/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:11454/health"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -1,0 +1,98 @@
+# Gemma 4 26B-A4B via vLLM — NVFP4 + assistant-model speculative decoding
+#
+# Target: nvidia/Gemma-4-26B-A4B-NVFP4 (~12 GB NVFP4 weights). MoE with
+# 128 experts (top-8 + 1 shared, 3.8B active per token).
+# Drafter: google/gemma-4-26B-A4B-it-assistant (~0.8 GB BF16) — Google's
+# small Gemma 4 speculative drafter trained for the 26B-A4B MoE.
+#
+# Speculative-config format follows the vLLM Gemma 4 recipe:
+#   https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html
+#
+# Recipe recommends num_speculative_tokens=4 for the 26B-A4B.
+#
+# Note: assistant-model speculative decoding on a MoE target is unproven
+# territory (Qwen3.6 35B-A3B saw 0% gain from MTP in vLLM because the
+# MoE verify pass was already cheap). The Gemma 4 recipe explicitly
+# recommends MTP for the 26B-A4B, so we're testing whether Gemma's
+# assistant-model path behaves differently. Benchmark will tell us.
+#
+# Requires Blackwell GPU (SM 120+) for NVFP4 + the gemma4-cu130 image.
+#
+# Usage: docker compose -f docker-compose.vllm-26b-nvfp4-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11454/v1
+# Model name served as: gemma4-26b
+
+name: gemma4-26b-nvfp4-mtp-vllm
+
+services:
+  vllm-server:
+    image: vllm/vllm-openai:gemma4-0505-cu130
+    container_name: gemma4-vllm-26b-mtp
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11454:11454"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - nvidia/Gemma-4-26B-A4B-NVFP4
+      - --served-model-name
+      - gemma4-26b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11454"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --trust-remote-code
+      - --language-model-only
+      - --speculative-config
+      - '{"model":"google/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11454/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: gemma4_huggingface_cache
+    external: true
