@@ -1,7 +1,10 @@
 # llama.cpp with MTP speculative decoding support
 #
-# Builds from am17an/llama.cpp:mtp-clean (PR #22673, not yet merged to
-# mainline) which adds --spec-type mtp for Qwen3.6's qwen3_next_mtp head.
+# Builds from ggml-org/llama.cpp:master. PR #22673 (MTP for Qwen3.6's
+# qwen3_next_mtp head) and PR #23198 (May 17, 2026 — ~2x faster MTP) are
+# both merged. Activated via --spec-type draft-mtp (renamed from `mtp`
+# on May 13, 2026).
+#
 # Required for the unsloth/Qwen3.6-{27B,35B-A3B}-MTP-GGUF repos.
 #
 # Build once:
@@ -20,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN git clone --depth 1 --branch mtp-clean https://github.com/am17an/llama.cpp.git
+RUN git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
 
 WORKDIR /src/llama.cpp
 RUN cmake -B build -G Ninja \

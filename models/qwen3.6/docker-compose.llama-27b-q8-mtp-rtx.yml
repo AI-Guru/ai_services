@@ -5,6 +5,9 @@
 # differs. Q8_0 is the high-fidelity reference — effectively lossless vs
 # BF16 for inference quality.
 #
+# Uses --spec-type draft-mtp (renamed 2026-05-13). Image built from
+# mainline llama.cpp with the May 17 ~2x MTP speedup (PR #23198).
+#
 # 1.7x the bandwidth of Q4 → expect ~1/1.5 the tok/s of the Q4_K_XL+MTP
 # config.
 #
@@ -58,9 +61,9 @@ services:
       - q8_0
       - --jinja
       - --spec-type
-      - mtp
+      - draft-mtp
       - --spec-draft-n-max
-      - "3"
+      - "6"
       - --host
       - "0.0.0.0"
       - --port

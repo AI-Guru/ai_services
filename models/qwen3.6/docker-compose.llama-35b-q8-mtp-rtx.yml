@@ -4,6 +4,9 @@
 # High-fidelity reference for the MoE; pairs with the Q4_K_XL+MTP
 # variant on the same llama.cpp-mtp image.
 #
+# Uses --spec-type draft-mtp (renamed 2026-05-13). Image built from
+# mainline llama.cpp with the May 17 ~2x MTP speedup (PR #23198).
+#
 # Note: the GGUF is 35 GB; with q8_0 KV cache at 64K context, memory
 # budget on a 96 GB GPU is comfortable.
 #
@@ -57,9 +60,9 @@ services:
       - q8_0
       - --jinja
       - --spec-type
-      - mtp
+      - draft-mtp
       - --spec-draft-n-max
-      - "3"
+      - "6"
       - --host
       - "0.0.0.0"
       - --port

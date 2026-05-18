@@ -3,12 +3,12 @@
 # unsloth/Qwen3.6-35B-A3B-MTP-GGUF · UD-Q4_K_XL Unsloth Dynamic GGUF
 # (21.28 GB). MoE model with 3B active parameters per token; MTP head is
 # baked into the GGUF. Same llama.cpp-mtp:latest image as the 27B
-# variants; --spec-type mtp activates the qwen3_next_mtp draft head.
+# variants; --spec-type draft-mtp activates the qwen3_next_mtp draft
+# head (flag renamed from `mtp` on 2026-05-13). Image built from
+# mainline llama.cpp with the May 17 ~2x MTP speedup (PR #23198).
 #
-# Earlier work on this MoE (vLLM FP8 baseline 203 tok/s, FP8 + MTP 202
-# tok/s — MTP gave no gain because the MoE's verify pass is already so
-# cheap). llama.cpp's MTP may behave differently due to its different
-# verify/draft fusion. Worth measuring.
+# Unsloth-reported throughput on this config: ~240 tok/s post-May-17
+# (was ~179 tok/s on the pre-May-17 build).
 #
 # Usage: docker compose -f docker-compose.llama-35b-q4-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11435/v1
@@ -60,9 +60,9 @@ services:
       - q8_0
       - --jinja
       - --spec-type
-      - mtp
+      - draft-mtp
       - --spec-draft-n-max
-      - "3"
+      - "6"
       - --host
       - "0.0.0.0"
       - --port
