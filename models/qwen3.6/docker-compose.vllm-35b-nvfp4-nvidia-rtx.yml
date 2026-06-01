@@ -100,6 +100,7 @@ services:
         pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
         echo '=== launching vllm serve ==='
         exec vllm serve nvidia/Qwen3.6-35B-A3B-NVFP4 \
+          --served-model-name qwen3.6-35b \
           --port 8000 \
           --tensor-parallel-size 1 \
           --trust-remote-code \

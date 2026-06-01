@@ -1,35 +1,48 @@
 # Qwen3.6-35B-A3B-NVFP4 (NVIDIA) + MTP — retest of NVIDIA's documented
-# speculative-decoding recipe on this MoE.
-#
-# !! BLOCKED on 2026-05-31 — UPSTREAM vLLM LOADER GAP !!
-# Inherits the no-MTP sibling's blocker (KeyError on
-# layers.0.mlp.experts.w2_input_scale). See the header of
-# docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml for the full diagnosis,
-# including code-level evidence and which HF-thread workarounds don't apply.
-#
-# Background: MTP on Qwen3.6-35B-A3B-FP8 was measured 2026-04-23 to give
-# NO speedup (201.7 vs 203.2 tok/s baseline). NVIDIA's card for the NVFP4
-# checkpoint advertises MTP num=3 with the triton MoE backend as their
-# reference config, so worth one more measurement on the official quant
-# before concluding MTP is a dead end on this MoE.
+# speculative-decoding recipe on this MoE with the working loader recipe.
 #
 # Differs from docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml ONLY in:
 #   - Port 11438 (vs 11437)
-#   - --speculative-config enabled
+#   - --speculative-config enabled (MTP num=3 with triton drafter backend)
 #   - container_name suffix -mtp
-# Everything else (chat template, sampling, KV-cache choice) is identical
-# to keep the A/B comparison clean.
+# Everything else (pip-upgrade entrypoint, marlin MoE, sampling, etc.) is
+# identical to keep the A/B comparison clean.
+#
+# !! BIG WIN on 2026-06-01: MTP gives +55% throughput on the NVIDIA NVFP4
+# checkpoint with vLLM 0.22.1rc1.dev31+ (367.7 vs 238.0 tok/s overall on
+# test_scenarios, RTX PRO 6000 Blackwell). TTFT drops ~34% across the
+# board. This OVERTURNS the 2026-04-23 finding that MTP gave no speedup
+# on Qwen3.6-35B-A3B — that test was on the FP8 checkpoint with an older
+# vLLM whose MTP integration was incomplete. Different checkpoint + new
+# vLLM = night-and-day.
+#
+# Per-scenario gains (no-MTP -> MTP, both NVIDIA NVFP4):
+#   Chat            230.0 -> 325.9  (+42%)
+#   RAG             229.1 -> 397.8  (+74%)
+#   Codegen         241.5 -> 352.3  (+46%)
+#   Summarization   236.6 -> 380.3  (+61%)
+#   Agentic         253.1 -> 382.2  (+51%)
+#   OVERALL         238.0 -> 367.7  (+55%)
+#
+# Versus the Unsloth NVFP4 baseline (170.4 tok/s) this is +116% — more
+# than 2x faster. Recommended default for the 35B Qwen3.6 deployment.
 #
 # Sample recipe from NVIDIA card:
 #   --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
 #
+# Loader recipe: see docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml header.
+# Container entrypoint pip-upgrades vLLM + flashinfer past the docker-hub
+# :nightly bundle.
+#
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11438/v1
-# Model name served as: qwen3.6-35b
+# Model name served as: nvidia/Qwen3.6-35B-A3B-NVFP4
+# First boot: ~5-7 min (pip upgrade + model load + cudagraph + warmup + MTP
+# draft head warmup).
 
 services:
   qwen36-35b-nvfp4-nvidia-mtp:
-    image: vllm/vllm-openai:cu130-nightly
+    image: vllm/vllm-openai:nightly
     container_name: qwen36-35b-nvfp4-nvidia-mtp
     restart: unless-stopped
 
@@ -50,60 +63,55 @@ services:
       stack: 67108864
 
     ports:
-      - "11438:11438"
+      - "11438:8000"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
-      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
 
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
-      - VLLM_USE_FLASHINFER_SAMPLER=0
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
 
-    command:
-      - nvidia/Qwen3.6-35B-A3B-NVFP4
-      - --served-model-name
-      - qwen3.6-35b
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "11438"
-      - --trust-remote-code
-      - --quantization
-      - modelopt
-      - --dtype
-      - bfloat16
-      - --max-model-len
-      - "262144"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --reasoning-parser
-      - qwen3
-      - --enable-auto-tool-choice
-      - --tool-call-parser
-      - qwen3_coder
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
-      - --chat-template
-      - /chat_template.jinja
-      - --default-chat-template-kwargs
-      - '{"enable_thinking": true, "preserve_thinking": true}'
-      - --override-generation-config
-      - '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0}'
-      - --speculative-config
-      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        pip install -U flashinfer-python flashinfer-cubin --quiet
+        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve (with MTP num=3, triton drafter) ==='
+        exec vllm serve nvidia/Qwen3.6-35B-A3B-NVFP4 \
+          --served-model-name qwen3.6-35b \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --dtype auto \
+          --quantization modelopt \
+          --moe-backend marlin \
+          --gpu-memory-utilization 0.85 \
+          --max-model-len 65536 \
+          --max-num-seqs 4 \
+          --max-num-batched-tokens 8192 \
+          --enable-chunked-prefill \
+          --async-scheduling \
+          --enable-prefix-caching \
+          --reasoning-parser qwen3 \
+          --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 300s
+      start_period: 420s
 
     logging:
       driver: "json-file"
