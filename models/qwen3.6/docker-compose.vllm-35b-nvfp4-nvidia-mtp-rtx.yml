@@ -1,0 +1,120 @@
+# Qwen3.6-35B-A3B-NVFP4 (NVIDIA) + MTP — retest of NVIDIA's documented
+# speculative-decoding recipe on this MoE.
+#
+# !! BLOCKED on 2026-05-31 — UPSTREAM vLLM LOADER GAP !!
+# Inherits the no-MTP sibling's blocker (KeyError on
+# layers.0.mlp.experts.w2_input_scale). See the header of
+# docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml for the full diagnosis,
+# including code-level evidence and which HF-thread workarounds don't apply.
+#
+# Background: MTP on Qwen3.6-35B-A3B-FP8 was measured 2026-04-23 to give
+# NO speedup (201.7 vs 203.2 tok/s baseline). NVIDIA's card for the NVFP4
+# checkpoint advertises MTP num=3 with the triton MoE backend as their
+# reference config, so worth one more measurement on the official quant
+# before concluding MTP is a dead end on this MoE.
+#
+# Differs from docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml ONLY in:
+#   - Port 11438 (vs 11437)
+#   - --speculative-config enabled
+#   - container_name suffix -mtp
+# Everything else (chat template, sampling, KV-cache choice) is identical
+# to keep the A/B comparison clean.
+#
+# Sample recipe from NVIDIA card:
+#   --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11438/v1
+# Model name served as: qwen3.6-35b
+
+services:
+  qwen36-35b-nvfp4-nvidia-mtp:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-35b-nvfp4-nvidia-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11438:11438"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
+      - --served-model-name
+      - qwen3.6-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11438"
+      - --trust-remote-code
+      - --quantization
+      - modelopt
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true, "preserve_thinking": true}'
+      - --override-generation-config
+      - '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0}'
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11438/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

@@ -66,7 +66,9 @@ Think time dominates TTFT — the model reasons extensively before answering. De
 |------|--------|-------|----------|-------|
 | `docker-compose.vllm-35b-fp8-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | Primary config, 262K context |
 | `docker-compose.vllm-35b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled, fastest vLLM variant |
-| `docker-compose.vllm-35b-nvfp4-unsloth-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Unsloth NVFP4 (group_size=8); no MTP active |
+| `docker-compose.vllm-35b-nvfp4-unsloth-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Unsloth NVFP4 (group_size=8); pre-fused experts, pure NVFP4 |
+| `docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | **Official NVIDIA NVFP4 — +40% over Unsloth on test_scenarios.** Entrypoint pip-upgrades vLLM nightly + flashinfer 0.6.12 (jit-cache from `flashinfer.ai/whl/nightly/cu130`) on container start; ~60s overhead, no custom image |
+| `docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | NVIDIA NVFP4 with `--speculative-config method=mtp num=3`; same loader recipe as above. MTP gave no speedup on this MoE in prior runs — keep off unless re-tested |
 | `docker-compose.vllm-35b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, saves ~2-3 GB |
 | `docker-compose.vllm-35b-1m.yaml` | vLLM | BF16 | Any | ~1M context via YaRN, util 0.95 |
 | `docker-compose.sglang-35b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
@@ -106,6 +108,25 @@ without speculative decoding. The NVFP4 quant savings barely move the needle on 
 3 B params are active per token, so per-token compute is already cheap and FP4 dequant overhead
 roughly offsets the bandwidth win. Checkpoint includes MTP weights, but `--speculative-config` is
 intentionally OFF (the existing 2026-04-23 finding still holds: MTP gives no speedup on 35B-A3B).
+
+### NVIDIA vs Unsloth NVFP4 A/B (2026-06-01)
+
+`test_scenarios.py` sweep, 5 scenarios × 3 runs each, thinking ON (compose `enable_thinking: true` overrides the CLI `--no-think`). Both checkpoints on the same RTX PRO 6000 Blackwell host, sequential container swap, no other GPU load.
+
+| Scenario | Unsloth NVFP4 | NVIDIA NVFP4 | Δ tok/s | TTFT Unsloth | TTFT NVIDIA | Δ TTFT |
+|----------|--------------:|-------------:|--------:|-------------:|------------:|-------:|
+| Chat | 168.0 | **230.0** | **+37%** | 2393 ms | **1742 ms** | -27% |
+| RAG | 165.0 | **229.1** | **+39%** | 1826 ms | **1314 ms** | -28% |
+| Codegen | 175.4 | **241.5** | **+38%** | 5703 ms | **4144 ms** | -27% |
+| Summarization | 169.6 | **236.6** | **+40%** | 1179 ms | **847 ms** | -28% |
+| Agentic | 174.2 | **253.1** | **+45%** | 3444 ms | **2371 ms** | -31% |
+| **Overall** | **170.4** | **238.0** | **+40%** | | | **-28%** |
+
+Raw outputs in [benchmarks/nvfp4-ab/](benchmarks/nvfp4-ab/) (`unsloth.txt`, `nvidia.txt`).
+
+**Why NVIDIA wins:** NVIDIA quantizes only the MoE linears to NVFP4 and keeps the rest at FP8 (`modelopt_mixed` on disk). Their per-expert layout pairs with vLLM's NVFP4 Marlin MoE kernel and the new flashinfer 0.6.12 `bmm_fp8_get_algos` activation-quant helper. Unsloth's pure-NVFP4 pre-fused export lands on a more conservative code path. The 40 % gap is throughput-only; both quants are essentially lossless vs BF16 per their respective model cards.
+
+**Loader caveat — read before deploying:** vLLM's docker-hub `:nightly` tag lags the actual wheel CDN by ~2 weeks, and the bundled flashinfer 0.6.8 is missing `bmm_fp8_get_algos`. vLLM 0.22.0 stable separately has an `lm_head.input_scale` loader bug. None of the suggested CLI flags / env vars / MoE backend choices (`marlin`, `cutlass`, `triton`, `flashinfer_*`) work around either bug. The compose file fixes both by pip-upgrading at container start; first boot adds ~60 s for the upgrade.
 
 ### Tool calling
 

@@ -1,0 +1,65 @@
+Endpoint  : http://localhost:11437/v1
+Model     : nvidia/Qwen3.6-35B-A3B-NVFP4
+Runs/scen : 3
+Scenarios : chat, rag, codegen, summarization, agentic
+
+Warmup    : sending short request… done (16.7s)
+
+──────────────────────────────────────────────────────────────────────
+  Chat  —  Short conversational Q&A (~200 tok in, ~300 tok out)
+  max_tokens=400
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   1841ms     32 in    400 out   217.3 tok/s  think 1507ch
+  Run 2/3  TTFT   1700ms     32 in    400 out   235.3 tok/s  think 1685ch
+  Run 3/3  TTFT   1684ms     32 in    400 out   237.5 tok/s  think 1646ch
+     Average  TTFT   1742ms     32 in    400 out   230.0 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  RAG  —  Long context retrieval (~2K tok in, ~200 tok out)
+  max_tokens=300
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   1372ms    746 in    300 out   218.7 tok/s  think 1375ch
+  Run 2/3  TTFT   1367ms    746 in    300 out   219.4 tok/s  think 1253ch
+  Run 3/3  TTFT   1204ms    746 in    300 out   249.2 tok/s  think 1312ch
+     Average  TTFT   1314ms    746 in    300 out   229.1 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Code generation  —  Medium context, long output (~500 tok in, ~800 tok out)
+  max_tokens=1000
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   4278ms    125 in   1000 out   233.8 tok/s  think 3868ch
+  Run 2/3  TTFT   4009ms    125 in   1000 out   249.5 tok/s  think 4023ch
+  Run 3/3  TTFT   4147ms    125 in   1000 out   241.2 tok/s  think 3948ch
+     Average  TTFT   4144ms    125 in   1000 out   241.5 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Summarization  —  Long input, short output (~2K tok in, ~150 tok out)
+  max_tokens=200
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT    891ms    554 in    200 out   224.5 tok/s  think 796ch
+  Run 2/3  TTFT    835ms    554 in    200 out   239.5 tok/s  think 811ch
+  Run 3/3  TTFT    814ms    554 in    200 out   245.6 tok/s  think 811ch
+     Average  TTFT    847ms    554 in    200 out   236.6 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Agentic  —  Very long context, medium output (~3K tok in, ~500 tok out)
+  max_tokens=600
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   2383ms    877 in    600 out   251.8 tok/s  think 1884ch
+  Run 2/3  TTFT   2374ms    877 in    600 out   252.7 tok/s  think 1838ch
+  Run 3/3  TTFT   2356ms    877 in    600 out   254.7 tok/s  think 1864ch
+     Average  TTFT   2371ms    877 in    600 out   253.1 tok/s
+
+══════════════════════════════════════════════════════════════════════
+  SUMMARY — nvidia/Qwen3.6-35B-A3B-NVFP4 @ http://localhost:11437/v1
+══════════════════════════════════════════════════════════════════════
+  Scenario          Avg in  Avg out     TTFT    tok/s
+  ────────────────────────────────────────────────────
+  Chat                 32      400    1742ms   230.0
+  RAG                 746      300    1314ms   229.1
+  Code generation     125     1000    4144ms   241.5
+  Summarization       554      200     847ms   236.6
+  Agentic             877      600    2371ms   253.1
+  ────────────────────────────────────────────────────
+  Overall avg                                  238.0
+

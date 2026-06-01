@@ -1,0 +1,65 @@
+Endpoint  : http://localhost:11435/v1
+Model     : qwen3.6-35b
+Runs/scen : 3
+Scenarios : chat, rag, codegen, summarization, agentic
+
+Warmup    : sending short request… done (17.8s)
+
+──────────────────────────────────────────────────────────────────────
+  Chat  —  Short conversational Q&A (~200 tok in, ~300 tok out)
+  max_tokens=400
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   2644ms     32 in    400 out   151.3 tok/s  think 1640ch
+  Run 2/3  TTFT   2268ms     32 in    400 out   176.3 tok/s  think 1589ch
+  Run 3/3  TTFT   2267ms     32 in    400 out   176.4 tok/s  think 1615ch
+     Average  TTFT   2393ms     32 in    400 out   168.0 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  RAG  —  Long context retrieval (~2K tok in, ~200 tok out)
+  max_tokens=300
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   1990ms    746 in    300 out   150.7 tok/s  think 1253ch
+  Run 2/3  TTFT   1741ms    746 in    300 out   172.3 tok/s  think 1260ch
+  Run 3/3  TTFT   1746ms    746 in    300 out   171.8 tok/s  think 1362ch
+     Average  TTFT   1826ms    746 in    300 out   165.0 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Code generation  —  Medium context, long output (~500 tok in, ~800 tok out)
+  max_tokens=1000
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   5777ms    125 in   1000 out   173.1 tok/s  think 4082ch
+  Run 2/3  TTFT   5666ms    125 in   1000 out   176.5 tok/s  think 3966ch
+  Run 3/3  TTFT   5666ms    125 in   1000 out   176.5 tok/s  think 3964ch
+     Average  TTFT   5703ms    125 in   1000 out   175.4 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Summarization  —  Long input, short output (~2K tok in, ~150 tok out)
+  max_tokens=200
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   1188ms    554 in    200 out   168.3 tok/s  think 799ch
+  Run 2/3  TTFT   1174ms    554 in    200 out   170.4 tok/s  think 773ch
+  Run 3/3  TTFT   1175ms    554 in    200 out   170.3 tok/s  think 831ch
+     Average  TTFT   1179ms    554 in    200 out   169.6 tok/s
+
+──────────────────────────────────────────────────────────────────────
+  Agentic  —  Very long context, medium output (~3K tok in, ~500 tok out)
+  max_tokens=600
+──────────────────────────────────────────────────────────────────────
+  Run 1/3  TTFT   3451ms    877 in    600 out   173.9 tok/s  think 1673ch
+  Run 2/3  TTFT   3442ms    877 in    600 out   174.3 tok/s  think 1756ch
+  Run 3/3  TTFT   3440ms    877 in    600 out   174.4 tok/s  think 2115ch
+     Average  TTFT   3444ms    877 in    600 out   174.2 tok/s
+
+══════════════════════════════════════════════════════════════════════
+  SUMMARY — qwen3.6-35b @ http://localhost:11435/v1
+══════════════════════════════════════════════════════════════════════
+  Scenario          Avg in  Avg out     TTFT    tok/s
+  ────────────────────────────────────────────────────
+  Chat                 32      400    2393ms   168.0
+  RAG                 746      300    1826ms   165.0
+  Code generation     125     1000    5703ms   175.4
+  Summarization       554      200    1179ms   169.6
+  Agentic             877      600    3444ms   174.2
+  ────────────────────────────────────────────────────
+  Overall avg                                  170.4
+

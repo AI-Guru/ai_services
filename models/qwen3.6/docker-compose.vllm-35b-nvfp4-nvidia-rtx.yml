@@ -1,0 +1,137 @@
+# Qwen3.6-35B-A3B-NVFP4 (NVIDIA) — official NVIDIA NVFP4 quantization
+#
+# !! WORKING as of 2026-06-01 on RTX PRO 6000 Blackwell (SM 120, 96 GB) !!
+# Measured 238.0 tok/s overall on test_scenarios (vs 170.4 for Unsloth NVFP4
+# on the same hardware/workload — +40% throughput, ~28% better TTFT).
+#
+# Why this isn't trivial: vllm/vllm-openai:nightly (docker hub tag) lags
+# behind the actual wheel CDN by ~2 weeks. The bundled flashinfer 0.6.8 is
+# missing bmm_fp8_get_algos that vLLM 0.22.1+ calls during NVFP4 MoE init,
+# and vLLM 0.22.0 stable has an lm_head.input_scale loader bug for this
+# checkpoint. We work around by pip-upgrading both vLLM and flashinfer at
+# container start:
+#   - vllm        -> 0.22.1rc1.dev30+ via wheels.vllm.ai/nightly (--pre)
+#   - flashinfer-python / -cubin -> 0.6.12 via PyPI
+#   - flashinfer-jit-cache       -> 0.6.12.dev2026MMDD+cu130 via
+#                                   flashinfer.ai/whl/nightly/cu130
+# This adds ~30-60s to startup but avoids maintaining a custom image.
+#
+# Target: nvidia/Qwen3.6-35B-A3B-NVFP4
+#   - NVFP4 4-bit float quant of MoE 35B-A3B (256 experts, 8 routed + 1
+#     shared per token, 3B active). NVIDIA quant only the MoE linears to
+#     NVFP4; other layers stay FP8 (modelopt_mixed quant scheme on disk).
+#   - Quantized with NVIDIA Model Optimizer v0.44.0.
+#   - Calibrated on cnn_dailymail + Nemotron-Post-Training-Dataset-v2.
+#   - NVIDIA-reported accuracy vs BF16 within ~1% across MMLU-Pro / GPQA-D /
+#     AIME 2025 / SciCode / AA-LCR / IFBench / MMMU-Pro.
+#
+# Architecture: hybrid 30 Gated DeltaNet + 10 full-attention layers in
+# 10x(3x(DeltaNet->MoE) + 1x(GatedAttn->MoE)) layout. 35B total / 3B active.
+#
+# KV-cache caveat: DO NOT set --kv-cache-dtype fp8_e4m3 on Qwen3.6 hybrid
+# DeltaNet (vllm-project/vllm#26646 — silent corruption). Leave KV at the
+# default (BF16/auto). NVIDIA's DGX Spark sample command and the
+# Blackwell-6000 benchmark report both use fp8 KV cache; we deliberately
+# don't on this hybrid arch.
+#
+# Speculative decoding intentionally OFF: MTP on Qwen3.6-35B-A3B-FP8 was
+# measured 2026-04-23 to give NO speedup (201.7 vs 203.2 tok/s baseline).
+# MoE decode is already cheap (~3B active), so draft+verify overhead eats
+# the speculative gain. Same logic applies to NVFP4 weights. The
+# Blackwell-6000 benchmark report uses MTP and hits ~817 tok/s at 1K/1K
+# concurrency — different workload; our test_scenarios single-stream
+# numbers don't change with MTP on this MoE.
+#
+# Requires Hopper (SM_90) or Blackwell (SM_120) for hardware NVFP4 tensor
+# cores. Tested on RTX PRO 6000 Blackwell.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml up -d
+# API endpoint: http://localhost:11437/v1
+# Model name served as: nvidia/Qwen3.6-35B-A3B-NVFP4
+# First boot: ~5-7 min (pip upgrade ~60s + model load ~10s + cudagraph
+# capture ~30s + profile/warmup ~110s).
+
+services:
+  qwen36-35b-nvfp4-nvidia:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen36-35b-nvfp4-nvidia
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11437:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        pip install -U flashinfer-python flashinfer-cubin --quiet
+        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve ==='
+        exec vllm serve nvidia/Qwen3.6-35B-A3B-NVFP4 \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --dtype auto \
+          --quantization modelopt \
+          --moe-backend marlin \
+          --gpu-memory-utilization 0.85 \
+          --max-model-len 65536 \
+          --max-num-seqs 4 \
+          --max-num-batched-tokens 8192 \
+          --enable-chunked-prefill \
+          --async-scheduling \
+          --enable-prefix-caching \
+          --reasoning-parser qwen3
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 420s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

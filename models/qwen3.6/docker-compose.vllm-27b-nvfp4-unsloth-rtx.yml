@@ -1,0 +1,130 @@
+# Qwen3.6-27B NVFP4 (unsloth) — official Unsloth NVFP4 quantization
+#
+# Target: unsloth/Qwen3.6-27B-NVFP4
+#   - NVFP4 4-bit float, group_size=8 (vs group_size=16 in mmangkad/sakamakismile
+#     variants). Smaller groups → finer-grained scales → potentially better
+#     accuracy, at the cost of slightly more dequant metadata per block.
+#   - Calibrated on HF UltraChat (~2M-token budget, up to 16K ctx).
+#   - Reported impact: GSM8K 0.20 (= base), MMLU-Pro 0.63 (vs 0.64 base).
+#   - No MTP heads in this checkpoint. For MTP, use the sakamakismile
+#     NVFP4-MTP variant (docker-compose.vllm-27b-nvfp4-mtp-rtx.yml).
+#
+# Sibling NVFP4 recipes for comparison:
+#   - mmangkad/Qwen3.6-27B-NVFP4              (group_size=16, no MTP, fp8 KV) → docker-compose.vllm-27b-nvfp4-rtx.yml
+#   - sakamakismile NVFP4-MTP, no spec        (group_size=16, MTP dormant)   → docker-compose.vllm-27b-nvfp4-baseline-rtx.yml
+#   - sakamakismile NVFP4-MTP + speculative   (group_size=16, MTP active)    → docker-compose.vllm-27b-nvfp4-mtp-rtx.yml
+#   - sakamakismile NVFP4-MTP + DFlash        (group_size=16, DFlash drafter) → docker-compose.vllm-27b-nvfp4-dflash-rtx.yml
+#   - unsloth/Qwen3.6-27B-NVFP4               (group_size=8, no MTP)         → THIS FILE
+#
+# Upstream recipe (https://huggingface.co/unsloth/Qwen3.6-27B-NVFP4):
+#   vllm serve unsloth/Qwen3.6-27B-NVFP4 --trust-remote-code --dtype bfloat16
+# Native ctx 262144; extensible to ~1M with YaRN (not enabled here).
+#
+# Sampling: thinking-mode-coding profile (temp=0.6, top_p=0.95, top_k=20),
+# matching the other Qwen3.6-27B compose files in this dir for fair A/B.
+# Thinking mode is on by default; preserve_thinking=true so agent flows
+# (e.g. OpenCode) keep <think> blocks across turns.
+#
+# KV-cache caveat: do NOT set --kv-cache-dtype fp8_e4m3 on Qwen3.6 hybrid
+# DeltaNet (vllm-project/vllm#26646 — silent corruption). Leave KV at BF16.
+# If this checkpoint's hf_quant_config.json forces fp8 KV (as mmangkad's
+# does), startup will fail; in that case the path forward is to override
+# at load time, not to flip kv-cache-dtype on.
+#
+# Requires Blackwell GPUs (SM_120) for hardware-accelerated NVFP4 tensor
+# cores. RTX PRO 6000 Blackwell expected.
+#
+# HF_TOKEN not strictly required (public repo) but kept for parity.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+
+services:
+  qwen36-27b-nvfp4-unsloth:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen36-27b-nvfp4-unsloth
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - unsloth/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --trust-remote-code
+      - --dtype
+      - bfloat16
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --language-model-only
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true, "preserve_thinking": true}'
+      - --override-generation-config
+      - '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
