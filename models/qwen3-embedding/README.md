@@ -105,6 +105,27 @@ curl http://localhost:11466/v1/score -H 'Content-Type: application/json' -d '{
 Smoke-tested ranking: Beijing 0.976 > Paris 0.809 > gravity 0.719 — correct order
 (the absolute scores are uncalibrated; use them only for *ranking*).
 
+## Performance — RTX PRO 6000 Blackwell (0.6B, ~132-token items)
+
+Measured with `test_embed.py` while **co-hosted alongside the live qwen36-27b**
+(i.e. real shared-GPU conditions, at the shipped `--gpu-memory-utilization 0.05`):
+
+| Service | Single-req latency | Batched (64/call) | Concurrent (32 parallel) |
+|---------|-------------------:|------------------:|-------------------------:|
+| **Embedding-0.6B** | 3.5 ms (287/s seq) | **1,550 emb/s** | 902 emb/s |
+| **Reranker-0.6B**  | 3.0 ms (331/s seq) | **3,302 pairs/s** | 1,115 pairs/s |
+
+Batching one request with many inputs is **5–10× faster** than sequential calls —
+always batch your retrieval set. Bench it yourself:
+
+```bash
+python test_embed.py --port 11463 --model qwen3-embedding-0.6b
+python test_embed.py --port 11466 --model qwen3-reranker-0.6b --rerank
+```
+
+Throughput scales down with model size and up with shorter items / higher
+`--gpu-memory-utilization`; the 4B/8B tiers trade speed for retrieval quality.
+
 ## Service Variants
 
 | File | Model | Runner | gpu-mem-util | max-len | Port |
