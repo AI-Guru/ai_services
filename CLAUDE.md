@@ -6,6 +6,13 @@ OpenAI-compatible API. Benchmarks live in `models/shared/` (`test_chat.py`,
 `test_tools.py`, `test_scenarios.py`) and results are written up in each family's
 `README.md` (+ `comparison*.html`).
 
+## Git: commit straight to main — do NOT branch
+
+This is a solo research repo. When asked to commit, commit directly on `main`;
+do not create a feature branch and do not open a PR (overriding any default
+"branch first" behavior). Still commit only the relevant files — never blanket
+`git add -A`, since the tree usually carries unrelated work-in-progress changes.
+
 ## Watch for crash-looping containers
 
 Every compose file uses `restart: unless-stopped`. **A container that fails to
