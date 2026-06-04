@@ -1,0 +1,84 @@
+# Qwen3-Embedding-4B — text embedding model (vLLM, RTX)
+#
+# Last-token-pooling embedding model built on Qwen3-4B (Qwen3ForCausalLM).
+# Output dim 2560 (MRL: any 32–2560 via the `dimensions` request field).
+# Apache 2.0, NOT gated — HF_TOKEN optional. Stronger retrieval than 0.6B.
+#
+# ~8 GB weights; gpu-memory-utilization 0.12 (~11.5 GB of 96 GB).
+#
+# Usage: docker compose -f docker-compose.vllm-embed-4b-rtx.yml up -d
+# Embeddings API: POST http://localhost:11464/v1/embeddings
+# Model name served as: qwen3-embedding-4b
+
+services:
+  qwen3-embedding-4b:
+    image: vllm/vllm-openai:v0.22.0-cu129-ubuntu2404
+    container_name: qwen3-embedding-4b
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11464:11464"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - Qwen/Qwen3-Embedding-4B
+      - --served-model-name
+      - qwen3-embedding-4b
+      - --runner
+      - pooling
+      - --hf-overrides
+      - '{"is_matryoshka":true}'
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11464"
+      - --max-model-len
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.12"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11464/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3embedding_huggingface_cache
+
+networks:
+  default:
+    name: qwen3-embedding-network

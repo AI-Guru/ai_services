@@ -1,0 +1,92 @@
+# Qwen3-Reranker-0.6B — cross-encoder reranker / scorer (vLLM, RTX)
+#
+# Reranks (query, document) pairs and returns a 0–1 relevance score.
+# Built on Qwen3-0.6B; vLLM must convert the CausalLM into a sequence-
+# classification head via --hf-overrides, otherwise it would compute logits
+# over the full 151669-token vocab (slow, and incompatible with the score API).
+#
+#   --hf-overrides converts to Qwen3ForSequenceClassification and builds a
+#   single relevance logit from the model's own "no"/"yes" token vectors.
+#   --runner pooling serves it as a scorer, exposing /v1/score (+ /rerank).
+#   (vLLM 0.22 replaced the old --task score/embed flags with --runner.)
+#
+# Apache 2.0, NOT gated — HF_TOKEN optional. Tiny (~1.2 GB weights),
+# gpu-memory-utilization 0.05 (~4.8 GB of 96 GB) — co-hosts easily.
+#
+# Usage: docker compose -f docker-compose.vllm-rerank-0.6b-rtx.yml up -d
+# Score API:  POST http://localhost:11466/v1/score
+# Rerank API: POST http://localhost:11466/rerank
+# Model name served as: qwen3-reranker-0.6b
+
+services:
+  qwen3-reranker-0-6b:
+    image: vllm/vllm-openai:v0.22.0-cu129-ubuntu2404
+    container_name: qwen3-reranker-0-6b
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11466:11466"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - Qwen/Qwen3-Reranker-0.6B
+      - --served-model-name
+      - qwen3-reranker-0.6b
+      - --runner
+      - pooling
+      - --hf-overrides
+      - '{"architectures":["Qwen3ForSequenceClassification"],"classifier_from_token":["no","yes"],"is_original_qwen3_reranker":true}'
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11466"
+      - --max-model-len
+      - "16384"
+      - --gpu-memory-utilization
+      - "0.05"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11466/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3embedding_huggingface_cache
+
+networks:
+  default:
+    name: qwen3-embedding-network
