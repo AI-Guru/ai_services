@@ -12,14 +12,30 @@ This repository contains a set of containerized AI services that can be run loca
 
 ## Models
 
-Local LLM inference with multiple backends (vLLM, llama.cpp, SGLang, MLX) and hardware targets (RTX PRO 6000, DGX Spark, AMD Vulkan, Apple Silicon).
+Local LLM inference with multiple backends (vLLM, llama.cpp, SGLang, MLX) and hardware targets (RTX PRO 6000, DGX Spark, AMD Vulkan, Apple Silicon). Each family lives under `models/<family>/` as a set of `docker-compose.<engine>-<variant>.yml` files serving an OpenAI-compatible API. See [models/README.md](./models/README.md) for the full variant/benchmark matrix and a "which variant should I use?" decision tree.
+
+### Text generation & coding
 
 | Model | Description | Location |
 |-------|-------------|----------|
-| **Qwen 3.5** | Flagship family, 0.8B to 122B variants | [models/qwen3.5](./models/qwen3.5) |
-| **Qwen3-Coder-Next** | 80B MoE coding specialist | [models/qwen3-coder-next](./models/qwen3-coder-next) |
-| **Qwopus** | Opus-reasoning distilled 27B | [models/qwopus](./models/qwopus) |
+| **Qwen3.5** | Flagship family, 0.8B–122B dense/MoE variants | [models/qwen3.5](./models/qwen3.5) |
+| **Qwen3.6** | Newer hybrid arch (Gated DeltaNet + Attention): 27B dense + 35B-A3B MoE | [models/qwen3.6](./models/qwen3.6) |
+| **Qwen3-Coder-Next** | 80B MoE coding specialist (~3B active) | [models/qwen3-coder-next](./models/qwen3-coder-next) |
+| **Qwopus** | Opus-reasoning distilled 27B dense | [models/qwopus](./models/qwopus) |
 | **GLM-4.7-Flash** | 30B MoE, ~3.6B active params | [models/glm-4.7-flash](./models/glm-4.7-flash) |
+| **Nemotron** | NVIDIA Cascade-2 / Nano family, hybrid Mamba-2 MoE (4B–120B) | [models/nemotron](./models/nemotron) |
+| **Gemma 4** | Google, Apache 2.0, multimodal (text/image/audio), E2B–31B | [models/gemma4](./models/gemma4) |
+| **Carnice-V2-27B** | Hermes-style agent SFT of Qwen3.6-27B | [models/carnice-v2](./models/carnice-v2) |
+| **Mistral Medium 3.5** | Dense 128B, multimodal, 256K context | [models/mistral-medium-3.5](./models/mistral-medium-3.5) |
+
+### Specialized
+
+| Model | Description | Location |
+|-------|-------------|----------|
+| **Qwen3-Embedding & Reranker** | RAG building blocks — embeddings + reranking/scoring APIs | [models/qwen3-embedding](./models/qwen3-embedding) |
+| **Qwen3-ASR** | Speech-to-text (52 languages) + forced aligner for timestamps | [models/qwen3-asr](./models/qwen3-asr) |
+| **Qwen3Guard** | Generative safety classifier (Safe/Controversial/Unsafe, 119 languages) | [models/qwen3guard](./models/qwen3guard) |
+| **DeepSeek-OCR** | Vision-LM, documents → markdown / HTML tables / LaTeX | [models/deepseek-ocr](./models/deepseek-ocr) |
 
 Shared test and benchmark scripts live in [models/shared](./models/shared).
 
@@ -30,6 +46,19 @@ Shared test and benchmark scripts live in [models/shared](./models/shared).
 | **Whisper** | Speech-to-text using OpenAI Whisper | [speech/whisper](./speech/whisper) | 8000 |
 | **Faster Whisper** | Optimized Whisper variant | [speech/faster-whisper](./speech/faster-whisper) | — |
 | **Orpheus TTS** | High-quality voice synthesis | [speech/orpheus](./speech/orpheus) | 5005 |
+
+## Image Services
+
+| Service | Description | Location | Port |
+|---------|-------------|----------|------|
+| **open-genmoji** | Custom emoji generation (Flux.1[dev] + LoRA, FP8 on Blackwell) | [open-genmoji](./open-genmoji) | 8888 |
+
+## Monitoring
+
+| Service | Description | Location | Port |
+|---------|-------------|----------|------|
+| **GPU Dashboard** | Grafana + Prometheus + nvidia_gpu_exporter for GPU metrics | [gpu-dashboard](./gpu-dashboard) | 3000 (Grafana), 9090 (Prometheus), 9835 (exporter) |
+| **Netdata** | Real-time system & GPU monitoring with auto-detected NVIDIA metrics | [netdata](./netdata) | 19999 |
 
 ## Other Services
 
