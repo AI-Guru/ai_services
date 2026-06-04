@@ -1,0 +1,84 @@
+# Gemma 4 12B via vLLM — FP8 (THIRD-PARTY community quant), no speculative decoding
+#
+# Target: AxionML/Gemma-4-12B-FP8 (~13 GB FP8 weights).
+# ⚠️ THIRD-PARTY QUANT — there is no first-party (RedHatAI / NVIDIA) FP8 build
+# of Gemma-4-12B-it as of 2026-06-04. This is a modelopt fp8_pb_wo quant from
+# the AxionML community repo; weights are NOT vetted by Google/RedHat/NVIDIA.
+# Use the BF16 base config for authoritative output; this one is for the
+# latency/footprint comparison only.
+#
+# Usage: docker compose -f docker-compose.vllm-12b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11455/v1
+# Model name served as: gemma4-12b
+
+name: gemma4-12b-fp8-vllm
+
+services:
+  vllm-server:
+    image: vllm/vllm-openai:gemma4-unified-x86_64-cu130
+    container_name: gemma4-vllm-12b-fp8
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11455:11455"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - AxionML/Gemma-4-12B-FP8
+      - --served-model-name
+      - gemma4-12b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11455"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11455/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: gemma4_huggingface_cache
+    external: true

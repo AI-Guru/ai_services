@@ -1,0 +1,90 @@
+# Gemma 4 12B via vLLM — BF16 (official Google weights), no speculative decoding
+#
+# Target: google/gemma-4-12B-it (~24 GB BF16 weights).
+# This is the exact checkpoint the official vLLM recipe serves
+# (https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html) —
+# authoritative first-party weights, no third-party quant involved.
+#
+# Fills the size gap between E4B (8B) and 26B-A4B in the Gemma 4 line-up.
+#
+# NOTE: uses the vllm/vllm-openai:gemma4-unified-x86_64-cu130 image (2026-06-03), NOT
+# the gemma4-0505-cu130 image used by the 26B/31B configs. The 12B ships with
+# the newer `gemma4_unified` model_type, which the 0505 image's Transformers
+# does not recognize ("does not recognize this architecture"). The unified
+# image adds support for it. (google/gemma-4-31B-it is still plain `gemma4`.)
+#
+# Usage: docker compose -f docker-compose.vllm-12b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11455/v1
+# Model name served as: gemma4-12b
+
+name: gemma4-12b-bf16-vllm
+
+services:
+  vllm-server:
+    image: vllm/vllm-openai:gemma4-unified-x86_64-cu130
+    container_name: gemma4-vllm-12b-bf16
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11455:11455"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - google/gemma-4-12B-it
+      - --served-model-name
+      - gemma4-12b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11455"
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --trust-remote-code
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11455/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: gemma4_huggingface_cache
+    external: true
