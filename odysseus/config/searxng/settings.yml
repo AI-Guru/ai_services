@@ -1,0 +1,14 @@
+# SearXNG settings template for Odysseus' Deep Research web search.
+# The searxng service entrypoint substitutes __SEARXNG_SECRET__ on first boot
+# (generating a random secret if SEARXNG_SECRET is unset) and writes the result
+# into the searxng-data volume. Vendored verbatim from upstream Odysseus
+# (config/searxng/settings.yml) so this stack boots without cloning the repo.
+use_default_settings: true
+
+server:
+  secret_key: "__SEARXNG_SECRET__"
+
+search:
+  formats:
+    - html
+    - json

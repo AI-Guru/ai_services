@@ -1,0 +1,149 @@
+# Odysseus — PewDiePie's self-hosted AI workspace, wired to THIS box's local
+# model serving (vLLM/SGLang/llama.cpp on the host) instead of letting its
+# in-app "Cookbook" download and serve its own models.
+#
+# ⚠️  Odysseus is a 4-day-old, vibecoded proof-of-concept (see README.md). Its
+#     agent has filesystem + shell + web tools, so a prompt-injection payload
+#     can reach code execution. Every port here is bound to LOOPBACK only and
+#     AUTH_ENABLED defaults to true. Do NOT expose this to the LAN.
+#
+# The odysseus image has no published tag (upstream ships `build: .`), so we
+# build straight from the upstream repo's main branch — no 26 MB vendored into
+# ai_services. Rebuild with --no-cache to pull the latest upstream.
+#
+# Bring up:   cd odysseus && cp .env.example .env  # then edit .env
+#             docker compose up -d --build
+# Open:       http://127.0.0.1:7000   (first boot: create the admin user)
+# Tear down:  docker compose down          (add -v to wipe chromadb/searxng/ntfy)
+
+services:
+  odysseus:
+    build:
+      # Tracks upstream main (unpinned). Rebuild with --no-cache to pull latest.
+      # NOTE: main rewrites fast (~12k stars/day churn) — builds are not
+      # reproducible; `docker compose build --no-cache odysseus` to refresh.
+      context: https://github.com/pewdiepie-archdaemon/odysseus.git#main
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
+    volumes:
+      - ./data:/app/data:z
+      - ./logs:/app/logs:z
+      - ./data/ssh:/app/.ssh:z
+      # We serve models OUTSIDE this container, so the Cookbook HF/model caches
+      # below stay empty — kept only so the app doesn't error on a missing path.
+      - ./data/huggingface:/app/.cache/huggingface:z
+      - ./data/local:/app/.local:z
+    extra_hosts:
+      # Reach the host's vLLM/llama.cpp/Ollama via host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    environment:
+      # --- Local model wiring (values come from .env) -------------------------
+      # Odysseus discovers OpenAI-compatible servers by scanning, on each host,
+      # ports 8000-8020 + 1234 + 11434, PLUS any port found in a provider env
+      # URL. Our vLLM lives on 11436 (non-standard), so OLLAMA_BASE_URL below
+      # injects host.docker.internal:11436 into the scan. Chat still flows over
+      # /v1/chat/completions regardless of the "ollama" label.
+      - LLM_HOST=${LLM_HOST:-host.docker.internal}
+      - LLM_HOSTS=${LLM_HOSTS:-host.docker.internal}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11436/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - RESEARCH_LLM_ENDPOINT=${RESEARCH_LLM_ENDPOINT:-}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+      # Embeddings: no embedding server on 11436, so fall back to local
+      # fastembed/ONNX (downloads ~50 MB on first RAG use). Override EMBEDDING_URL
+      # in .env to point at a served embedding model (e.g. qwen3-embedding).
+      - EMBEDDING_URL=${EMBEDDING_URL:-}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-}
+      - FASTEMBED_MODEL=${FASTEMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      # --- Bundled services (in-network names, do not change) -----------------
+      - SEARXNG_INSTANCE=http://searxng:8080
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/app.db}
+      # --- Auth & security ----------------------------------------------------
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - LOCALHOST_BYPASS=${LOCALHOST_BYPASS:-false}
+      - ODYSSEUS_ADMIN_USER=${ODYSSEUS_ADMIN_USER:-admin}
+      - ODYSSEUS_ADMIN_PASSWORD=${ODYSSEUS_ADMIN_PASSWORD:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:7000,http://127.0.0.1:7000}
+      - SECURE_COOKIES=${SECURE_COOKIES:-false}
+      # --- Misc / scheduler ---------------------------------------------------
+      - CLEANUP_INTERVAL_HOURS=${CLEANUP_INTERVAL_HOURS:-24}
+      - ODYSSEUS_INPROCESS_POLLERS=${ODYSSEUS_INPROCESS_POLLERS:-1}
+      - ODYSSEUS_INPROCESS_TASKS=${ODYSSEUS_INPROCESS_TASKS:-1}
+      # Drop to this host uid/gid for bind-mounted ./data + ./logs (host is 1000:1000).
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    depends_on:
+      searxng:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    restart: unless-stopped
+
+  chromadb:
+    image: docker.io/chromadb/chroma:latest
+    ports:
+      - "${CHROMADB_BIND:-127.0.0.1}:8100:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    environment:
+      - ANONYMIZED_TELEMETRY=FALSE
+    restart: unless-stopped
+
+  searxng:
+    # Pinned, not :latest — odysseus waits on searxng's healthcheck, so a broken
+    # upstream `latest` would block the whole app from starting (upstream #1414).
+    image: docker.io/searxng/searxng:2026.5.31-7159b8aed
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if [ ! -s /etc/searxng/settings.yml ] || grep -q '__SEARXNG_SECRET__' /etc/searxng/settings.yml; then
+          secret="$${SEARXNG_SECRET:-}"
+          if [ -z "$$secret" ]; then
+            secret="$$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+          fi
+          sed "s|__SEARXNG_SECRET__|$$secret|g" /tmp/searxng-settings.yml.template > /etc/searxng/settings.yml
+        fi
+        exec /usr/local/searxng/entrypoint.sh
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - searxng-data:/etc/searxng
+      - ./config/searxng/settings.yml:/tmp/searxng-settings.yml.template:ro,z
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-}
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/', timeout=5).read(1)\""]
+      interval: 5s
+      timeout: 6s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  ntfy:
+    image: docker.io/binwiederhier/ntfy
+    command: serve
+    ports:
+      - "${NTFY_BIND:-127.0.0.1}:8091:80"
+    volumes:
+      - ntfy-cache:/var/cache/ntfy
+    environment:
+      - NTFY_BASE_URL=${NTFY_BASE_URL:-http://localhost:8091}
+    restart: unless-stopped
+
+volumes:
+  searxng-data:
+  chromadb-data:
+  ntfy-cache:
