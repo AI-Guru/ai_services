@@ -60,6 +60,12 @@ Shared test and benchmark scripts live in [models/shared](./models/shared).
 | **GPU Dashboard** | Grafana + Prometheus + nvidia_gpu_exporter for GPU metrics | [gpu-dashboard](./gpu-dashboard) | 3000 (Grafana), 9090 (Prometheus), 9835 (exporter) |
 | **Netdata** | Real-time system & GPU monitoring with auto-detected NVIDIA metrics | [netdata](./netdata) | 19999 |
 
+## Chat Frontend
+
+| Service | Description | Location | Port |
+|---------|-------------|----------|------|
+| **LibreChat** | Web chat UI wired to the local inference backends (OpenAI-compatible) | [librechat](./librechat) | 3080 |
+
 ## Other Services
 
 ### Ollama
