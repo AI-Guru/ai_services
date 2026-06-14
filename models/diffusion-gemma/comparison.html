@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>DiffusionGemma vs Gemma 4 · 26B-A4B · diffusion vs autoregressive · RTX PRO 6000</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #050a12;
+    --bg-elev: #0d1626;
+    --bg-card: #101c30;
+    --fg: #e8f1ff;
+    --muted: #8aa0c4;
+    --champion: #3ddc97;        /* diffusion green */
+    --diff-teal: #2bd4c4;
+    --diff-green: #3ddc97;
+    --ar-blue: #4a90e2;
+    --ar-deep: #2c5aa0;
+    --ocean-1: #0d3b66;
+    --ocean-2: #1d6a8f;
+    --ocean-3: #2bd4c4;
+    --ocean-4: #aef5e8;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #0e2233 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(61,220,151,0.15);
+    background: linear-gradient(180deg, rgba(61,220,151,0.08) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--ar-deep), var(--ar-blue) 30%, var(--diff-teal) 65%, var(--diff-green));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(61,220,151,0.06);
+    border: 1px solid rgba(61,220,151,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(61,220,151,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(13,59,102,0.25);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--diff-teal), var(--diff-green));
+  }
+  section h3 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; color: var(--diff-teal); font-weight: 600; }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+  a { color: var(--diff-teal); }
+
+  .hero-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .hero-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .hero-row { grid-template-columns: 1fr; } }
+  .config-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1.1rem;
+    border: 1px solid transparent;
+    position: relative;
+  }
+  .config-card.diff-fp8   { border-color: rgba(61,220,151,0.6);
+                            box-shadow: 0 0 30px rgba(61,220,151,0.12); }
+  .config-card.diff-nvfp4 { border-color: rgba(43,212,196,0.5); }
+  .config-card.ar-nvfp4   { border-color: rgba(74,144,226,0.45); }
+  .config-card.ar-ttft    { border-color: rgba(74,144,226,0.35); }
+
+  .config-card .tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+  .config-card.diff-fp8 .tag   { color: var(--diff-green); }
+  .config-card.diff-nvfp4 .tag { color: var(--diff-teal); }
+  .config-card.ar-nvfp4 .tag   { color: var(--ar-blue); }
+  .config-card.ar-ttft .tag    { color: var(--ar-blue); }
+
+  .config-card h3 { margin: 0.3rem 0 0.6rem; font-size: 0.98rem; color: var(--fg); font-weight: 600; }
+  .config-card .big {
+    font-size: 2.4rem; font-weight: 800; margin: 0.1rem 0;
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .config-card.diff-fp8 .big   { color: var(--diff-green);
+                                 filter: drop-shadow(0 0 10px rgba(61,220,151,0.4)); }
+  .config-card.diff-nvfp4 .big { color: var(--diff-teal); }
+  .config-card.ar-nvfp4 .big   { color: var(--ar-blue); }
+  .config-card.ar-ttft .big    { color: var(--ar-blue); filter: brightness(1.15); }
+  .config-card .unit { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; }
+  .config-card .detail {
+    margin-top: 0.6rem; font-size: 0.72rem; color: var(--muted);
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  .config-card .crown {
+    position: absolute; top: -10px; right: 14px;
+    background: var(--champion); color: #06241a;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    padding: 0.18rem 0.55rem; border-radius: 999px;
+  }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(29,106,143,0.5), rgba(61,220,151,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--ocean-4); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td { padding: 0.6rem 1rem; border-top: 1px solid rgba(61,220,151,0.07); }
+  tbody tr:hover td { background: rgba(61,220,151,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.row-diff-fp8   { color: var(--diff-green); font-weight: 700; }
+  td.row-diff-nvfp4 { color: var(--diff-teal); font-weight: 600; }
+  td.row-ar         { color: var(--ar-blue); font-weight: 600; }
+
+  .chart-wrap {
+    position: relative; height: 440px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(61,220,151,0.12); color: var(--champion);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+  .badge.ar   { background: rgba(74,144,226,0.16); color: #9cc4f5; }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(61,220,151,0.06), rgba(13,59,102,0.10));
+    border-left: 4px solid var(--champion);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  .alert {
+    background: rgba(74,144,226,0.08);
+    border-left: 4px solid var(--ar-blue);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .alert strong { color: #9cc4f5; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(61,220,151,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer { margin-top: 4rem; padding: 2rem; text-align: center; color: var(--muted); font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DiffusionGemma vs Gemma 4 — same 26B, two ways to decode</h1>
+  <div class="subtitle">A discrete-diffusion LM vs the autoregressive Gemma 4 of identical size, both 26B-A4B MoE · RTX PRO 6000 Blackwell · 2026-06-14</div>
+  <div class="meta">
+    <span>Diffusion: <code>RedHatAI/diffusiongemma-26B-A4B-it-{NVFP4,FP8-dynamic}</code> on <code>vllm/vllm-openai:gemma-x86_64-cu130</code></span>
+    <span>Autoregressive: <code>nvidia/Gemma-4-26B-A4B-NVFP4</code> on <code>vllm/vllm-openai:gemma4-0505-cu130</code></span>
+    <span>GPU: RTX PRO 6000 (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Tool: <code>test_chat.py --runs 3 --warmup --no-think</code> + concurrency harness</span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Premise ─────────────────────────────────────────────── -->
+<section>
+  <h2>Same model, same params — the only variable is how it decodes</h2>
+  <p>
+    Both models are the <strong>26B-A4B Gemma 4 MoE</strong> (≈25.8 B total, ≈3 B active per token,
+    128 experts) on the same Blackwell card, same NVFP4 quant, same benchmark harness. The difference is
+    the <em>decoding paradigm</em>:
+  </p>
+  <ul>
+    <li><strong>Gemma 4 (autoregressive):</strong> emits one token at a time, left to right. First token
+      is nearly instant; throughput is bounded by one memory-bandwidth pass per token.</li>
+    <li><strong>DiffusionGemma (discrete diffusion):</strong> denoises a fixed <strong>256-token canvas</strong>
+      in parallel, re-running only the tokens it isn't yet confident about (entropy-bound denoising +
+      self-conditioning). It can't stream the first token early — but once the canvas resolves it pours out
+      tokens far faster.</li>
+  </ul>
+  <p class="muted">
+    This is the trade the diffusion paper sells: <strong>much higher throughput at the cost of much higher
+    time-to-first-token</strong>. The numbers below are measured, not quoted.
+  </p>
+</section>
+
+<!-- ── Hero cards ──────────────────────────────────────────── -->
+<section>
+  <h2>Headline: single-user decode throughput</h2>
+  <div class="hero-row">
+    <div class="config-card diff-fp8">
+      <div class="crown">fastest</div>
+      <div class="tag">diffusion · fp8</div>
+      <h3>DiffusionGemma FP8</h3>
+      <div class="big">743</div>
+      <div class="unit">tok / s · TTFT ~345 ms</div>
+      <div class="detail">~26 GB weights · 256-tok canvas</div>
+    </div>
+
+    <div class="config-card diff-nvfp4">
+      <div class="tag">diffusion · nvfp4</div>
+      <h3>DiffusionGemma NVFP4</h3>
+      <div class="big">653</div>
+      <div class="unit">tok / s · TTFT ~400 ms</div>
+      <div class="detail">~13 GB weights · half the footprint</div>
+    </div>
+
+    <div class="config-card ar-nvfp4">
+      <div class="tag">autoregressive · nvfp4</div>
+      <h3>Gemma 4 26B NVFP4</h3>
+      <div class="big">179</div>
+      <div class="unit">tok / s · TTFT ~13 ms (warm)</div>
+      <div class="detail">~13 GB weights · 1 token / pass</div>
+    </div>
+
+    <div class="config-card ar-ttft">
+      <div class="tag">latency crown</div>
+      <h3>AR time-to-first-token</h3>
+      <div class="big">13<span style="font-size:1rem"> ms</span></div>
+      <div class="unit">vs ~345–400 ms diffusion</div>
+      <div class="detail">~27× lower TTFT than diffusion</div>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:1rem">
+    Diffusion FP8 decodes <strong>4.1×</strong> the tokens/s of the same-size autoregressive Gemma 4
+    (NVFP4 diffusion: 3.6×). Autoregressive answers <strong>~27× sooner</strong> on the first token.
+    Pick by workload — see the verdict.
+  </p>
+</section>
+
+<!-- ── Throughput bar chart ────────────────────────────────── -->
+<section>
+  <h2>Single-user throughput — diffusion vs autoregressive</h2>
+  <p class="muted">3-run warm average, <code>test_chat.py --no-think</code>, default essay prompt. All three are the 26B-A4B Gemma 4 MoE on the same RTX PRO 6000.</p>
+  <div class="chart-wrap"><canvas id="chartTput"></canvas></div>
+</section>
+
+<!-- ── TTFT vs throughput scatter ──────────────────────────── -->
+<section>
+  <h2>The trade, in one picture: throughput ⟂ latency</h2>
+  <p class="muted">
+    Up-and-to-the-right is "more tokens/s"; left is "answers sooner". The diffusion points buy throughput
+    by paying first-token latency — the canvas must denoise before anything streams.
+  </p>
+  <div class="chart-wrap"><canvas id="chartScatter"></canvas></div>
+</section>
+
+<!-- ── Concurrency scaling ─────────────────────────────────── -->
+<section>
+  <h2>Concurrency scaling (aggregate tok/s, <code>--max-num-seqs 4</code>)</h2>
+  <p class="muted">
+    Aggregate throughput across 1 / 2 / 4 simultaneous streams, 1024 tokens each, warm. Diffusion's
+    parallel canvas keeps scaling; the AR model scales too but from a much lower base.
+  </p>
+  <div class="chart-wrap"><canvas id="chartConc"></canvas></div>
+</section>
+
+<!-- ── Detail table ────────────────────────────────────────── -->
+<section>
+  <h2>Detail breakdown</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Model · decode · quant</th>
+        <th class="num">tok/s (bs=1)</th>
+        <th class="num">TTFT (warm)</th>
+        <th class="num">agg @4</th>
+        <th class="num">Weights</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="background:rgba(61,220,151,0.07)">
+        <td class="row-diff-fp8"><strong>DiffusionGemma · diffusion · FP8</strong></td>
+        <td class="num"><strong>743</strong></td>
+        <td class="num">~345 ms</td>
+        <td class="num"><strong>1382</strong></td>
+        <td class="num">~26 GB</td>
+        <td>throughput leader; blog's reference quant</td>
+      </tr>
+      <tr>
+        <td class="row-diff-nvfp4">DiffusionGemma · diffusion · NVFP4</td>
+        <td class="num">653</td>
+        <td class="num">~400 ms</td>
+        <td class="num">1160</td>
+        <td class="num">~13 GB</td>
+        <td>half the footprint, ~12% slower than FP8</td>
+      </tr>
+      <tr>
+        <td class="row-ar">Gemma 4 26B-A4B · autoregressive · NVFP4</td>
+        <td class="num">179</td>
+        <td class="num">~13 ms</td>
+        <td class="num">562</td>
+        <td class="num">~13 GB</td>
+        <td>instant first token; same weights as diffusion-NVFP4</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    bs=1 = 3-run warm avg from <code>test_chat.py</code>. agg@4 = aggregate tok/s across 4 concurrent
+    1024-token streams. Diffusion always emits exactly one 256-token canvas block per <code>test_chat</code>
+    request; the AR model streams to its natural stop. Per-request denoising cost amortizes flat across
+    512/1024/2048-token generations (~675 tok/s steady for NVFP4).
+  </p>
+</section>
+
+<!-- ── How it stacks vs the blog's datacenter cards ────────── -->
+<section>
+  <h2>DiffusionGemma FP8 vs the blog's datacenter cards</h2>
+  <p class="muted">vLLM's launch post measured batch-size-1 FP8 on H100/H200. Our workstation Blackwell, same quant:</p>
+  <table>
+    <thead><tr><th>GPU</th><th class="num">Mem BW</th><th class="num">FP8 bs=1 tok/s</th><th>vs us</th></tr></thead>
+    <tbody>
+      <tr><td>H200 (blog)</td><td class="num">~4.8 TB/s</td><td class="num">1288</td><td><span class="badge ar">1.7×</span></td></tr>
+      <tr><td>H100 (blog)</td><td class="num">~3.35 TB/s</td><td class="num">1008</td><td><span class="badge ar">1.4×</span></td></tr>
+      <tr style="background:rgba(61,220,151,0.07)"><td class="row-diff-fp8"><strong>RTX PRO 6000 Blackwell (here)</strong></td><td class="num">~1.6 TB/s</td><td class="num"><strong>~743</strong></td><td><span class="badge good">baseline</span></td></tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    We land at ~73% of an H100 and ~58% of an H200 — <em>better</em> than the raw bandwidth ratio
+    (~0.48× H100) predicts, because Blackwell tensor cores carry part of the parallel denoising load,
+    not just memory bandwidth.
+  </p>
+</section>
+
+<!-- ── Findings ────────────────────────────────────────────── -->
+<section>
+  <h2>What the comparison shows</h2>
+  <div class="findings">
+    <strong>Diffusion is a throughput machine.</strong>
+    <ul>
+      <li><strong>3.6–4.1× the decode tok/s</strong> of the identical-size autoregressive Gemma 4, on the
+        same card and quant. The win comes entirely from resolving a 256-token canvas in parallel instead
+        of one-token-per-bandwidth-pass.</li>
+      <li><strong>Scales harder under load:</strong> 1382 vs 562 tok/s aggregate at 4 concurrent streams
+        (2.5×). The parallel canvas keeps the tensor cores fed where the AR decode is bandwidth-starved.</li>
+      <li><strong>NVFP4 buys footprint, not speed:</strong> ~13 GB vs ~26 GB FP8 for ~12% less throughput
+        and slightly higher TTFT. On a 96 GB card FP8 is the better default; NVFP4 matters when sharing the GPU.</li>
+    </ul>
+  </div>
+  <div class="alert">
+    <strong>Autoregressive still owns latency.</strong>
+    <ul style="margin:0.4rem 0 0;padding-left:1.4rem">
+      <li><strong>~13 ms TTFT vs ~345–400 ms</strong> — a ~27× gap. Diffusion must denoise the whole canvas
+        before it can stream <em>anything</em>, so it feels sluggish to start in an interactive chat even
+        though it finishes a long answer sooner.</li>
+      <li>For short replies (a sentence, a tool call, a yes/no), the AR model can be done before the diffusion
+        model has emitted its first token. Diffusion's advantage only materializes over longer generations.</li>
+      <li>Diffusion also <em>thinks by default</em> (<code>enable_thinking: true</code>); the entropy-bound
+        sampler emits a brief reasoning preamble even with <code>--no-think</code>.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Verdict ─────────────────────────────────────────────── -->
+<section>
+  <h2>Which 26B to run</h2>
+  <table>
+    <thead><tr><th>Use case</th><th>Pick</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Long-form generation, batch jobs, max tokens/s</td>
+        <td class="row-diff-fp8">DiffusionGemma FP8</td>
+        <td>743 tok/s single, 1382 aggregate. The high TTFT amortizes over long outputs.</td>
+      </tr>
+      <tr>
+        <td>Throughput on a shared / smaller GPU</td>
+        <td class="row-diff-nvfp4">DiffusionGemma NVFP4</td>
+        <td>~13 GB weights, still 653 tok/s. Leaves room for KV cache / a second model.</td>
+      </tr>
+      <tr>
+        <td>Interactive chat, agents, short tool calls</td>
+        <td class="row-ar">Gemma 4 26B NVFP4 (AR)</td>
+        <td>13 ms TTFT feels instant; diffusion's 400 ms start is noticeable on short turns.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Quick start ─────────────────────────────────────────── -->
+<section>
+  <h2>Reproduce</h2>
+  <pre><code># DiffusionGemma (this directory) — port 11456, served name diffusion-gemma-26b
+docker compose -f docker-compose.vllm-26b-fp8-rtx.yml up -d      # or -nvfp4-
+
+# Autoregressive Gemma 4 26B-A4B (../gemma4) — port 11454, served name gemma4-26b
+docker compose -f ../gemma4/docker-compose.vllm-26b-nvfp4-rtx.yml up -d
+
+# Identical harness for both
+python3 ../shared/test_chat.py --base-url http://localhost:11456/v1 \
+  --model diffusion-gemma-26b --runs 3 --warmup --no-think</code></pre>
+  <p class="muted">
+    Single shared GPU: benchmarking either model means stopping the resident model first
+    (<code>qwen36-27b-fp8-dflash</code>), then restarting it afterward.
+  </p>
+</section>
+
+</main>
+
+<footer>
+  Measured 2026-06-14 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) · single shared card, one model at a time ·
+  diffusion on <code>vllm/vllm-openai:gemma-x86_64-cu130</code>, AR on <code>gemma4-0505-cu130</code>.
+  Source: <a href="https://vllm-project.github.io/2026/06/10/diffusion-gemma.html">vLLM DiffusionGemma post</a>.
+</footer>
+
+<script>
+const gridColor = 'rgba(61,220,151,0.08)';
+const tickColor = '#8aa0c4';
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+const C_DIFF_FP8   = '#3ddc97';
+const C_DIFF_NVFP4 = '#2bd4c4';
+const C_AR         = '#4a90e2';
+
+// ── Throughput bar ──────────────────────────────────────────
+new Chart(document.getElementById('chartTput'), {
+  type: 'bar',
+  data: {
+    labels: ['Gemma 4 26B · AR · NVFP4', 'DiffusionGemma · NVFP4', 'DiffusionGemma · FP8'],
+    datasets: [{
+      label: 'tok/s (single-user, warm avg)',
+      data: [179, 653, 743],
+      backgroundColor: [C_AR, C_DIFF_NVFP4, C_DIFF_FP8],
+      borderColor: ['rgba(74,144,226,0.9)','rgba(43,212,196,0.9)','rgba(255,255,255,0.95)'],
+      borderWidth: [1.5, 1.5, 3],
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(0)} tok/s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (single-user, batch size 1)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600', size: 12 } } }
+    }
+  }
+});
+
+// ── TTFT vs throughput scatter ──────────────────────────────
+new Chart(document.getElementById('chartScatter'), {
+  type: 'scatter',
+  data: {
+    datasets: [
+      { label: 'DiffusionGemma FP8',   data: [{x: 345, y: 743}], backgroundColor: C_DIFF_FP8,   pointRadius: 11, pointHoverRadius: 13 },
+      { label: 'DiffusionGemma NVFP4', data: [{x: 400, y: 653}], backgroundColor: C_DIFF_NVFP4, pointRadius: 11, pointHoverRadius: 13 },
+      { label: 'Gemma 4 26B AR NVFP4', data: [{x: 13,  y: 179}], backgroundColor: C_AR,         pointRadius: 11, pointHoverRadius: 13 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#e8f1ff', font: { size: 12 } } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s @ ${ctx.parsed.x} ms TTFT` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor }, type: 'logarithmic',
+           title: { display: true, text: 'time to first token (ms, log scale) — lower is better', color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true,
+           title: { display: true, text: 'throughput (tok/s) — higher is better', color: tickColor } }
+    }
+  }
+});
+
+// ── Concurrency scaling lines ───────────────────────────────
+new Chart(document.getElementById('chartConc'), {
+  type: 'line',
+  data: {
+    labels: ['1 stream', '2 streams', '4 streams'],
+    datasets: [
+      { label: 'DiffusionGemma FP8',   data: [652, 1110, 1382], borderColor: C_DIFF_FP8,   backgroundColor: C_DIFF_FP8,   tension: 0.25, borderWidth: 3, pointRadius: 5 },
+      { label: 'DiffusionGemma NVFP4', data: [851, 925, 1160],  borderColor: C_DIFF_NVFP4, backgroundColor: C_DIFF_NVFP4, tension: 0.25, borderWidth: 3, pointRadius: 5 },
+      { label: 'Gemma 4 26B AR NVFP4', data: [180, 309, 562],   borderColor: C_AR,         backgroundColor: C_AR,         tension: 0.25, borderWidth: 3, pointRadius: 5 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#e8f1ff', font: { size: 12 } } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tok/s aggregate` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor }, beginAtZero: true,
+           title: { display: true, text: 'aggregate tokens / second', color: tickColor } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>

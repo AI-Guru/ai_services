@@ -1,0 +1,106 @@
+# DiffusionGemma 26B-A4B-it via vLLM — FP8-dynamic quantized (Blackwell)
+#
+# Target: RedHatAI/diffusiongemma-26B-A4B-it-FP8-dynamic (~26 GB FP8 weights),
+# the W8A8 dynamic-activation quant of google/diffusiongemma-26B-A4B-it.
+# First-party RedHatAI checkpoint. This is the quant the vLLM blog used for
+# its headline numbers (H200 FP8 ~1288 tok/s, H100 FP8 ~1008 tok/s @ bs=1).
+#
+# Discrete diffusion LM (dLLM) on the Gemma4 backbone — denoises a fixed
+# 256-token canvas in parallel rather than emitting one token at a time, so
+# decode throughput far exceeds a same-size autoregressive model. model_type
+# `diffusion_gemma` / arch `DiffusionGemmaForBlockDiffusion`; needs the
+# dedicated `vllm/vllm-openai:gemma` image (vLLM 0.24.0+).
+#
+# Diffusion-specific serving (from the RedHatAI model card):
+#   - VLLM_USE_V2_MODEL_RUNNER=1
+#   - --hf-overrides '{"diffusion_sampler":"entropy_bound",
+#                      "diffusion_entropy_bound":0.1}'
+#   - --max-num-seqs 4  (keep <=4)
+#
+# FP8 vs NVFP4: FP8 keeps more precision (~26 GB vs ~13 GB) and is the
+# blog's reference quant; NVFP4 is half the weights and the faster Blackwell
+# path. Run both to compare quality/speed on this card.
+#
+# Usage: docker compose -f docker-compose.vllm-26b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11456/v1
+# Model name served as: diffusion-gemma-26b
+
+name: diffusion-gemma-26b-fp8-vllm
+
+services:
+  vllm-server:
+    image: vllm/vllm-openai:gemma-x86_64-cu130
+    container_name: diffusion-gemma-vllm-26b-fp8
+    restart: unless-stopped
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "11456:11456"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_V2_MODEL_RUNNER=1
+
+    command:
+      - RedHatAI/diffusiongemma-26B-A4B-it-FP8-dynamic
+      - --served-model-name
+      - diffusion-gemma-26b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11456"
+      - --max-model-len
+      - "131072"
+      - --max-num-seqs
+      - "4"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --trust-remote-code
+      - --hf-overrides
+      - '{"diffusion_sampler": "entropy_bound", "diffusion_entropy_bound": 0.1}'
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true}'
+      - --enable-prefix-caching
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11456/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: diffusion_gemma_huggingface_cache
+
+networks:
+  default:
+    name: diffusion-gemma-network
