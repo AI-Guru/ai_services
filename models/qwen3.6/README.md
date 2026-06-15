@@ -411,14 +411,19 @@ generations dominate this thinking model's typical workload.
 `num_speculative_tokens=2` was untested — DeltaNet hybrid recurrent state
 can't restore on partial accept, so gains saturate near 1.
 
-**MTP requires baked-in head weights, not just any NVFP4 checkpoint.** Three
-27B NVFP4 quants exist; only one ships the MTP layer in the safetensors:
+**MTP requires baked-in head weights, not just any NVFP4 checkpoint.** As of
+2026-06, **two** of the three 27B NVFP4 quants ship the MTP layer — Unsloth
+**re-uploaded** its checkpoint (now group_size=16 *with* an MTP head; it was
+group_size=8 / no-MTP when first measured 2026-05-10):
 
 | Checkpoint | group_size | MTP head | Best measured |
 |---|---:|:---:|---:|
-| `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` | 16 | yes | **83.5 tok/s** (+ MTP) |
-| `unsloth/Qwen3.6-27B-NVFP4` | 8 | no | 49.7 tok/s (no spec) |
+| `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` | 16 | yes | **98.4 tok/s** (v0.23.0 + MTP; 83.5 on cu130-nightly) |
+| `unsloth/Qwen3.6-27B-NVFP4` | 16 | yes (since ~2026-06) | 81.4 tok/s (v0.23.0 + MTP; was 49.7 / no-MTP) |
 | `mmangkad/Qwen3.6-27B-NVFP4` | 16 | no | 44.9 tok/s (no spec; also forces fp8 KV → vLLM rejects DFlash combo) |
+
+Unsloth's MTP head underperforms sakamakismile's by ~21% (81.4 vs 98.4) — same
+pattern as the 35B NVIDIA-vs-Unsloth result; see the v0.23.0 re-test below.
 
 For a no-MTP NVFP4 checkpoint to match 83.5, you'd need to pair it with an
 external drafter (e.g. z-lab DFlash) — see the experimental DFlash section
@@ -430,6 +435,50 @@ The Blackwell flag bundle (`--async-scheduling`, `--cuda-graph-capture-size`,
 the cuda-graph CLI flag doesn't exist (it's a `compilation-config` JSON
 sub-field), and `level:3` (VLLM_COMPILE) is the default `mode`. No gains
 available from this path.
+
+### vLLM v0.23.0 re-test — 3-way A/B/C (2026-06-15)
+
+Triggered by the [unsloth/Qwen3.6-27B-NVFP4](https://huggingface.co/unsloth/Qwen3.6-27B-NVFP4)
+**re-upload** (it now ships an MTP head, see above) and vLLM **v0.23.0**'s NVFP4
+linear refactor + EAGLE/MTP lookahead-cache work. Engine held constant at
+`vllm/vllm-openai:v0.23.0-cu129` (no cu130 tag exists for 0.23.0; cu129 = CUDA
+12.9, supports Blackwell SM_120). `test_chat.py --runs 3 --warmup --no-think`,
+runs averaged. Script: [`benchmarks/run_3way_v0230.sh`](benchmarks/run_3way_v0230.sh).
+
+| Config | Checkpoint | Spec | avg tok/s | Range | VRAM | Tools |
+|--------|-----------|------|----------:|-------|------|:-----:|
+| **B FP8 + DFlash** | `Qwen3.6-27B-FP8` + `z-lab DFlash` (15 tok) | DFlash | **99.7** | 86.7–106.4 (high variance) | ~27 GB FP8 | — |
+| **C NVFP4 + MTP (sakamakismile)** | `sakamakismile/…-NVFP4-MTP` | MTP N=1 | **98.4** | 97.6–99.4 (tight) | ~16 GB NVFP4 | — |
+| **A NVFP4 + MTP (unsloth)** | `unsloth/Qwen3.6-27B-NVFP4` | MTP N=1 | **81.4** | 80.2–82.4 | ~16 GB NVFP4 | **1/1 PASS** |
+
+**Takeaways**
+
+- **v0.23.0 helps the NVFP4+MTP path: sakamakismile 83.5 → 98.4 tok/s (+18%)** vs
+  the 2026-04-22 cu130-nightly number, same checkpoint/flags. FP8+DFlash is flat
+  (~103 → 99.7, within DFlash's run-to-run variance).
+- **The Unsloth re-upload is a real gain for that checkpoint** (49.7 no-MTP →
+  81.4 with its new MTP head) **but it is still the slowest MTP option** —
+  sakamakismile beats it by +21% at the same quant/VRAM/settings. Unsloth's MTP
+  head simply has lower acceptance. No reason to switch the live model to it.
+- **Best VRAM-for-throughput: C (sakamakismile NVFP4+MTP)** — 98.4 tok/s, tight
+  variance, at **~16 GB** vs FP8+DFlash's 99.7 tok/s at ~27 GB. Near-identical
+  speed, ~40% less VRAM, and steadier. The standout candidate if memory headroom
+  matters (longer ctx, or freeing the card).
+- **Tool-calling** on the unsloth candidate passed (`single` scenario: `get_weather`
+  → `tool_calls`), confirming NVFP4+MTP tool use works under v0.23.0.
+
+**⚠️ v0.23.0 migration gotcha (breaking change).** v0.23.0 tightened config
+validation and now **hard-fails** instead of silently clamping:
+
+```
+ValueError: max_num_seqs (1024) exceeds available Mamba cache blocks (1019).
+```
+
+Every Qwen3.6 hybrid-DeltaNet compose needs `--max-num-seqs ≤ Mamba-cache-blocks`
+(~1019 at util 0.90) added when moving off cu130-nightly. Fixed here by adding
+`--max-num-seqs 512`. Only the unsloth compose is pinned to v0.23.0-cu129 (it
+needs the native NVFP4+MTP path); FP8+DFlash and sakamakismile composes remain
+on cu130-nightly — bump them similarly only with the max-num-seqs flag.
 
 ### Startup time
 

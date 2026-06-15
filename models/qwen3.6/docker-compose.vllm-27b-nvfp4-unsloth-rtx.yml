@@ -1,20 +1,30 @@
 # Qwen3.6-27B NVFP4 (unsloth) — official Unsloth NVFP4 quantization
 #
 # Target: unsloth/Qwen3.6-27B-NVFP4
-#   - NVFP4 4-bit float, group_size=8 (vs group_size=16 in mmangkad/sakamakismile
-#     variants). Smaller groups → finer-grained scales → potentially better
-#     accuracy, at the cost of slightly more dequant metadata per block.
+#   - NVFP4 4-bit float (nvfp4-pack-quantized), group_size=16. NOTE: Unsloth
+#     RE-UPLOADED this checkpoint (~2026-06); the earlier revision this file
+#     documented was group_size=8 with no MTP. The current revision is
+#     group_size=16 AND ships an MTP head (verified in config.json).
 #   - Calibrated on HF UltraChat (~2M-token budget, up to 16K ctx).
 #   - Reported impact: GSM8K 0.20 (= base), MMLU-Pro 0.63 (vs 0.64 base).
-#   - No MTP heads in this checkpoint. For MTP, use the sakamakismile
-#     NVFP4-MTP variant (docker-compose.vllm-27b-nvfp4-mtp-rtx.yml).
+#   - MTP head present (config.json mtp_num_hidden_layers=1): self-speculates,
+#     so it acts as its own draft model — no separate DFlash drafter needed.
+#     Enabled below via --speculative-config method=qwen3_next_mtp with
+#     num_speculative_tokens=1 (3 is unstable on the hybrid DeltaNet arch).
+#   - Engine: needs the native NVFP4+MTP path → pinned to v0.23.0-cu129
+#     (cu129 = CUDA 12.9, supports Blackwell SM_120). Replaces the prior
+#     cu130-nightly + manual pip-upgrade recipe.
+#   - BENCHMARK VERDICT (v0.23.0, 2026-06-15): 81.4 tok/s — the new MTP head
+#     works (and tool-calling passes) but is the SLOWEST MTP option;
+#     sakamakismile NVFP4-MTP does 98.4 tok/s at the same quant/VRAM. Prefer
+#     that for production. See README "vLLM v0.23.0 re-test — 3-way A/B/C".
 #
 # Sibling NVFP4 recipes for comparison:
 #   - mmangkad/Qwen3.6-27B-NVFP4              (group_size=16, no MTP, fp8 KV) → docker-compose.vllm-27b-nvfp4-rtx.yml
 #   - sakamakismile NVFP4-MTP, no spec        (group_size=16, MTP dormant)   → docker-compose.vllm-27b-nvfp4-baseline-rtx.yml
 #   - sakamakismile NVFP4-MTP + speculative   (group_size=16, MTP active)    → docker-compose.vllm-27b-nvfp4-mtp-rtx.yml
 #   - sakamakismile NVFP4-MTP + DFlash        (group_size=16, DFlash drafter) → docker-compose.vllm-27b-nvfp4-dflash-rtx.yml
-#   - unsloth/Qwen3.6-27B-NVFP4               (group_size=8, no MTP)         → THIS FILE
+#   - unsloth/Qwen3.6-27B-NVFP4               (group_size=16, MTP head)      → THIS FILE
 #
 # Upstream recipe (https://huggingface.co/unsloth/Qwen3.6-27B-NVFP4):
 #   vllm serve unsloth/Qwen3.6-27B-NVFP4 --trust-remote-code --dtype bfloat16
@@ -42,7 +52,7 @@
 
 services:
   qwen36-27b-nvfp4-unsloth:
-    image: vllm/vllm-openai:cu130-nightly
+    image: vllm/vllm-openai:v0.23.0-cu129
     container_name: qwen36-27b-nvfp4-unsloth
     restart: unless-stopped
 
@@ -92,6 +102,10 @@ services:
       - "262144"
       - --gpu-memory-utilization
       - "0.90"
+      # v0.23.0 hard-fails when max_num_seqs > available Mamba/DeltaNet cache
+      # blocks (~1019 at util 0.90); older nightly builds silently clamped it.
+      - --max-num-seqs
+      - "512"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
@@ -107,6 +121,10 @@ services:
       - '{"enable_thinking": true, "preserve_thinking": true}'
       - --override-generation-config
       - '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0, "repetition_penalty": 1.0}'
+      # self-speculation via the checkpoint's own MTP head (1 token; 3 is
+      # unstable on Qwen3.6 hybrid DeltaNet)
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
