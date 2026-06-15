@@ -1,0 +1,34 @@
+# Gradio frontend for the self-hosted text-to-image services.
+#
+# Joins the shared `ai-image-network` (created by a model compose, e.g.
+# models/z-image/docker-compose.diffusers-6b-rtx.yml) and reaches each model
+# container by name over its OpenAI-compatible /v1 endpoint. The model list is
+# config-driven via MODELS_JSON — add an entry per model container.
+#
+# Bring a model up first (so the network exists), then:
+#   docker compose -f docker-compose.yml up -d --build
+# UI: http://localhost:7860
+
+name: ai-image-gradio
+
+services:
+  gradio:
+    build:
+      context: .
+    image: ai-image-gradio:latest
+    container_name: ai-image-gradio
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    environment:
+      - MODELS_JSON=[{"name":"z-image-turbo","url":"http://z-image-turbo:8101/v1"},{"name":"qwen-image","url":"http://qwen-image:8102/v1"}]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+networks:
+  default:
+    name: ai-image-network
+    external: true

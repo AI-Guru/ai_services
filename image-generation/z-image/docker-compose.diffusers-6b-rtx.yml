@@ -1,0 +1,78 @@
+# Z-Image-Turbo (Alibaba Tongyi) via 🤗 diffusers — OpenAI-compatible image API.
+#
+# Target: Tongyi-MAI/Z-Image-Turbo — 6B single-stream DiT (S3-DiT), Apache 2.0.
+# Ranked #1 open-weights on the Artificial Analysis Image Arena (mid-2026).
+# 8-step distilled (Decoupled-DMD): set guidance_scale=0.0, num_inference_steps=9.
+#
+# First-party Apache 2.0 checkpoint (no token, no commercial restrictions).
+# Architecture: flow/DiT diffusion; bilingual (EN/CN) text rendering.
+#
+# Serving: the shared diffusers server (models/shared/diffusers-server/) exposes
+# the OpenAI Images shape (POST /v1/images/generations) so the same endpoint
+# feeds the Gradio app and LibreChat. ZImagePipeline requires diffusers-from-
+# source, which the shared image installs.
+#
+# Verified on RTX PRO 6000 Blackwell (sm_120, torch 2.11+cu130): 1024x1024 in
+# ~2.8s, peak ~23 GB VRAM. See out/smoke.log.
+#
+# Usage: docker compose -f docker-compose.diffusers-6b-rtx.yml up -d --build
+# API endpoint: http://localhost:8101/v1
+# Model name served as: z-image-turbo
+
+name: z-image-turbo-diffusers
+
+services:
+  z-image:
+    build:
+      context: ../diffusers-server
+    image: diffusers-image-server:cu130
+    container_name: z-image-turbo
+    restart: unless-stopped
+    ipc: host
+    shm_size: 16gb
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "8101:8101"
+
+    volumes:
+      # reuse the host HF cache (weights already pulled during the smoke test)
+      - /home/despara/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - MODEL_ID=Tongyi-MAI/Z-Image-Turbo
+      - PIPELINE_CLASS=ZImagePipeline
+      - SERVED_MODEL_NAME=z-image-turbo
+      - TORCH_DTYPE=bfloat16
+      - DEFAULT_STEPS=9
+      - DEFAULT_GUIDANCE=0.0
+      - DEFAULT_SIZE=1024x1024
+      - LOW_CPU_MEM_USAGE=0  # 6B fits CPU RAM; matches the verified smoke-test load
+      - PORT=8101
+      - HF_TOKEN=${HF_TOKEN:-}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    healthcheck:
+      # /health flips to "ok" only once the pipeline has finished loading
+      test: ["CMD", "bash", "-c", "curl -fs http://localhost:8101/health | grep -q '\"status\": *\"ok\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: ai-image-network

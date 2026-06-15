@@ -1,0 +1,3 @@
+# Test/verification outputs (smoke tests, API checks, batch samples) — not tracked.
+# Results worth keeping go in README.md, per repo convention.
+*/out/

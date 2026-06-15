@@ -1,0 +1,77 @@
+# Qwen-Image (Alibaba) via 🤗 diffusers — OpenAI-compatible image API.
+#
+# Target: Qwen/Qwen-Image — 20B MMDiT, Apache 2.0 (no commercial restrictions).
+# Best-in-class complex / Chinese text rendering among open-weights models.
+# First-party Apache 2.0 checkpoint, no token required.
+#
+# Generation params differ from Z-Image: Qwen-Image uses true_cfg_scale (NOT
+# guidance_scale), needs a non-empty negative_prompt (" " minimum) to enable
+# CFG, and ~50 steps. The shared server (models/shared/diffusers-server/) handles
+# this via GUIDANCE_PARAM / DEFAULT_NEG_PROMPT env. Same image as Z-Image.
+#
+# One model at a time: the 20B model + text encoder won't co-reside with the
+# 27B LibreChat LLM on the single 96 GB card. Stop z-image-turbo before starting.
+#
+# Usage: docker compose -f docker-compose.diffusers-20b-rtx.yml up -d --build
+# API endpoint: http://localhost:8102/v1
+# Model name served as: qwen-image
+
+name: qwen-image-diffusers
+
+services:
+  qwen-image:
+    build:
+      context: ../diffusers-server
+    image: diffusers-image-server:cu130
+    container_name: qwen-image
+    restart: unless-stopped
+    ipc: host
+    shm_size: 32gb
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ports:
+      - "8102:8102"
+
+    volumes:
+      - /home/despara/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - MODEL_ID=Qwen/Qwen-Image
+      - PIPELINE_CLASS=QwenImagePipeline
+      - SERVED_MODEL_NAME=qwen-image
+      - TORCH_DTYPE=bfloat16
+      - DEFAULT_STEPS=50
+      - DEFAULT_GUIDANCE=4.0
+      - GUIDANCE_PARAM=true_cfg_scale
+      - DEFAULT_NEG_PROMPT=" "
+      - DEFAULT_SIZE=1024x1024
+      # host has only ~30 GB RAM: stream the 20B weights straight to the 96 GB GPU
+      - DEVICE_MAP=cuda
+      - LOW_CPU_MEM_USAGE=1
+      - PORT=8102
+      - HF_TOKEN=${HF_TOKEN:-}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    healthcheck:
+      test: ["CMD", "bash", "-c", "curl -fs http://localhost:8102/health | grep -q '\"status\": *\"ok\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s  # 20B weights (~40 GB) download + load on first run
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: ai-image-network
