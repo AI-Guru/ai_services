@@ -173,7 +173,7 @@
 
 <!-- ── Throughput table ────────────────────────────────────── -->
 <section>
-  <h2>Single-user throughput — same GPU, ~30B-A3B MoEs</h2>
+  <h2>Single-user throughput — same GPU, ~30B-class models</h2>
   <p class="muted">
     tok/s is single-user decode (think + answer tokens over wall time) on one RTX PRO 6000.
     Only North-Mini-Code's two rows were measured here (★); the rest are each family's
@@ -248,6 +248,20 @@
         <td class="num">154.4</td>
         <td><span class="badge cited">cited</span></td>
       </tr>
+      <tr>
+        <td class="model">Qwen3.6-27B <span class="sub">dense</span></td>
+        <td>27B / <strong>27B</strong></td>
+        <td>vLLM · INT4 · <strong>DFlash</strong> (champion)</td>
+        <td class="num">146</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr>
+        <td class="model">Qwen3.6-27B <span class="sub">dense</span></td>
+        <td>27B / <strong>27B</strong></td>
+        <td>vLLM · FP8 · no-spec</td>
+        <td class="num">47.0</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
     </tbody>
   </table>
 
@@ -259,6 +273,12 @@
       <li><strong>North-Mini-Code's fastest config (llama.cpp Q4, 278 tok/s) is the quickest <em>no-spec</em> number in the field</strong> — its ~17 GB Q4 weights win the bandwidth-bound decode of a 3B-active MoE.</li>
       <li>It trails only configs with an edge it can't match yet: Qwen's NVFP4 + MTP speculative decoding (368), Nemotron Cascade-2's lighter AWQ-int4 (351), and Nemotron Nano's cheaper-to-decode Mamba-2 hybrid (296). North-Mini-Code ships <strong>no MTP head / drafter</strong>, so FP8 decode is its ceiling today.</li>
       <li>On a true FP8-vs-FP8 footing it's mid-pack: 179 vs Qwen3.6-35B's 203.</li>
+      <li><strong>The lone dense entry shows why MoE wins serving.</strong> Qwen3.6-27B (slate bars)
+        is all-27B-active: at FP8 no-spec it manages just <strong>47 tok/s — ~3.8× slower than
+        North-Mini-Code's FP8</strong> (179) despite similar total size, because decode is
+        bandwidth-bound on 9× the active params. Even its INT4+DFlash champion (146) lands below
+        the slowest MoE config here. Dense buys per-token quality (see the benchmark table) at a
+        steep throughput price.</li>
     </ul>
   </div>
   <p class="muted">
@@ -441,6 +461,8 @@ Chart.defaults.borderColor = gridColor;
 
 // sorted slow → fast; North-Mini-Code rows highlighted with a white border
 const tput = [
+  { lbl: 'Qwen3.6-27B dense FP8 [vLLM]',         v:  47.0, hl: false, dense: true },
+  { lbl: 'Qwen3.6-27B dense INT4+DFlash [vLLM]', v: 146.0, hl: false, dense: true },
   { lbl: 'Gemma4-26B NVFP4 [vLLM]',              v: 154.4, hl: false },
   { lbl: 'North-Mini-Code FP8 [vLLM] ★',         v: 179.3, hl: true  },
   { lbl: 'Gemma4-26B Q4_K_XL [llama.cpp]',       v: 196.2, hl: false },
@@ -450,8 +472,10 @@ const tput = [
   { lbl: 'Nemotron-Cascade-2 AWQ-int4 [vLLM]',   v: 351.0, hl: false },
   { lbl: 'Qwen3.6-35B NVFP4+MTP [vLLM]',         v: 367.7, hl: false },
 ];
-// aurora ramp slow → fast
-const ramp = ['#123a6b','#1d5288','#2f7bd6','#3aa0d8','#46c5e0','#46e0c8','#6ff0d2','#9af5d8'];
+// slate for the two dense 27B bars (different class), then aurora ramp slow → fast for the MoEs
+const ramp = tput.map((r, i) => r.dense
+  ? ['#5a4b6b','#6a5b80'][i]
+  : ['#123a6b','#1d5288','#2f7bd6','#3aa0d8','#46c5e0','#46e0c8','#6ff0d2','#9af5d8'][i - tput.filter(x=>x.dense).length]);
 
 new Chart(document.getElementById('chartTput'), {
   type: 'bar',
