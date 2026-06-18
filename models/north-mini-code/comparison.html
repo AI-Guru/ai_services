@@ -62,7 +62,7 @@
     border: 1px solid rgba(70,224,200,0.18);
     padding: 0.28rem 0.7rem; border-radius: 999px;
   }
-  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  main { max-width: none; margin: 0; padding: 0 2rem; }
   section {
     margin-top: 2.5rem;
     background: var(--bg-card);
@@ -118,13 +118,8 @@
     background: var(--bg-elev); border-radius: 10px; padding: 1rem;
   }
 
-  /* full-bleed: break out of main's 1100px cap to ~window width with a 2rem gutter */
-  section.section-wide {
-    width: calc(100vw - 4rem);
-    max-width: calc(100vw - 4rem);
-    margin-left: calc(50% - 50vw + 2rem);
-    margin-right: calc(50% - 50vw + 2rem);
-  }
+  /* main now spans full window width (2rem gutter), so every section is wide;
+     .section-wide is kept only as the hook for the 3/12 : 9/12 split below */
 
   /* chart left / table right, equal height */
   .split { display: flex; gap: 1.5rem; align-items: stretch; margin: 1rem 0; }
