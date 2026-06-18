@@ -1,0 +1,117 @@
+# North-Mini-Code-1.0-FP8 (Cohere) — 30B-A3B MoE coding model on vLLM
+#
+# CohereLabs/North-Mini-Code-1.0: 30B-total / 3B-active sparse MoE (128 experts,
+# 8 active), optimized for agentic software engineering + terminal tasks. 256K
+# context, Apache 2.0. Arch: cohere2_moe / Cohere2MoeForCausalLM (49 layers,
+# 3:1 sliding-window:global attention, sigmoid-gated router, SwiGLU experts).
+#
+# FP8 checkpoint is FIRST-PARTY (CohereLabs/North-Mini-Code-1.0-fp8), ~30 GB —
+# fits comfortably on one RTX PRO 6000 (96 GB) at tp=1. Cohere's own serve
+# command uses -tp 2 for 2xH100; we run tp=1 since FP8 30B is well under 96 GB.
+#
+# !! ENGINE REQUIREMENT (per the HF model card): cohere2_moe needs vLLM *main*
+# (no tagged release registers the arch yet) PLUS Cohere's `cohere_melody>=0.9.0`
+# library for the response/tool-call parser. There is no off-the-shelf image, so
+# this container pip-installs both on boot — same pattern as the Qwen3.6 NVFP4
+# composes (../qwen3.6/docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml).
+#   - vllm/vllm-openai:nightly is built from main and usually already registers
+#     cohere2_moe; the boot step adds cohere_melody and refreshes vLLM to the
+#     latest nightly wheel.
+#   - If a given nightly still does NOT know cohere2_moe (startup logs:
+#     "does not recognize this architecture"), swap the vLLM install line for a
+#     from-source build (see commented line in the entrypoint) — slower (~10 min)
+#     but tracks main exactly.
+#
+# Parsers (from the card): --tool-call-parser cohere_command4
+#                          --reasoning-parser cohere_command4
+# Recommended sampling: temperature=1.0, top_p=0.95.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-30b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11460/v1
+# Model name served as: north-mini-code
+# First boot: ~5-8 min (pip install + ~30 GB FP8 download + load + cudagraph).
+
+services:
+  north-mini-code-vllm:
+    image: vllm/vllm-openai:nightly
+    container_name: north-mini-code-vllm
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11460:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # nightly vLLM pulls flashinfer 0.6.12 but the image's jit-cache is 0.6.8 —
+      # versions are compatible enough; bypass the hard equality guard.
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== installing transformers(main) + cohere_melody + refreshing vLLM nightly (one-time per container start) ==='
+        command -v git >/dev/null || { apt-get update -qq && apt-get install -y -qq git; }
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        # cohere2_moe is registered in transformers main — the nightly's bundled
+        # transformers is too old ("does not recognize this architecture"):
+        pip install -U 'git+https://github.com/huggingface/transformers.git' --quiet
+        pip install -U 'cohere_melody>=0.9.0' --quiet
+        echo '=== versions ==='
+        pip show vllm transformers cohere_melody 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve ==='
+        exec vllm serve CohereLabs/North-Mini-Code-1.0-fp8 \
+          --served-model-name north-mini-code \
+          --host 0.0.0.0 \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --gpu-memory-utilization 0.90 \
+          --max-model-len 262144 \
+          --tool-call-parser cohere_command4 \
+          --reasoning-parser cohere_command4 \
+          --enable-auto-tool-choice \
+          --enable-prefix-caching
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: north_mini_code_huggingface_cache
+
+networks:
+  default:
+    name: north-mini-code-network

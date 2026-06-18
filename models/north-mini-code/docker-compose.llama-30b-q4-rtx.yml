@@ -1,0 +1,85 @@
+# North-Mini-Code-1.0 — llama.cpp GGUF fallback (RTX PRO 6000)
+#
+# Reliable fallback for the primary vLLM FP8 config
+# (docker-compose.vllm-30b-fp8-rtx.yml). Needs NO cohere_melody and NO vLLM-main:
+# stock llama.cpp already supports the cohere2_moe GGUF, so this is the safety net
+# if a given vLLM nightly fails to register the arch.
+#
+# !! COMMUNITY QUANT (unvetted): unsloth/North-Mini-Code-1.0-GGUF. Not a
+# first-party Cohere release — quality/loadability not vetted by us. Confirm the
+# exact quant tag exists in the repo before relying on it (UD-Q4_K_XL assumed).
+#
+# Same port (11460) as the vLLM compose — ONE PORT PER MODEL. Never run both at
+# once (single shared GPU; bring the other `down` first).
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.llama-30b-q4-rtx.yml up -d
+# API endpoint: http://localhost:11460/v1
+# Model name served as: north-mini-code
+
+services:
+  north-mini-code-llama:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: north-mini-code-llama
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 16gb
+
+    ports:
+      - "11460:8000"
+
+    volumes:
+      - llama_cache:/root/.cache/llama.cpp
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+
+    command:
+      - --hf-repo
+      - unsloth/North-Mini-Code-1.0-GGUF:UD-Q4_K_XL
+      - --alias
+      - north-mini-code
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - -ngl
+      - "99"
+      - -fa
+      - "on"
+      - -c
+      - "131072"
+      - --jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  llama_cache:
+    name: north_mini_code_llama_cache
+  huggingface_cache:
+    name: north_mini_code_huggingface_cache
+
+networks:
+  default:
+    name: north-mini-code-network
