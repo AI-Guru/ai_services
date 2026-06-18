@@ -117,6 +117,18 @@
     background: var(--bg-elev); border-radius: 10px; padding: 1rem;
   }
 
+  /* chart left / table right, equal height */
+  .split { display: flex; gap: 1.5rem; align-items: stretch; margin: 1rem 0; }
+  .split > div { flex: 1 1 0; min-width: 0; }
+  .split .col-chart { display: flex; }
+  .split .col-chart > .chart-wrap { flex: 1 1 auto; height: auto; min-height: 340px; margin: 0; }
+  .split .col-table { overflow-x: auto; }
+  .split .col-table table { margin: 0; }
+  @media (max-width: 900px) {
+    .split { flex-direction: column; }
+    .split .col-chart > .chart-wrap { min-height: 420px; }
+  }
+
   .badge {
     display: inline-block; padding: 0.15rem 0.55rem;
     border-radius: 999px; font-size: 0.75rem; font-weight: 600;
@@ -181,6 +193,9 @@
     so the comparison is honest rather than cherry-picked. Configs are <em>not</em> equal —
     speculative decoding and lighter quants are flagged per row.
   </p>
+  <div class="split">
+    <div class="col-chart"><div class="chart-wrap"><canvas id="chartTput"></canvas></div></div>
+    <div class="col-table">
   <table>
     <thead>
       <tr>
@@ -264,8 +279,8 @@
       </tr>
     </tbody>
   </table>
-
-  <div class="chart-wrap"><canvas id="chartTput"></canvas></div>
+    </div>
+  </div>
 
   <div class="findings">
     <strong>Throughput read:</strong>
@@ -315,6 +330,9 @@
     league each model plays in."
   </div>
 
+  <div class="split">
+    <div class="col-chart"><div class="chart-wrap"><canvas id="chartQual"></canvas></div></div>
+    <div class="col-table">
   <table>
     <thead>
       <tr>
@@ -397,8 +415,8 @@
     † pass@10 / non-standard harness — see the caveat above. TIR = tool-integrated reasoning.
     "31B …" = the value is published only for Gemma4's dense 31B sibling, shown for context.
   </p>
-
-  <div class="chart-wrap"><canvas id="chartQual"></canvas></div>
+    </div>
+  </div>
   <p class="muted">Only disclosed scores are plotted; gaps are omitted bars, not zeros. AIME bar uses each model's reported year ('25 or '26).</p>
 
   <div class="findings">
