@@ -46,7 +46,7 @@ GGUF fallback.
 | File | Engine | Quant | Checkpoint | Notes |
 |------|--------|-------|-----------|-------|
 | `docker-compose.vllm-30b-fp8-rtx.yml` | vLLM | FP8 | `CohereLabs/North-Mini-Code-1.0-fp8` (first-party) | **Primary, benchmarked.** nightly image + boot-installs transformers-main / cohere_melody. 262K ctx, tp=1. |
-| `docker-compose.llama-30b-q4-rtx.yml` | llama.cpp | UD-Q4_K_XL | `unsloth/North-Mini-Code-1.0-GGUF` (community, unvetted) | Fallback — no melody / vLLM-main dependency. **Not benchmarked** (vLLM path succeeded); quant tag unverified. |
+| `docker-compose.llama-30b-q4-rtx.yml` | llama.cpp | UD-Q4_K_XL | `unsloth/North-Mini-Code-1.0-GGUF` (community) | **Benchmarked — fastest config (278 tok/s).** No melody / vLLM-main dependency; stock `server-cuda` image, ~24 GB VRAM. |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -54,22 +54,22 @@ Tested 2026-06-18 with `test_chat.py --runs 3 --warmup --no-think` on the defaul
 prompt, `vllm/vllm-openai:nightly` (vLLM 0.23.1rc1.dev149, transformers 5.13.0.dev0,
 cohere_melody 0.9.0). tok/s counts all generated tokens over full wall time.
 
-| Run | TTFT | tokens | tok/s |
-|-----|-----:|-------:|------:|
-| 1 | 351 ms | 1988 | 177.0 |
-| 2 | 239 ms | 1427 | 183.5 |
-| 3 | 274 ms | 1972 | 177.3 |
-| **avg** | **288 ms** | — | **179.3** |
+| Engine · quant | Run 1 | Run 2 | Run 3 | **avg tok/s** | avg TTFT | VRAM |
+|---|---|---|---|---|---|---|
+| **vLLM · FP8** | 177.0 | 183.5 | 177.3 | **179.3** | 288 ms | ~88 GB (util 0.90) |
+| **llama.cpp · UD-Q4_K_XL** | 282.2 | 276.8 | 276.4 | **278.5** | 673 ms | ~24 GB |
 
-Throughput is tight (177–184 tok/s) and TTFT is very low (~0.24–0.35 s warm) — the FP8
-30B-A3B is decode-light (only 3B active) and prefill on the short prompt is trivial.
-North-Mini-Code has **no published MTP head / drafter**, so this is a no-speculative-decoding
-baseline; the figure is purely the FP8 MoE decode rate. (`--no-think` is only partly
-honored — the model still emits a brief `<think>` block, ~250–340 chars, before answering.)
+Both throughputs are tight run-to-run. **llama.cpp Q4 is ~55% faster than vLLM FP8**
+(278 vs 179 tok/s) — decode here is bandwidth-bound and the Q4 weights are ~17 GB vs
+~30 GB at FP8, so the smaller footprint wins on a 3B-active MoE exactly as it does on
+Qwen3.6-35B-A3B (llama.cpp Q4 205 vs vLLM FP8 203 there). vLLM pays back with much lower
+TTFT (~0.29 s vs ~0.67 s warm). North-Mini-Code ships **no MTP head / drafter**, so both
+are no-speculative-decoding baselines. (`--no-think` is only partly honored — the model
+still emits a brief `<think>` block before answering.)
 
-**Tool calling**: `test_tools.py` → **4/4 passed** (single, parallel-2, chained,
-multi-parallel-3) via the `cohere_command4` parser — emits proper structured
-`tool_calls`, including genuine parallel calls.
+**Tool calling**: `test_tools.py` → **4/4 passed on both engines** (single, parallel-2,
+chained, multi-parallel-3) — vLLM via the `cohere_command4` parser, llama.cpp via
+`--jinja`. Both emit proper structured `tool_calls`, including genuine parallel calls.
 
 ## tok/s comparison — same-size models in this repo
 
@@ -80,6 +80,7 @@ oranges otherwise).
 
 | Model | Total / active | Engine · quant · spec | tok/s |
 |-------|----------------|-----------------------|------:|
+| **North-Mini-Code-1.0** | 30B / 3B MoE | **llama.cpp · UD-Q4_K_XL · no-spec** | **278.5** |
 | **North-Mini-Code-1.0** | 30B / 3B MoE | **vLLM · FP8 · no-spec** | **179.3** |
 | Qwen3.6-35B-A3B | 35B / 3B MoE | vLLM · FP8 text-only · no-spec | 203.2 |
 | Qwen3.6-35B-A3B | 35B / 3B MoE | vLLM · NVFP4 · MTP n=3 | 367.7 |
@@ -91,16 +92,15 @@ oranges otherwise).
 Comparison numbers sourced from each family's README (`../qwen3.6/`, `../nemotron/`,
 `../gemma4/`).
 
-**Takeaway:** at **179 tok/s** on the closest like-for-like config (vLLM FP8, no
-speculative decoding), North-Mini-Code lands right where a 3B-active MoE should — a hair
-behind Qwen3.6-35B-A3B's FP8 text-only (203) and ahead of Gemma4 26B-A4B's vLLM NVFP4
-(154). The much higher numbers in the table come from advantages North-Mini-Code can't
-yet match on this box: speculative decoding (Qwen NVFP4+MTP at 368) or a lighter INT4
-quant (Nemotron Cascade-2 AWQ-int4 at 351); Nemotron Nano's ~296 is FP8-vs-FP8 but on a
-Mamba-2 hybrid whose decode is cheaper than this dense-attention MoE. North-Mini-Code
-ships no MTP/drafter, so FP8 decode is the ceiling today — a fair-fight FP8 comparison
-puts it squarely mid-pack, with the bonus that its `cohere_command4` tool calling is
-clean 4/4.
+**Takeaway:** on the closest like-for-like config (**vLLM FP8, no spec**), North-Mini-Code
+runs **179 tok/s** — a hair behind Qwen3.6-35B-A3B's FP8 text-only (203) and ahead of
+Gemma4 26B-A4B's vLLM NVFP4 (154), right where a 3B-active MoE should sit. Its **fastest**
+config is **llama.cpp UD-Q4_K_XL at 278 tok/s** (Q4 weights ~17 GB → bandwidth-bound
+decode wins), which beats every other family's no-spec number here and trails only the
+spec-decoding / lighter-quant configs: Qwen NVFP4+MTP (368), Nemotron Cascade-2 AWQ-int4
+(351), Nemotron Nano FP8 on a cheaper-to-decode Mamba-2 hybrid (~296). North-Mini-Code
+ships no MTP/drafter, so these are honest no-spec baselines — and tool calling is a clean
+**4/4 on both engines**.
 
 ## Testing
 

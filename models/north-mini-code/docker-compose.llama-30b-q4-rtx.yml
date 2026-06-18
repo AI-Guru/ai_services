@@ -46,7 +46,9 @@ services:
 
     command:
       - --hf-repo
-      - unsloth/North-Mini-Code-1.0-GGUF:UD-Q4_K_XL
+      - unsloth/North-Mini-Code-1.0-GGUF
+      - --hf-file
+      - North-Mini-Code-1.0-UD-Q4_K_XL.gguf
       - --alias
       - north-mini-code
       - --host
