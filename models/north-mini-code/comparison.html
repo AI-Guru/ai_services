@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>North-Mini-Code · 30B-A3B MoE · throughput &amp; benchmark comparison · RTX PRO 6000</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #04080f;
+    --bg-elev: #0b1626;
+    --bg-card: #0e1b2e;
+    --fg: #e8f2ff;
+    --muted: #8aa4c4;
+    --champion: #46e0c8;
+    --north-deep: #123a6b;
+    --north-blue: #2f7bd6;
+    --north-cyan: #46c5e0;
+    --north-teal: #46e0c8;
+    --north-aurora: #9af5d8;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #0d2240 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(70,224,200,0.15);
+    background: linear-gradient(180deg, rgba(70,224,200,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--north-deep), var(--north-blue) 30%, var(--north-cyan) 60%, var(--north-aurora));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(70,224,200,0.07);
+    border: 1px solid rgba(70,224,200,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(70,224,200,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(18,58,107,0.25);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--north-cyan), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--north-cyan);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(47,123,214,0.45), rgba(70,224,200,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--north-aurora); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(70,224,200,0.07);
+  }
+  tbody tr:hover td { background: rgba(70,224,200,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  tr.north td { color: var(--champion); font-weight: 700; }
+  tr.north td:first-child::after { content: " ★"; color: var(--champion); }
+  td.model { font-weight: 600; }
+  .sub { color: var(--muted); font-size: 0.8rem; }
+
+  .chart-wrap {
+    position: relative; height: 460px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(70,224,200,0.12); color: var(--champion);
+  }
+  .badge.measured { background: rgba(70,224,200,0.16); color: var(--north-aurora); }
+  .badge.cited { background: rgba(138,164,196,0.13); color: var(--muted); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(70,224,200,0.06), rgba(18,58,107,0.10));
+    border-left: 4px solid var(--champion);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  .alert {
+    background: rgba(255,179,0,0.08);
+    border-left: 4px solid var(--warn);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .alert strong { color: var(--warn); }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(70,224,200,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+  footer a { color: var(--north-cyan); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>North-Mini-Code vs. the ~30B-A3B field</h1>
+  <div class="subtitle">CohereLabs North-Mini-Code-1.0 (30B-total / 3B-active MoE) — throughput on RTX PRO 6000 Blackwell, plus a published-benchmark comparison against same-class MoEs</div>
+  <div class="meta">
+    <span>Measured: <code>test_chat.py --runs 3 --warmup --no-think</code></span>
+    <span>vLLM: <code>vllm/vllm-openai:nightly</code> + transformers-main + cohere_melody 0.9.0</span>
+    <span>llama.cpp: <code>ggml-org/llama.cpp:server-cuda</code></span>
+    <span>GPU: RTX PRO 6000 (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Date: 2026-06-18</span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Throughput table ────────────────────────────────────── -->
+<section>
+  <h2>Single-user throughput — same GPU, ~30B-A3B MoEs</h2>
+  <p class="muted">
+    tok/s is single-user decode (think + answer tokens over wall time) on one RTX PRO 6000.
+    Only North-Mini-Code's two rows were measured here (★); the rest are each family's
+    headline single-user number from its own README, re-stated with engine · quant · spec
+    so the comparison is honest rather than cherry-picked. Configs are <em>not</em> equal —
+    speculative decoding and lighter quants are flagged per row.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Model</th>
+        <th>Total / active</th>
+        <th>Engine · quant · spec</th>
+        <th class="num">tok/s</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="model">Qwen3.6-35B-A3B</td>
+        <td>35B / 3B</td>
+        <td>vLLM · NVFP4 · <strong>MTP n=3</strong></td>
+        <td class="num">367.7</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr>
+        <td class="model">Nemotron-Cascade-2-30B-A3B</td>
+        <td>30B / 3B</td>
+        <td>vLLM · AWQ-int4 · no-spec</td>
+        <td class="num">351</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr>
+        <td class="model">Nemotron-Nano-Omni-30B-A3B</td>
+        <td>30B / 3B</td>
+        <td>vLLM · FP8 · no-spec</td>
+        <td class="num">295.9</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr class="north">
+        <td class="model">North-Mini-Code-1.0</td>
+        <td>30B / 3B</td>
+        <td>llama.cpp · UD-Q4_K_XL · no-spec</td>
+        <td class="num">278.5</td>
+        <td><span class="badge measured">measured</span></td>
+      </tr>
+      <tr>
+        <td class="model">Qwen3.6-35B-A3B</td>
+        <td>35B / 3B</td>
+        <td>vLLM · FP8 text-only · no-spec</td>
+        <td class="num">203.2</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr>
+        <td class="model">Gemma4-26B-A4B</td>
+        <td>25.2B / 3.8B</td>
+        <td>llama.cpp · UD-Q4_K_XL · no-spec</td>
+        <td class="num">196.2</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+      <tr class="north">
+        <td class="model">North-Mini-Code-1.0</td>
+        <td>30B / 3B</td>
+        <td>vLLM · FP8 · no-spec</td>
+        <td class="num">179.3</td>
+        <td><span class="badge measured">measured</span></td>
+      </tr>
+      <tr>
+        <td class="model">Gemma4-26B-A4B</td>
+        <td>25.2B / 3.8B</td>
+        <td>vLLM · NVFP4 · no-spec</td>
+        <td class="num">154.4</td>
+        <td><span class="badge cited">cited</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="chart-wrap"><canvas id="chartTput"></canvas></div>
+
+  <div class="findings">
+    <strong>Throughput read:</strong>
+    <ul>
+      <li><strong>North-Mini-Code's fastest config (llama.cpp Q4, 278 tok/s) is the quickest <em>no-spec</em> number in the field</strong> — its ~17 GB Q4 weights win the bandwidth-bound decode of a 3B-active MoE.</li>
+      <li>It trails only configs with an edge it can't match yet: Qwen's NVFP4 + MTP speculative decoding (368), Nemotron Cascade-2's lighter AWQ-int4 (351), and Nemotron Nano's cheaper-to-decode Mamba-2 hybrid (296). North-Mini-Code ships <strong>no MTP head / drafter</strong>, so FP8 decode is its ceiling today.</li>
+      <li>On a true FP8-vs-FP8 footing it's mid-pack: 179 vs Qwen3.6-35B's 203.</li>
+    </ul>
+  </div>
+  <p class="muted">
+    Caveat: cited numbers are each README's headline single-user figure; the exact prompt /
+    harness varies slightly between families (default <code>test_chat.py</code> prompt vs
+    <code>test_scenarios.py</code> chat scenario), so treat ±10% as noise. All on the same
+    RTX PRO 6000 Blackwell.
+  </p>
+</section>
+
+<!-- ── Quality benchmarks ──────────────────────────────────── -->
+<section id="quality">
+  <h2>Published benchmark quality — coding, agentic, math</h2>
+  <p>
+    Throughput is only half the story. North-Mini-Code is a <strong>coding / terminal-agent
+    specialist</strong>; its three size-peers here are <em>generalists</em> (Qwen3.6-35B-A3B,
+    Gemma4-26B-A4B) or a <em>math/code-reasoning specialist</em> (Nemotron-Cascade-2). That
+    shows up sharply in what each vendor chose to publish: Cohere reports agentic-coding
+    numbers and almost nothing else; the generalists report math + science; Nemotron reports
+    competition coding + math. Empty cells below are <span class="badge cited">n/d</span> —
+    genuinely not disclosed for that model/variant, which is itself a finding.
+  </p>
+
+  <div class="alert">
+    <strong>Read the columns, not the rows — methodology is not uniform.</strong>
+    The SWE-bench and Terminal-Bench numbers come from <em>different harnesses and different
+    pass@k</em>: North-Mini-Code's 80.2 / 55.1 are <strong>pass@10</strong> (SFT checkpoint,
+    SWE-agent harness v1.1.0); Qwen3.6's 73.4 used Alibaba's <em>internal</em> scaffold;
+    Nemotron's 50.2 used OpenHands; all likely nearer pass@1. pass@10 ≫ pass@1, so the
+    agentic-coding column is <strong>not a strict ranking</strong> — treat it as "which
+    league each model plays in."
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Benchmark</th>
+        <th>Category</th>
+        <th class="num">North-Mini-Code<br>30B-A3B</th>
+        <th class="num">Qwen3.6<br>35B-A3B</th>
+        <th class="num">Nemotron-Cascade-2<br>30B-A3B</th>
+        <th class="num">Gemma4<br>26B-A4B</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="north">
+        <td class="model">SWE-bench Verified</td>
+        <td class="sub">agentic coding</td>
+        <td class="num">80.2 <span class="sub">p@10†</span></td>
+        <td class="num">73.4 <span class="sub">scaffold†</span></td>
+        <td class="num">50.2 <span class="sub">OpenHands</span></td>
+        <td class="num">n/d <span class="sub">(31B 52.0)</span></td>
+      </tr>
+      <tr class="north">
+        <td class="model">Terminal-Bench 2.0</td>
+        <td class="sub">agentic terminal</td>
+        <td class="num">55.1 <span class="sub">p@10†</span></td>
+        <td class="num">51.5</td>
+        <td class="num">21.1</td>
+        <td class="num">n/d <span class="sub">(31B 42.9)</span></td>
+      </tr>
+      <tr>
+        <td class="model">LiveCodeBench v6</td>
+        <td class="sub">code generation</td>
+        <td class="num">n/d</td>
+        <td class="num">n/d</td>
+        <td class="num"><strong>87.2</strong> <span class="sub">88.4 TIR</span></td>
+        <td class="num">77.1</td>
+      </tr>
+      <tr>
+        <td class="model">AIME 2025 / 2026</td>
+        <td class="sub">competition math</td>
+        <td class="num">n/d</td>
+        <td class="num">92.7 <span class="sub">'26</span></td>
+        <td class="num">92.4 <span class="sub">'25</span></td>
+        <td class="num">88.3 <span class="sub">'26</span></td>
+      </tr>
+      <tr>
+        <td class="model">GPQA Diamond</td>
+        <td class="sub">graduate science</td>
+        <td class="num">n/d</td>
+        <td class="num"><strong>86.0</strong></td>
+        <td class="num">76.1</td>
+        <td class="num">82.3</td>
+      </tr>
+      <tr>
+        <td class="model">MMLU-Pro</td>
+        <td class="sub">knowledge</td>
+        <td class="num">n/d</td>
+        <td class="num">n/d</td>
+        <td class="num">79.8</td>
+        <td class="num">n/d <span class="sub">(31B 85.2)</span></td>
+      </tr>
+      <tr class="north">
+        <td class="model">AA Coding Index</td>
+        <td class="sub">composite coding</td>
+        <td class="num"><strong>33.4</strong></td>
+        <td class="num">n/d</td>
+        <td class="num">n/d</td>
+        <td class="num">n/d</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="muted">
+    † pass@10 / non-standard harness — see the caveat above. TIR = tool-integrated reasoning.
+    "31B …" = the value is published only for Gemma4's dense 31B sibling, shown for context.
+  </p>
+
+  <div class="chart-wrap"><canvas id="chartQual"></canvas></div>
+  <p class="muted">Only disclosed scores are plotted; gaps are omitted bars, not zeros. AIME bar uses each model's reported year ('25 or '26).</p>
+
+  <div class="findings">
+    <strong>What the benchmarks actually say:</strong>
+    <ul>
+      <li><strong>North-Mini-Code owns its lane.</strong> On the two things Cohere built it for —
+        SWE-bench-style agentic coding (80.2 p@10) and Terminal-Bench (55.1 p@10) — it tops this
+        size class, and its AA Coding Index (33.4) is reported to beat models 4× its size
+        (Nemotron-3-Super 120B, Devstral-2 123B at 72.2 SWE) and to sit within a point of
+        <em>Claude Opus 4.6</em> (80.8 SWE Verified). Caveat: that's pass@10 vs likely pass@1.</li>
+      <li><strong>It deliberately skips the rest.</strong> Cohere published no AIME, GPQA, or
+        MMLU-Pro — North-Mini-Code is a software-engineering agent, not a math/science generalist.
+        If you need reasoning breadth, it's the wrong tool.</li>
+      <li><strong>Nemotron-Cascade-2 is a code-<em>reasoning</em> champion, not an agent.</strong>
+        It tops LiveCodeBench v6 (87.2) and AIME (92.4) — competition-style — yet collapses on
+        real agentic work (SWE 50.2, Terminal-Bench 21.1). Great at solving a stated problem,
+        weak at driving a repo/terminal. And it's the throughput winner (351 tok/s).</li>
+      <li><strong>Qwen3.6-35B-A3B is the best all-rounder.</strong> Strong agentic coding (73.4),
+        strong math (AIME 92.7), strongest science (GPQA 86.0) — no single peak, no holes.</li>
+      <li><strong>Gemma4-26B-A4B is the multimodal generalist.</strong> Solid across LiveCodeBench
+        (77.1) / AIME (88.3) / GPQA (82.3), plus image+video input the others lack — but no
+        published SWE-bench/Terminal-Bench, so its agentic-coding standing is unknown.</li>
+      <li><strong>Throughput ≠ the quality config.</strong> North's headline 278 tok/s is the
+        lossy Q4 GGUF; its 80.2 SWE number lives on the FP8/BF16 weights (179 tok/s here). Pick
+        the row that matches your fidelity needs, not just the tallest bar.</li>
+    </ul>
+  </div>
+</section>
+
+  <div class="findings" style="border-left-color: var(--north-cyan);">
+    <strong>Sources &amp; caveats</strong>
+    <ul>
+      <li><strong>North-Mini-Code</strong>: Cohere launch blog + HF model card (AA Coding Index 33.4; SWE-bench Verified 80.2 pass@10 and Terminal-Bench v2 55.1 pass@10 on the SFT checkpoint; SWE-agent harness v1.1.0; temp 1.0 / top_p 0.95). Individual LiveCodeBench v6 / SciCode / SWE-Pro numbers were <em>evaluated but not published</em>.</li>
+      <li><strong>Qwen3.6-35B-A3B</strong>: Qwen launch coverage — SWE-bench Verified 73.4 (Alibaba internal scaffold, not the public harness), Terminal-Bench 2.0 51.5, AIME 2026 92.7, GPQA Diamond 86.0.</li>
+      <li><strong>Nemotron-Cascade-2-30B-A3B</strong>: NVIDIA HF card — LiveCodeBench v6 87.2 (88.4 TIR), AIME 2025 92.4, GPQA-Diamond 76.1, MMLU-Pro 79.8, SWE Verified (OpenHands) 50.2, Terminal-Bench 2.0 21.1. Self-reported.</li>
+      <li><strong>Gemma4-26B-A4B</strong>: Google Gemma 4 coverage — LiveCodeBench v6 77.1, AIME 2026 88.3, GPQA Diamond 82.3 (31B sibling: MMLU-Pro 85.2, SWE 52.0 via Qwen's comparison).</li>
+      <li>All vendor-self-reported and gathered from secondary write-ups; no third-party re-runs. Cross-model SWE-bench/Terminal-Bench comparisons are <strong>methodology-confounded</strong> (pass@k + harness differ). Throughput numbers, by contrast, were all measured first-hand on one RTX PRO 6000.</li>
+    </ul>
+  </div>
+
+</main>
+
+<footer>
+  Throughput measured 2026-06-18 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7), single-user.
+  North-Mini-Code rows from <code>test_chat.py</code>; comparison rows from each family's README.
+</footer>
+
+<script>
+const gridColor = 'rgba(70,224,200,0.08)';
+const tickColor = '#8aa4c4';
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+// sorted slow → fast; North-Mini-Code rows highlighted with a white border
+const tput = [
+  { lbl: 'Gemma4-26B NVFP4 [vLLM]',              v: 154.4, hl: false },
+  { lbl: 'North-Mini-Code FP8 [vLLM] ★',         v: 179.3, hl: true  },
+  { lbl: 'Gemma4-26B Q4_K_XL [llama.cpp]',       v: 196.2, hl: false },
+  { lbl: 'Qwen3.6-35B FP8 [vLLM]',               v: 203.2, hl: false },
+  { lbl: 'North-Mini-Code Q4_K_XL [llama.cpp] ★',v: 278.5, hl: true  },
+  { lbl: 'Nemotron-Nano-Omni FP8 [vLLM]',        v: 295.9, hl: false },
+  { lbl: 'Nemotron-Cascade-2 AWQ-int4 [vLLM]',   v: 351.0, hl: false },
+  { lbl: 'Qwen3.6-35B NVFP4+MTP [vLLM]',         v: 367.7, hl: false },
+];
+// aurora ramp slow → fast
+const ramp = ['#123a6b','#1d5288','#2f7bd6','#3aa0d8','#46c5e0','#46e0c8','#6ff0d2','#9af5d8'];
+
+new Chart(document.getElementById('chartTput'), {
+  type: 'bar',
+  data: {
+    labels: tput.map(r => r.lbl),
+    datasets: [{
+      label: 'tok/s (single-user, 3-run avg)',
+      data: tput.map(r => r.v),
+      backgroundColor: ramp,
+      borderColor: tput.map((r,i) => r.hl ? 'rgba(255,255,255,0.95)' : ramp[i]),
+      borderWidth: tput.map(r => r.hl ? 3 : 1.5),
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x.toFixed(1)} tok/s` } }
+    },
+    scales: {
+      x: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'tokens / second (single-user)', color: tickColor },
+           beginAtZero: true },
+      y: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600', size: 11 } } }
+    }
+  }
+});
+
+// ── Quality grouped bar — disclosed scores only (null = no bar) ──
+const qBench = ['SWE-bench\nVerified', 'Terminal-\nBench 2.0', 'LiveCode-\nBench v6', 'AIME\n(25/26)', 'GPQA\nDiamond'];
+const qModels = [
+  { name: 'North-Mini-Code (30B-A3B)',     color: '#46e0c8', data: [80.2, 55.1, null, null, null] },
+  { name: 'Qwen3.6-35B-A3B',               color: '#2f7bd6', data: [73.4, 51.5, null, 92.7, 86.0] },
+  { name: 'Nemotron-Cascade-2 (30B-A3B)',  color: '#bc7cff', data: [50.2, 21.1, 87.2, 92.4, 76.1] },
+  { name: 'Gemma4-26B-A4B',                color: '#ffb43d', data: [null, null, 77.1, 88.3, 82.3] },
+];
+
+new Chart(document.getElementById('chartQual'), {
+  type: 'bar',
+  data: {
+    labels: qBench,
+    datasets: qModels.map(m => ({
+      label: m.name,
+      data: m.data,
+      backgroundColor: m.color,
+      borderRadius: 5,
+      borderSkipped: false,
+    }))
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: true, labels: { color: '#e8f2ff', font: { size: 11 }, boxWidth: 14 } },
+      tooltip: { callbacks: { label: ctx => ctx.parsed.y == null ? ' n/d' : ` ${ctx.dataset.label}: ${ctx.parsed.y}` } }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: tickColor, font: { weight: '600', size: 10 } } },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'score (higher = better)', color: tickColor },
+           beginAtZero: true, max: 100 }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
