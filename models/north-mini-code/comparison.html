@@ -274,8 +274,11 @@
   <h2>Published benchmark quality — coding, agentic, math</h2>
   <p>
     Throughput is only half the story. North-Mini-Code is a <strong>coding / terminal-agent
-    specialist</strong>; its three size-peers here are <em>generalists</em> (Qwen3.6-35B-A3B,
-    Gemma4-26B-A4B) or a <em>math/code-reasoning specialist</em> (Nemotron-Cascade-2). That
+    specialist</strong>; its size-peers here are <em>generalists</em> (Qwen3.6-35B-A3B MoE,
+    Qwen3.6-27B dense, Gemma4-26B-A4B) or a <em>math/code-reasoning specialist</em>
+    (Nemotron-Cascade-2). Qwen3.6-27B is the odd one out on form factor — a 27B <em>dense</em>
+    model (all params active), included because it's in this repo and is Qwen's coding-strongest
+    open weight. That
     shows up sharply in what each vendor chose to publish: Cohere reports agentic-coding
     numbers and almost nothing else; the generalists report math + science; Nemotron reports
     competition coding + math. Empty cells below are <span class="badge cited">n/d</span> —
@@ -297,10 +300,11 @@
       <tr>
         <th>Benchmark</th>
         <th>Category</th>
-        <th class="num">North-Mini-Code<br>30B-A3B</th>
-        <th class="num">Qwen3.6<br>35B-A3B</th>
-        <th class="num">Nemotron-Cascade-2<br>30B-A3B</th>
-        <th class="num">Gemma4<br>26B-A4B</th>
+        <th class="num">North-Mini-Code<br>30B-A3B MoE</th>
+        <th class="num">Qwen3.6<br>35B-A3B MoE</th>
+        <th class="num">Qwen3.6-27B<br>27B dense</th>
+        <th class="num">Nemotron-Cascade-2<br>30B-A3B MoE</th>
+        <th class="num">Gemma4<br>26B-A4B MoE</th>
       </tr>
     </thead>
     <tbody>
@@ -309,6 +313,7 @@
         <td class="sub">agentic coding</td>
         <td class="num">80.2 <span class="sub">p@10†</span></td>
         <td class="num">73.4 <span class="sub">scaffold†</span></td>
+        <td class="num">77.2 <span class="sub">scaffold†</span></td>
         <td class="num">50.2 <span class="sub">OpenHands</span></td>
         <td class="num">n/d <span class="sub">(31B 52.0)</span></td>
       </tr>
@@ -317,6 +322,7 @@
         <td class="sub">agentic terminal</td>
         <td class="num">55.1 <span class="sub">p@10†</span></td>
         <td class="num">51.5</td>
+        <td class="num"><strong>59.3</strong></td>
         <td class="num">21.1</td>
         <td class="num">n/d <span class="sub">(31B 42.9)</span></td>
       </tr>
@@ -325,6 +331,7 @@
         <td class="sub">code generation</td>
         <td class="num">n/d</td>
         <td class="num">n/d</td>
+        <td class="num">66.0</td>
         <td class="num"><strong>87.2</strong> <span class="sub">88.4 TIR</span></td>
         <td class="num">77.1</td>
       </tr>
@@ -333,6 +340,7 @@
         <td class="sub">competition math</td>
         <td class="num">n/d</td>
         <td class="num">92.7 <span class="sub">'26</span></td>
+        <td class="num">85.0 <span class="sub">'25</span></td>
         <td class="num">92.4 <span class="sub">'25</span></td>
         <td class="num">88.3 <span class="sub">'26</span></td>
       </tr>
@@ -340,7 +348,8 @@
         <td class="model">GPQA Diamond</td>
         <td class="sub">graduate science</td>
         <td class="num">n/d</td>
-        <td class="num"><strong>86.0</strong></td>
+        <td class="num">86.0</td>
+        <td class="num"><strong>87.8</strong></td>
         <td class="num">76.1</td>
         <td class="num">82.3</td>
       </tr>
@@ -349,6 +358,7 @@
         <td class="sub">knowledge</td>
         <td class="num">n/d</td>
         <td class="num">n/d</td>
+        <td class="num">80.9</td>
         <td class="num">79.8</td>
         <td class="num">n/d <span class="sub">(31B 85.2)</span></td>
       </tr>
@@ -356,6 +366,7 @@
         <td class="model">AA Coding Index</td>
         <td class="sub">composite coding</td>
         <td class="num"><strong>33.4</strong></td>
+        <td class="num">n/d</td>
         <td class="num">n/d</td>
         <td class="num">n/d</td>
         <td class="num">n/d</td>
@@ -386,7 +397,13 @@
         real agentic work (SWE 50.2, Terminal-Bench 21.1). Great at solving a stated problem,
         weak at driving a repo/terminal. And it's the throughput winner (351 tok/s).</li>
       <li><strong>Qwen3.6-35B-A3B is the best all-rounder.</strong> Strong agentic coding (73.4),
-        strong math (AIME 92.7), strongest science (GPQA 86.0) — no single peak, no holes.</li>
+        strong math (AIME 92.7), strong science (GPQA 86.0) — no single peak, no holes.</li>
+      <li><strong>The dense Qwen3.6-27B out-codes its own 35B-A3B MoE</strong> — 77.2 vs 73.4 on
+        SWE-bench, 59.3 vs 51.5 on Terminal-Bench, and the table's best GPQA (87.8). All 27B params
+        fire per token (vs 3B for the MoE), so per-token quality is higher — but it's the slowest
+        to serve here (dense decode is bandwidth-bound: ~47 tok/s FP8, ~146 with INT4+DFlash, far
+        under the MoE field). It's the closest published-benchmark rival to North-Mini-Code on
+        agentic coding, at a real throughput cost.</li>
       <li><strong>Gemma4-26B-A4B is the multimodal generalist.</strong> Solid across LiveCodeBench
         (77.1) / AIME (88.3) / GPQA (82.3), plus image+video input the others lack — but no
         published SWE-bench/Terminal-Bench, so its agentic-coding standing is unknown.</li>
@@ -402,6 +419,7 @@
     <ul>
       <li><strong>North-Mini-Code</strong>: Cohere launch blog + HF model card (AA Coding Index 33.4; SWE-bench Verified 80.2 pass@10 and Terminal-Bench v2 55.1 pass@10 on the SFT checkpoint; SWE-agent harness v1.1.0; temp 1.0 / top_p 0.95). Individual LiveCodeBench v6 / SciCode / SWE-Pro numbers were <em>evaluated but not published</em>.</li>
       <li><strong>Qwen3.6-35B-A3B</strong>: Qwen launch coverage — SWE-bench Verified 73.4 (Alibaba internal scaffold, not the public harness), Terminal-Bench 2.0 51.5, AIME 2026 92.7, GPQA Diamond 86.0.</li>
+      <li><strong>Qwen3.6-27B (dense)</strong>: Qwen launch coverage — SWE-bench Verified 77.2 &amp; SWE-Pro 53.5 (internal scaffold), Terminal-Bench 2.0 59.3, GPQA Diamond 87.8 (confirmed); LiveCodeBench v6 66.0 / AIME'25 85.0 / MMLU-Pro 80.9 from secondary aggregation. Throughput figures from this repo's <code>models/qwen3.6/</code> README.</li>
       <li><strong>Nemotron-Cascade-2-30B-A3B</strong>: NVIDIA HF card — LiveCodeBench v6 87.2 (88.4 TIR), AIME 2025 92.4, GPQA-Diamond 76.1, MMLU-Pro 79.8, SWE Verified (OpenHands) 50.2, Terminal-Bench 2.0 21.1. Self-reported.</li>
       <li><strong>Gemma4-26B-A4B</strong>: Google Gemma 4 coverage — LiveCodeBench v6 77.1, AIME 2026 88.3, GPQA Diamond 82.3 (31B sibling: MMLU-Pro 85.2, SWE 52.0 via Qwen's comparison).</li>
       <li>All vendor-self-reported and gathered from secondary write-ups; no third-party re-runs. Cross-model SWE-bench/Terminal-Bench comparisons are <strong>methodology-confounded</strong> (pass@k + harness differ). Throughput numbers, by contrast, were all measured first-hand on one RTX PRO 6000.</li>
@@ -469,6 +487,7 @@ const qBench = ['SWE-bench\nVerified', 'Terminal-\nBench 2.0', 'LiveCode-\nBench
 const qModels = [
   { name: 'North-Mini-Code (30B-A3B)',     color: '#46e0c8', data: [80.2, 55.1, null, null, null] },
   { name: 'Qwen3.6-35B-A3B',               color: '#2f7bd6', data: [73.4, 51.5, null, 92.7, 86.0] },
+  { name: 'Qwen3.6-27B (dense)',           color: '#7aa9e8', data: [77.2, 59.3, 66.0, 85.0, 87.8] },
   { name: 'Nemotron-Cascade-2 (30B-A3B)',  color: '#bc7cff', data: [50.2, 21.1, 87.2, 92.4, 76.1] },
   { name: 'Gemma4-26B-A4B',                color: '#ffb43d', data: [null, null, 77.1, 88.3, 82.3] },
 ];
