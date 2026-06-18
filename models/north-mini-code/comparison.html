@@ -133,6 +133,9 @@
   .split .col-chart > .chart-wrap { flex: 1 1 auto; height: auto; min-height: 340px; margin: 0; }
   .split .col-table { overflow-x: auto; }
   .split .col-table table { margin: 0; }
+  /* throughput (full-bleed) split: chart 3/12, table 9/12 */
+  .section-wide .split > .col-chart { flex: 3 1 0; }
+  .section-wide .split > .col-table { flex: 9 1 0; }
   @media (max-width: 900px) {
     .split { flex-direction: column; }
     .split .col-chart > .chart-wrap { min-height: 420px; }
