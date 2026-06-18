@@ -34,6 +34,7 @@
     background: radial-gradient(ellipse at top, #0d2240 0%, var(--bg) 60%);
     min-height: 100vh;
     padding: 0 0 4rem;
+    overflow-x: hidden;
   }
   header {
     padding: 3rem 2rem 2rem;
@@ -117,6 +118,14 @@
     background: var(--bg-elev); border-radius: 10px; padding: 1rem;
   }
 
+  /* full-bleed: break out of main's 1100px cap to ~window width with a 2rem gutter */
+  section.section-wide {
+    width: calc(100vw - 4rem);
+    max-width: calc(100vw - 4rem);
+    margin-left: calc(50% - 50vw + 2rem);
+    margin-right: calc(50% - 50vw + 2rem);
+  }
+
   /* chart left / table right, equal height */
   .split { display: flex; gap: 1.5rem; align-items: stretch; margin: 1rem 0; }
   .split > div { flex: 1 1 0; min-width: 0; }
@@ -184,7 +193,7 @@
 <main>
 
 <!-- ── Throughput table ────────────────────────────────────── -->
-<section>
+<section class="section-wide">
   <h2>Single-user throughput — same GPU, ~30B-class models</h2>
   <p class="muted">
     tok/s is single-user decode (think + answer tokens over wall time) on one RTX PRO 6000.
