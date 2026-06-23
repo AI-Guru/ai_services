@@ -32,13 +32,24 @@ MODEL = os.environ.get("GEN_MODEL", "z-image-turbo")
 TIMEOUT = float(os.environ.get("REQUEST_TIMEOUT", "120"))
 
 
+# A high-converting default for the playground: AC-unit marketing visuals aimed
+# at a German audience (clean product shot, bright Mitteleuropa summer interior).
+DEFAULT_GEN_PROMPT = (
+    "professional advertising photograph of a sleek modern wall-mounted air "
+    "conditioning unit in a bright, tidy German living room, large windows with "
+    "warm summer sunlight, Scandinavian minimalist interior, cool refreshing "
+    "atmosphere, premium product photography, crisp detail, clean composition, "
+    "marketing campaign aesthetic"
+)
+
+
 def _decode(resp: requests.Response) -> Image.Image:
     resp.raise_for_status()
     b64 = resp.json()["data"][0]["b64_json"]
     return Image.open(io.BytesIO(base64.b64decode(b64)))
 
 
-def generate(prompt, negative, size, steps, guidance, seed):
+def generate(prompt, negative, size, steps, guidance, seed, n):
     if not prompt.strip():
         raise gr.Error("Enter a prompt.")
     payload = {
@@ -48,11 +59,14 @@ def generate(prompt, negative, size, steps, guidance, seed):
         "num_inference_steps": int(steps),
         "guidance_scale": float(guidance),
         "negative_prompt": negative or "",
-        "n": 1,
+        "n": int(n),
     }
     if int(seed) >= 0:
         payload["seed"] = int(seed)
-    return _decode(requests.post(f"{GEN_URL}/v1/images/generations", json=payload, timeout=TIMEOUT))
+    resp = requests.post(f"{GEN_URL}/v1/images/generations", json=payload, timeout=TIMEOUT)
+    resp.raise_for_status()
+    # n images come back sequentially (no GPU batch speedup) — return them all.
+    return [Image.open(io.BytesIO(base64.b64decode(d["b64_json"]))) for d in resp.json()["data"]]
 
 
 def edit(image, prompt, steps, guidance, seed):
@@ -95,16 +109,18 @@ with gr.Blocks(title="ai_services image playground") as demo:
     with gr.Tab("Generate"):
         with gr.Row():
             with gr.Column():
-                g_prompt = gr.Textbox(label="Prompt", lines=3, value="cyberpunk church interior, neon stained glass, volumetric fog")
-                g_negative = gr.Textbox(label="Negative prompt", value="blurry, low quality, distorted")
+                g_prompt = gr.Textbox(label="Prompt", lines=4, value=DEFAULT_GEN_PROMPT)
+                g_negative = gr.Textbox(label="Negative prompt", value="blurry, low quality, distorted, text, watermark")
                 g_size = gr.Dropdown(["512x512", "768x768", "1024x1024", "1280x1280"], value="1024x1024", label="Size")
                 with gr.Row():
                     g_steps = gr.Slider(1, 30, value=8, step=1, label="Steps (Turbo ≈ 8)")
                     g_guidance = gr.Slider(0.0, 7.5, value=1.0, step=0.1, label="Guidance (Turbo ≈ 1.0)")
-                g_seed = gr.Number(value=-1, label="Seed (-1 = random)", precision=0)
+                with gr.Row():
+                    g_n = gr.Slider(1, 8, value=4, step=1, label="Number of images (n, sequential ~3s each)")
+                    g_seed = gr.Number(value=-1, label="Seed (-1 = random)", precision=0)
                 g_btn = gr.Button("Generate", variant="primary")
-            g_out = gr.Image(label="Result", type="pil")
-        g_btn.click(generate, [g_prompt, g_negative, g_size, g_steps, g_guidance, g_seed], g_out)
+            g_out = gr.Gallery(label="Results", type="pil", columns=2, height="auto")
+        g_btn.click(generate, [g_prompt, g_negative, g_size, g_steps, g_guidance, g_seed, g_n], g_out)
 
     with gr.Tab("Edit (img2img)"):
         with gr.Row():
