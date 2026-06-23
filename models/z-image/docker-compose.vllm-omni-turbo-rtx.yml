@@ -1,0 +1,96 @@
+# Z-Image-Turbo — text-to-image via vLLM-Omni, OpenAI DALL-E-compatible API
+#
+# Tongyi-MAI/Z-Image-Turbo (Alibaba, first-party, Apache 2.0). 6B Single-Stream
+# DiT, 8-step distilled. Tiny next to the 96 GB card (~16 GB fp16 weights), so it
+# coexists comfortably with headroom to spare — but the GPU is still one shared
+# card, so stop any resident LLM first if you want max throughput (see CLAUDE.md).
+#
+# Serves the OpenAI image endpoints, so it drops straight into LibreChat /
+# any DALL-E client:
+#   POST http://localhost:11476/v1/images/generations
+#   POST http://localhost:11476/v1/images/edits
+# vLLM-Omni adds non-OpenAI knobs: negative_prompt, num_inference_steps,
+# guidance_scale, seed, flow_shift (see test_image.sh).
+#
+# Z-Image-Turbo is DISTILLED — use ~8 steps and guidance_scale ~1.0 (CFG off).
+# Cranking steps/CFG like a base model degrades it.
+#
+# Image: vllm/vllm-omni:v0.22.0 ships CUDA 13.0 wheels with Blackwell kernels,
+# same lineage as our :cu130 LLM images. NVFP4 diffusion on SM_120 is still an
+# open RFC (vllm-omni#1959) — this config runs the default fp16/bf16 path, which
+# is plenty for a 6B model. VERIFY IT LOADS per the crash-loop waiter in
+# CLAUDE.md before trusting it; vLLM-Omni on SM_120 is newer than our LLM path.
+#
+# NOTE: this image has no ENTRYPOINT/CMD (unlike vllm/vllm-openai), so the
+# command must spell out `vllm serve <model> --omni ...` in full.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-omni-turbo-rtx.yml up -d
+# API endpoint: http://localhost:11476/v1
+# Model name served as: z-image-turbo
+
+services:
+  z-image-turbo:
+    image: vllm/vllm-omni:v0.22.0
+    container_name: z-image-turbo
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11476:11476"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - vllm
+      - serve
+      - Tongyi-MAI/Z-Image-Turbo
+      - --omni
+      - --served-model-name
+      - z-image-turbo
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11476"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11476/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: zimage_huggingface_cache
+
+networks:
+  default:
+    name: zimage-network

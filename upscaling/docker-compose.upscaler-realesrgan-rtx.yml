@@ -1,0 +1,56 @@
+# Image upscaler — Real-ESRGAN x4 via a thin FastAPI service (spandrel-backed).
+#
+# Companion to models/z-image (generation). Upscaling is NOT part of the OpenAI
+# image API and vLLM-Omni ships no super-resolution models, so this is a small
+# dedicated endpoint: POST an image -> get a 4x PNG back. ~few hundred MB weights,
+# negligible VRAM next to the 96 GB card.
+#
+# Swap upscaler: drop any ESRGAN/SwinIR/DAT-family .pth into ./weights and point
+# UPSCALER_MODEL at it (spandrel auto-detects the architecture). For diffusion
+# restoration (SUPIR / SeedVR2) use ComfyUI instead — heavier, different shape.
+#
+# First boot downloads RealESRGAN_x4plus.pth into ./weights if absent.
+#
+# Usage: docker compose --env-file ../.env -f docker-compose.upscaler-realesrgan-rtx.yml up -d --build
+# Endpoint: POST http://localhost:11477/upscale  (multipart 'file')  ·  GET /health
+
+services:
+  upscaler:
+    build: .
+    container_name: upscaler
+    restart: unless-stopped
+
+    ports:
+      - "11477:8000"
+
+    environment:
+      # Native scales to load at boot (rest load lazily). Set to "2,4" to preload both.
+      - UPSCALER_PRELOAD=${UPSCALER_PRELOAD:-4}
+      - UPSCALER_DEFAULT_SCALE=${UPSCALER_DEFAULT_SCALE:-4}
+
+    volumes:
+      - ./weights:/weights
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

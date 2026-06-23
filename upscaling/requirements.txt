@@ -1,0 +1,6 @@
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9
+spandrel>=0.4,<1
+Pillow>=10.4,<12
+numpy>=1.26,<3
