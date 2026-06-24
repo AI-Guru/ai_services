@@ -1,0 +1,108 @@
+# Qwen-AgentWorld-35B-A3B (BF16) via vLLM — first-party Qwen checkpoint
+#
+# Qwen's agentic *world model*: simulates environment state transitions across
+# 7 domains (MCP/tool-calling, Search, Terminal, SWE, Android, Web, OS). It is a
+# fine-tune of Qwen3.5-35B-A3B-Base, so it shares that exact hybrid architecture:
+# 40 layers (30 Gated DeltaNet + 10 full Gated-Attention), 256 experts
+# (8 routed + 1 shared), 35B total / 3B active, 262K context, text-only.
+# Thinking-on by default (<think>…</think>); recommended temp=0.6 top_p=0.95 top_k=20.
+#
+# This is the unquantized BF16 checkpoint (Qwen/Qwen-AgentWorld-35B-A3B, ~70 GB).
+# Vetted/first-party. The hybrid arch caches a traditional KV on only 10/40 layers
+# (~20 KB/token bf16; DeltaNet uses a seq-length-agnostic ~15 MB/request state),
+# so the full 262K context fits comfortably on a 96 GB card even at BF16 weights.
+#
+# Note: --kv-cache-dtype fp8_e4m3 is NOT set — FP8 KV cache silently corrupts
+# output on DeltaNet layers (vllm-project/vllm#26646). Leave KV at auto/bf16.
+# If you hit OOM, drop --max-model-len to 131072 (the card advises keeping ≥128K).
+#
+# AgentWorld's config declares the multimodal class Qwen3_5MoeForConditionalGeneration
+# but ships NO vision weights (text-only). --language-model-only skips the vision
+# tower; without it vLLM errors on uninitialized visual.* weights. This needs the
+# v0.19.0-cu130 image (the v0.17.0 image used by qwen3.5 lacks that flag/loader path).
+#
+# Usage: docker compose -f docker-compose.vllm-35b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11450/v1
+# Model name served as: agentworld-35b
+
+services:
+  agentworld-vllm-bf16:
+    image: vllm/vllm-openai:v0.19.0-cu130
+    container_name: agentworld-vllm-bf16
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11450:11450"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen-AgentWorld-35B-A3B
+      - --served-model-name
+      - agentworld-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11450"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --trust-remote-code
+      - --language-model-only
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11450/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: agentworld_huggingface_cache
+
+networks:
+  default:
+    name: agentworld-network

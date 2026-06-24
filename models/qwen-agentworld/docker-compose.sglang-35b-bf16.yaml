@@ -1,0 +1,113 @@
+# Qwen-AgentWorld-35B-A3B (BF16) via SGLang — first-party Qwen checkpoint
+#
+# Qwen's agentic *world model* (fine-tune of Qwen3.5-35B-A3B-Base). Same hybrid
+# architecture: 40 layers (30 Gated DeltaNet + 10 full Gated-Attention), 256
+# experts (8 routed + 1 shared), 35B total / 3B active, 262K context, text-only.
+# Thinking-on by default; recommended temp=0.6 top_p=0.95 top_k=20.
+#
+# Unquantized BF16 checkpoint (Qwen/Qwen-AgentWorld-35B-A3B, ~70 GB). Because the
+# DeltaNet hybrid keeps a traditional KV on only 10/40 layers, 262K context still
+# fits — but BF16 weights need the room, so mem-fraction-static is raised to 0.90.
+#
+# Important: FP8 KV cache produces silent corrupt output (wrong answers, no crash)
+# when DeltaNet linear attention state interacts with FP8-quantized KV. kv-cache-dtype
+# is pinned to bf16 and mamba-ssm-dtype to bfloat16. Do not change these.
+#
+# SGLang has RadixAttention (prefix caching) on by default — no flag needed. A
+# "HiRadixCache only supports MHA and MLA" startup warning is expected (DeltaNet).
+#
+# No speculative/MTP flags: AgentWorld is a fine-tune and we can't assume its NEXTN
+# draft heads survived training — enabling NEXTN risks a load failure. To try it,
+# add: --speculative-algo NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1
+#      --speculative-num-draft-tokens 4   (and SGLANG_ENABLE_SPEC_V2=1)
+#
+# Usage: docker compose -f docker-compose.sglang-35b-bf16.yaml up -d
+# API endpoint: http://localhost:11450/v1
+# Model name served as: agentworld-35b
+
+services:
+  agentworld-sglang-bf16:
+    image: lmsysorg/sglang:latest
+    container_name: agentworld-sglang-bf16
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11450:11450"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - Qwen/Qwen-AgentWorld-35B-A3B
+      - --served-model-name
+      - agentworld-35b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11450"
+      - --context-length
+      - "262144"
+      - --mem-fraction-static
+      - "0.90"
+      - --tp-size
+      - "1"
+      - --attention-backend
+      - triton
+      - --kv-cache-dtype
+      - bf16
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --trust-remote-code
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --max-running-requests
+      - "20"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11450/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: agentworld_huggingface_cache
+
+networks:
+  default:
+    name: agentworld-network
