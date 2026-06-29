@@ -1,0 +1,123 @@
+# Gemma 4 26B-A4B BF16 via SGLang — INFEASIBLE on this host (host RAM), kept for
+# reference / a future host with more system RAM. Use the NVFP4 config instead:
+# docker-compose.sglang-26b-nvfp4-rtx.yml (verified working, ~157 tok/s).
+#
+# !!! Does NOT load on this machine (2026-06-29): the host has only 30 GB RAM and
+# the BF16 weights are a single ~50 GB safetensors shard. SGLang mmaps it at load
+# and the OS denies it:
+#   RuntimeError: unable to mmap 49907246508 bytes ... Cannot allocate memory (12)
+# This is the SAME constraint that made vLLM skip BF16 26B (see gemma4 README) —
+# it is a host-RAM limit, NOT an engine or GPU limit. GPU VRAM (96 GB) is fine;
+# system RAM is not. NVFP4 (~12 GB) is the only viable 26B path on this host. !!!
+#
+# Target: google/gemma-4-26B-A4B-it (BF16, ~52 GB). MoE with 128 experts
+# (top-8 + 1 shared, 3.8B active per token), 256K context, hybrid sliding-window
+# attention. Would fit in 96 GB VRAM at TP=1 — but cannot be loaded here.
+#
+# SGLang support: Gemma 4 landed in PR #21952 (v0.5.11, 2026-05-05); the full
+# family (E2B/E4B/26B-A4B MoE/31B) is covered with gemma4 reasoning + tool-call
+# parsers and a NEXTN/MTP draft.
+#
+# Why BF16 and not NVFP4 on this card: NVIDIA ships nvidia/Gemma-4-26B-A4B-NVFP4,
+# and SGLang added NVFP4 (PR #25054, v0.5.12) — but it targets SM100 (B200). On
+# SM120 (RTX PRO 6000) the trtllm_mha / flashinfer_trtllm runners are unsupported,
+# and the SM120-fallback CUTLASS NVFP4 MoE path is reported broken (garbage
+# output). So BF16 is the only vetted SGLang path here. The matching NVFP4 attempt
+# lives in docker-compose.sglang-26b-nvfp4-rtx.yml (experimental, expected-broken).
+#
+# The existing vLLM counterpart (docker-compose.vllm-26b-nvfp4-rtx.yml) runs
+# NVFP4 (~12 GB). The SGLang-vs-vLLM comparison is therefore ALSO a quant
+# comparison (SGLang BF16 vs vLLM NVFP4) — note this in the README.
+#
+# SM120 flags: --attention-backend triton (SM120-safe, correct for SWA),
+# --moe-runner-backend flashinfer_cutlass (only SM120-compatible MoE runner;
+# avoid all trtllm_* backends — SM100-only).
+#
+# Image: lmsysorg/sglang:latest (requires >= v0.5.11 for Gemma 4). No special
+# arch-specific image is needed (unlike vLLM's gemma4-0505-cu130). Pin to
+# v0.5.14 if reproducibility matters. Gemma 4 is gated — set HF_TOKEN in .env.
+#
+# Usage: docker compose -f docker-compose.sglang-26b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11456/v1
+# Model name served as: gemma4-26b
+
+name: gemma4-26b-bf16-sglang
+
+services:
+  gemma4-26b-sglang-bf16:
+    image: lmsysorg/sglang:latest
+    container_name: gemma4-sglang-26b-bf16
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11456:11456"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - google/gemma-4-26B-A4B-it
+      - --served-model-name
+      - gemma4-26b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11456"
+      - --context-length
+      - "131072"
+      - --mem-fraction-static
+      - "0.85"
+      - --tp-size
+      - "1"
+      - --trust-remote-code
+      - --attention-backend
+      - triton
+      - --moe-runner-backend
+      - flashinfer_cutlass
+      - --reasoning-parser
+      - gemma4
+      - --tool-call-parser
+      - gemma4
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11456/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: gemma4_huggingface_cache
+    external: true

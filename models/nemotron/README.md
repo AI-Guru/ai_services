@@ -47,7 +47,7 @@ Most capable overall. LatentMoE with 120B/12B active + MTP speculative decoding.
 
 - NVIDIA GPU with 24+ GB VRAM (RTX PRO 6000 96 GB recommended for full context)
 - Docker + NVIDIA Container Toolkit
-- `vllm/vllm-openai:v0.17.0-cu130` or `ghcr.io/ggml-org/llama.cpp:server-cuda` or `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8`
+- `vllm/vllm-openai:v0.17.0-cu130` or `ghcr.io/ggml-org/llama.cpp:server-cuda` or `nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8` or `lmsysorg/sglang:latest` (Nano-30B FP8, SGLang — needs `--moe-runner-backend flashinfer_cutlass` on SM120)
 
 ## Which variant should I use?
 
@@ -126,6 +126,54 @@ Measured with `test_scenarios.py --runs 3 --warmup --no-think` (default).
 Nano-30B FP8 and NVFP4 deliver identical throughput (~250 tok/s). NVFP4 uses less VRAM (19 GB vs 33 GB), leaving ~67 GB for KV cache — best for high concurrency.
 
 Super-120B NVFP4 fits on a single RTX PRO 6000 (95/98 GB VRAM) with ~2 GB to spare. No KV cache room for concurrency — single-user only. TTFT is excellent (56-164ms) thanks to NVFP4 prefill efficiency.
+
+#### SGLang vs vLLM — Nano-30B FP8 (single-stream, `test_chat.py --runs 3 --warmup`, 2026-06-29)
+
+| Compose file | Engine | Quant | Avg tok/s | Avg TTFT | Tools |
+|---|---|---|---|---|---|
+| `vllm-nano-30b-fp8-rtx.yml` | vLLM (FLASHINFER) | FP8 | **271.5** | **646 ms** | 4/4 |
+| `sglang-nano-30b-fp8-rtx.yml` | SGLang (flashinfer_cutlass MoE) | FP8 | 224.1 | 789 ms | 4/4 |
+
+vLLM is ~21% faster single-stream and has lower TTFT; both serve tools 4/4 and produce
+clean output. The same first-party FP8 checkpoint
+(`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8`) is used on both sides.
+
+**SM120 gotcha (SGLang):** the documented `--moe-runner-backend triton` for NemotronH
+**crashes on the first forward pass** on the RTX PRO 6000 — its fused Triton MoE expert
+kernel statically needs 144 KB shared memory, over SM120's 99 KB per-block limit
+(`triton.runtime.errors.OutOfResources: Required: 147456, Hardware limit: 101376`).
+The fix is `--moe-runner-backend flashinfer_cutlass`, which the compose now sets. The
+slower flashinfer_cutlass MoE path likely accounts for part of the gap vs vLLM here.
+
+**Concurrency sweep — aggregate generation throughput vs in-flight requests** (256
+output tok/req, `ignore_eos`, no-think; Nano-30B FP8; 2026-06-29). This is the axis that
+matters for datacenter serving, not single-stream:
+
+| In-flight requests | SGLang agg tok/s | vLLM agg tok/s | Δ |
+|---|---|---|---|
+| 1 | 220.9 | 261.3 | vLLM +18% |
+| 8 | 863 | 903 | vLLM +5% |
+| 16 | 1313 | 1345 | tie |
+| 32 | 1927 | 1988 | tie |
+| 64 | 3012 | 3032 | tie |
+| 96 | 3644 | 3856 | vLLM +6% |
+| 128 | 4077 | 4567 | vLLM +12% |
+| 192 | 4083 | 5583 | vLLM +37% |
+| 256 | **4496** | **6356** | **vLLM +41%** |
+
+0 errors on either engine across all levels. The single-stream gap closes to a tie at
+moderate concurrency (16–64), but at the saturation regime that actually defines
+datacenter throughput **vLLM pulls decisively ahead**: SGLang plateaus around ~4,100 tok/s
+from c=128 onward while vLLM keeps scaling past 6,300 (still climbing at 256). So on this
+hardware/workload the "SGLang is THE way for throughput" claim does **not** hold.
+
+Three caveats keep this from being a universal verdict: (1) SM120 forces SGLang onto the
+slower `flashinfer_cutlass` MoE runner (see above) — its B200/SM100 target uses a faster
+path; (2) the SGLang plateau may be an untuned default (`--max-running-requests`,
+`--mem-fraction-static 0.85`) rather than a hard ceiling; (3) the workload is pure decode
+with a short **shared** prompt, so it does *not* exercise RadixAttention prefix-sharing —
+SGLang's signature win on long shared system prompts / RAG / agentic traffic. A
+long-shared-prefix workload could narrow or reverse the gap.
 
 #### TensorRT-LLM (single-user, `test_scenarios.py`, tok/s by scenario)
 

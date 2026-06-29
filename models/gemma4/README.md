@@ -33,6 +33,8 @@ All configs serve text-only (`--no-mmproj` for llama.cpp). Multimodal projectors
 | 11453 | Gemma 4 31B |
 | 11454 | Gemma 4 26B-A4B (vLLM) |
 | 11455 | Gemma 4 12B (vLLM) |
+| 11456 | Gemma 4 26B-A4B BF16 (SGLang — host-RAM-blocked) |
+| 11457 | Gemma 4 26B-A4B NVFP4 (SGLang) |
 
 ## Which variant should I use?
 
@@ -97,6 +99,30 @@ Benchmarked with `test_chat.py --runs 3 --warmup --no-think` on default prompt (
 - **vLLM NVFP4** trades throughput for latency: 39 tok/s but 95ms TTFT vs 9s on llama.cpp. Better for interactive / agentic use.
 - **E2B at 276 tok/s** is the fastest Gemma 4 variant — useful for lightweight tasks where quality is secondary.
 
+### SGLang vs vLLM — 26B-A4B (single-stream, `test_chat.py --runs 3 --warmup`, 2026-06-29)
+
+| Compose file | Engine | Quant | Avg tok/s | Avg TTFT | Tools |
+|---|---|---|---|---|---|
+| `vllm-26b-nvfp4-rtx.yml` | vLLM | NVFP4 | **178.8** | 63 ms | 0/4 † |
+| `sglang-26b-nvfp4-rtx.yml` | SGLang (flashinfer_cutlass MoE) | NVFP4 | 157.1 | **24 ms** | **4/4** |
+| `sglang-26b-bf16-rtx.yml` | SGLang | BF16 | ❌ won't load ‡ | — | — |
+
+† The existing vLLM NVFP4 compose has **no `--tool-call-parser`** configured, so tool
+calls aren't parsed (0/4) — a config gap, not an engine limit. The SGLang compose sets
+`--tool-call-parser gemma4` and passes 4/4. (vLLM re-measured here at 178.8 tok/s on the
+current image vs the 154.4 in the table above — newer image/warm-up.)
+
+‡ **BF16 is infeasible on this host**: 30 GB system RAM vs a single ~50 GB safetensors
+shard → `mmap ... Cannot allocate memory` at load, for *either* engine. This is the same
+host-RAM limit that makes vLLM use NVFP4. **NVFP4 (~12 GB) is the only viable 26B path
+here**, and SGLang serves it cleanly.
+
+**Finding that overturns prior expectation:** CUTLASS NVFP4 grouped-GEMM MoE was reported
+broken on SM120 (sglang #19637 / cutlass #3096 / vllm #31085). On the current
+`lmsysorg/sglang:latest` with `--moe-runner-backend flashinfer_cutlass` it runs **clean**
+on the RTX PRO 6000 — verified coherent output, 157 tok/s. (Still avoid the SM100-only
+`trtllm_*` backends.) vLLM keeps a throughput edge (~14%); SGLang has much lower TTFT.
+
 ## Service Variants
 
 | File | Backend | Model | GGUF / Quant | Size | Port |
@@ -111,6 +137,8 @@ Benchmarked with `test_chat.py --runs 3 --warmup --no-think` on default prompt (
 | `vllm-31b-fp8-mtp-rtx.yml` | vLLM + MTP | FP8-block + assistant drafter | FP8 + spec | ~31 GB | 11453 |
 | `vllm-26b-nvfp4-rtx.yml` | vLLM | Gemma-4-26B-A4B-NVFP4 | NVFP4 | ~12 GB | 11454 |
 | `vllm-26b-nvfp4-mtp-rtx.yml` | vLLM + MTP | NVFP4 + assistant drafter | NVFP4 + spec | ~13 GB | 11454 |
+| `sglang-26b-nvfp4-rtx.yml` | SGLang | Gemma-4-26B-A4B-NVFP4 | NVFP4 | ~12 GB | 11457 |
+| `sglang-26b-bf16-rtx.yml` | SGLang ✗RAM | google/gemma-4-26B-A4B-it | BF16 | ~52 GB | 11456 |
 | `vllm-12b-bf16-rtx.yml` | vLLM † | google/gemma-4-12B-it | BF16 | ~24 GB | 11455 |
 | `vllm-12b-fp8-rtx.yml` | vLLM † | AxionML/Gemma-4-12B-FP8 ⚠️ 3rd-party | FP8 | ~13 GB | 11455 |
 | `vllm-12b-nvfp4-rtx.yml` | vLLM † | vrfai/gemma-4-12B-it-nvfp4 ⚠️ 3rd-party | NVFP4 | ~9 GB | 11455 |

@@ -1,0 +1,103 @@
+# Gemma 4 26B-A4B NVFP4 via SGLang — the VIABLE SGLang path on this host
+#
+# Target: nvidia/Gemma-4-26B-A4B-NVFP4 (~12 GB NVFP4 weights). Same MoE 26B-A4B
+# as the (host-RAM-blocked) BF16 config, but only 12 GB — so unlike BF16 it
+# actually loads on this 30 GB-RAM host. This is the recommended SGLang Gemma
+# config here, and the matched-quant counterpart to vLLM's NVFP4 compose.
+#
+# VERIFIED WORKING on the RTX PRO 6000 (SM120), 2026-06-29:
+#   - Loaded healthy and produced coherent output (no garbage).
+#   - Measured ~157 tok/s, 24 ms TTFT, tools 4/4. vLLM NVFP4 was ~179 tok/s but
+#     its compose has no tool-call parser (0/4); SGLang has lower TTFT + tools.
+#
+# This OVERTURNS the earlier expectation (from sglang #19637 / cutlass #3096 /
+# vllm #31085) that CUTLASS NVFP4 grouped-GEMM MoE produces garbage on SM120.
+# In the current lmsysorg/sglang:latest with --moe-runner-backend
+# flashinfer_cutlass it is clean. Still avoid the trtllm_* backends (SM100-only).
+#
+# Usage: docker compose -f docker-compose.sglang-26b-nvfp4-rtx.yml up -d
+# API endpoint: http://localhost:11457/v1
+# Model name served as: gemma4-26b
+
+name: gemma4-26b-nvfp4-sglang
+
+services:
+  gemma4-26b-sglang-nvfp4:
+    image: lmsysorg/sglang:latest
+    container_name: gemma4-sglang-26b-nvfp4
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11457:11457"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - nvidia/Gemma-4-26B-A4B-NVFP4
+      - --served-model-name
+      - gemma4-26b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11457"
+      - --context-length
+      - "131072"
+      - --mem-fraction-static
+      - "0.85"
+      - --tp-size
+      - "1"
+      - --trust-remote-code
+      - --quantization
+      - modelopt_fp4
+      - --attention-backend
+      - triton
+      - --moe-runner-backend
+      - flashinfer_cutlass
+      - --reasoning-parser
+      - gemma4
+      - --tool-call-parser
+      - gemma4
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11457/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: gemma4_huggingface_cache
+    external: true

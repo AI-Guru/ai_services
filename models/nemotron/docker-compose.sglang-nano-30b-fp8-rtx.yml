@@ -1,0 +1,131 @@
+# Nemotron-3-Nano-30B-A3B FP8 via SGLang — general-purpose hybrid MoE model
+#
+# Uses nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8: official NVIDIA block-wise FP8.
+# 30B total / ~3.5B active, 128 routed experts (6 active + 1 shared). Hybrid
+# NemotronH backbone: 23 Mamba-2 SSM layers + 6 full-attention layers +
+# non-gated (squared-ReLU) MoE. SGLang serves this with a dual memory-pool
+# design (separate pools for attention KV vs. Mamba SSM state).
+#
+# SGLang support: day-0 since the v0.5.6 line (2025-12-15). In mainline by mid-2026.
+# Counterpart to docker-compose.vllm-nano-30b-fp8-rtx.yml for the SGLang-vs-vLLM
+# benchmark (same FP8 checkpoint, same quant — apples to apples).
+#
+# RTX PRO 6000 Blackwell (SM 120) gotchas baked in below:
+#   - DeepGEMM FP8 path asserts on SM120 (kernel_runtime.hpp:45) -> set
+#     SGLANG_DISABLE_DEEP_GEMM=1 and use Triton GEMM (--fp8-gemm-backend triton).
+#   - trtllm_* attention backends are NOT ported for NemotronH on SM120 ->
+#     use --attention-backend flashinfer.
+#   - MoE runner must be flashinfer_cutlass on this card. Triton (the documented
+#     default for NemotronH) crashes on the first forward pass: its fused expert
+#     kernel needs 144 KB shared memory > SM120's 99 KB limit. See note inline.
+#   - Piecewise CUDA graph crashes NemotronH (Mamba2 chunk-state Triton kernel +
+#     cuBLAS GEMM incompatible with graph capture) -> --disable-piecewise-cuda-graph.
+#   - --mamba-scheduler-strategy no_buffer is the documented SM120 setting.
+#   - KV cache pinned to bf16 for correctness (only the 6 attention layers carry
+#     a KV cache; Mamba SSM state stays higher precision). fp8_e4m3 is a documented
+#     accuracy tradeoff — test it only after bf16 output is verified clean.
+#
+# Image: lmsysorg/sglang:latest (requires >= v0.5.6 for NemotronH). Pin to a
+# v0.5.14-cu130-or-newer tag if reproducibility matters.
+#
+# Usage: docker compose -f docker-compose.sglang-nano-30b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11443/v1
+# Model name served as: nemotron-nano-30b
+
+name: nemotron-nano-30b-sglang-fp8
+
+services:
+  nemotron-nano-30b-sglang-fp8:
+    image: lmsysorg/sglang:latest
+    container_name: nemotron-nano-30b-sglang-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11443:11443"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_DISABLE_DEEP_GEMM=1
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+      - --served-model-name
+      - nemotron-nano-30b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11443"
+      - --context-length
+      - "262144"
+      - --mem-fraction-static
+      - "0.85"
+      - --tp-size
+      - "1"
+      - --trust-remote-code
+      - --attention-backend
+      - flashinfer
+      # MoE runner MUST be flashinfer_cutlass on SM120, NOT triton. The fused
+      # Triton MoE expert kernel (self.experts in nemotron_h.py
+      # _forward_core_shared_routed_overlap) statically requests 144 KB shared
+      # memory — fine on datacenter Blackwell (228 KB) but over SM120's 99 KB
+      # hard limit, so it crashes on the FIRST forward pass with
+      # `triton.runtime.errors.OutOfResources: ... Required: 147456, Hardware
+      # limit: 101376`. flashinfer_cutlass selects an SM120-compatible kernel.
+      # (Measured: ~224 tok/s vs vLLM FP8 ~271 tok/s on this card, 2026-06-29.)
+      - --moe-runner-backend
+      - flashinfer_cutlass
+      - --fp8-gemm-backend
+      - triton
+      - --mamba-scheduler-strategy
+      - no_buffer
+      - --kv-cache-dtype
+      - bf16
+      - --disable-piecewise-cuda-graph
+      - --reasoning-parser
+      - nemotron_3
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11443/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen35_huggingface_cache
+    external: true

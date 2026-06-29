@@ -366,7 +366,7 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 | **vLLM FP8** | 47.0 | 41.1s | 41.0s | vLLM v0.19.0, FP8 multimodal (no MTP) |
 | **vLLM NVFP4 (mmangkad)** | 44.9 | 36.7s | 36.6s | vLLM v0.19.0, FlashInfer Cutlass NVFP4 backend, single GPU |
 | **vLLM BF16 text-only** | 28.3 | 64.9s | 64.8s | vLLM v0.19.0, BF16 + vision disabled |
-| **SGLang FP8 + MTP** | — | — | — | Config present but NEXTN spec decoding produces garbage (EAGLE fallback); fix pending |
+| **SGLang FP8 + MTP** | **72.1** | 23.0s | 23.0s | `lmsysorg/sglang:latest` NEXTN spec decoding — **now produces clean output** (verified 2026-06-29); the earlier "garbage / EAGLE fallback" bug is fixed. ~9% over vLLM FP8+MTP single-stream; tools 4/4 |
 
 Dense 27B decode is bandwidth-bound on all 27B active params (vs 3B for 35B-MoE):
 ~1.6 TB/s ÷ 27 GB ≈ 60 tok/s theoretical peak at FP8. Measured 47 tok/s is ~78%
