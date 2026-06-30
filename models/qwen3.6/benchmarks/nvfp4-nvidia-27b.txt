@@ -1,0 +1,27 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA official) — test_chat.py, RTX PRO 6000 Blackwell
+# python3 test_chat.py --base-url http://localhost:11436/v1 --model qwen3.6-27b --runs 3 --warmup --no-think
+# vLLM 0.24.0 (nightly pip-upgrade), modelopt NVFP4, --language-model-only
+# NOTE: chat template forces thinking, so --no-think did not suppress reasoning;
+#       TTFT is inflated by think time — decode tok/s is the comparable metric.
+
+## Base (no MTP) — docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml
+Run 1  70.9 tok/s  TTFT 24428 ms  (3021 tok)
+Run 2  71.2 tok/s  TTFT 17163 ms  (2138 tok)
+Run 3  71.2 tok/s  TTFT 24793 ms  (2968 tok)
+Average decode 71.1 tok/s  |  TTFT 22128 ms
+
+## MTP (qwen3_next_mtp, num=1) — docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml
+Run 1  93.1 tok/s  TTFT 16149 ms  (2328 tok)
+Run 2  97.0 tok/s  TTFT 13932 ms  (2063 tok)
+Run 3  97.5 tok/s  TTFT 13586 ms  (2234 tok)
+Average decode 95.9 tok/s  |  TTFT 14556 ms
+
+## Summary (decode tok/s, RTX PRO 6000)
+NVIDIA NVFP4 base       71.1
+NVIDIA NVFP4 + MTP      95.9   (+35% from MTP)
+(ref) community NVFP4         44.9
+(ref) community NVFP4 + MTP   83.5
+(ref) INT4 AutoRound + MTP   102.8
+(ref) FP8 (dense)            ~47
+Note: vLLM auto-set kv_cache_dtype=fp8_e4m3 from the modelopt config
+(kv_cache_quant_algo=fp8); output remained coherent on vLLM 0.24.0.

@@ -356,6 +356,12 @@
         <td class="num">103.0</td>
         <td class="num"><span class="badge good">+20 %</span></td>
       </tr>
+      <tr>
+        <td>NVFP4 + MTP (NVIDIA official)</td>
+        <td>vLLM 0.24.0</td>
+        <td class="num">95.9</td>
+        <td class="num"><span class="badge good">+12 %</span></td>
+      </tr>
       <tr style="background:rgba(255,180,61,0.07)">
         <td><strong>UD-Q4_K_XL + MTP</strong></td>
         <td><strong>llama.cpp-mtp</strong></td>
@@ -363,10 +369,16 @@
         <td class="num">—</td>
       </tr>
       <tr>
-        <td>NVFP4 + MTP</td>
+        <td>NVFP4 + MTP (sakamakismile)</td>
         <td>vLLM nightly</td>
         <td class="num">83.5</td>
         <td class="num"><span class="badge warn">−3 %</span></td>
+      </tr>
+      <tr>
+        <td>NVFP4 baseline (NVIDIA official)</td>
+        <td>vLLM 0.24.0</td>
+        <td class="num">71.1</td>
+        <td class="num"><span class="badge warn">−17 %</span></td>
       </tr>
       <tr>
         <td>FP8 + MTP</td>
@@ -564,9 +576,11 @@ const allConfigs = [
   { lbl: '27B NVFP4 baseline [vLLM]',           v:  57.4, hl: false },
   { lbl: '27B Q8_0 + MTP [llama.cpp-mtp] ★',    v:  66.1, hl: true  },
   { lbl: '27B FP8 + MTP [vLLM]',                v:  66.6, hl: false },
+  { lbl: '27B NVFP4 baseline [NVIDIA, vLLM]',   v:  71.1, hl: false },
   { lbl: '27B INT4 baseline [vLLM]',            v:  80.7, hl: false },
-  { lbl: '27B NVFP4 + MTP [vLLM]',              v:  83.5, hl: false },
+  { lbl: '27B NVFP4 + MTP [sakamakismile,vLLM]',v:  83.5, hl: false },
   { lbl: '27B Q4_K_XL + MTP [llama.cpp-mtp] ★', v:  85.7, hl: true  },
+  { lbl: '27B NVFP4 + MTP [NVIDIA, vLLM]',      v:  95.9, hl: false },
   { lbl: '27B INT4 + MTP [vLLM]',               v: 102.8, hl: false },
   { lbl: '27B FP8 + DFlash [vLLM]',             v: 103.0, hl: false },
   { lbl: '27B INT4 + DFlash N=8 [vLLM] ◆',      v: 140.2, hl: false },
@@ -583,9 +597,9 @@ const allConfigs = [
 // monotonically dark purple → bright yellow.
 const infernoStops = [
   '#420a68', '#561373', '#691b75', '#7c2473', '#8e2c6d',
-  '#a13565', '#b4405b', '#c44d51', '#d35c47', '#e06d3b',
-  '#ea7f2e', '#f29220', '#f7a513', '#fbb90b', '#fbcf1e',
-  '#f0e441', '#fcffa4',
+  '#9a3267', '#a13565', '#b4405b', '#c44d51', '#d35c47',
+  '#dd6541', '#e06d3b', '#ea7f2e', '#f29220', '#f7a513',
+  '#fbb90b', '#fbcf1e', '#f0e441', '#fcffa4',
 ];
 
 new Chart(document.getElementById('chartAll'), {

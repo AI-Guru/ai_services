@@ -1,0 +1,135 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) — official NVIDIA NVFP4 quantization
+#
+# Target: nvidia/Qwen3.6-27B-NVFP4
+#   - NVFP4 4-bit float quant of the dense 27B. NVIDIA quantize only the
+#     linear operators inside the transformer blocks: feed-forward nets to
+#     W4A16_NVFP4 (group_size=16) and lm_head to 4-bit; attention linears
+#     stay FP8; embeddings, vision encoder and norms stay BF16/FP8
+#     (modelopt mixed quant scheme on disk). ~2.5x smaller than BF16.
+#   - Quantized with NVIDIA Model Optimizer v0.45.0.
+#   - Calibrated on cnn_dailymail + Nemotron-Post-Training-Dataset-v2.
+#   - NVIDIA-reported accuracy vs FP8 within ~0.5%: MMLU-Pro 86.3 (86.1),
+#     GPQA-D 85.5 (86.0), HLE 21.8 (21.7), AIME 2025 92.7 (93.1).
+#
+# Architecture: dense 27B, 64 hybrid layers = 16 × (3×Gated DeltaNet +
+# 1×full Gated Attention) → 48 DeltaNet + 16 full attention. All params
+# active per token (unlike the 35B MoE with 3B active). Multimodal
+# checkpoint (vision encoder present) — we serve text-only with
+# --language-model-only.
+#
+# Loader recipe (same as the 35B NVIDIA NVFP4 config): vllm/vllm-openai
+# :nightly (docker hub tag) lags the wheel CDN by ~2 weeks and its bundled
+# vLLM/flashinfer mishandle the modelopt v0.45 NVFP4 checkpoint (lm_head
+# input_scale loader bug + stale flashinfer). We pip-upgrade vLLM and
+# flashinfer at container start to the nightly wheels. Adds ~30-60s to boot
+# but avoids maintaining a custom image. Unlike the 35B (MoE) we do NOT
+# pass --moe-backend — the 27B is dense.
+#
+# KV-cache caveat: DO NOT set --kv-cache-dtype fp8_e4m3 on Qwen3.6 hybrid
+# DeltaNet (vllm-project/vllm#26646 — silent corruption). The NVIDIA card's
+# config.json carries kv_cache_quant_algo=fp8, but we deliberately leave KV
+# at the vLLM default (BF16/auto) on this hybrid arch, matching the 27B FP8
+# and 35B NVFP4 configs here.
+#
+# Speculative decoding (MTP) is in the sibling
+# docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml — this file is the
+# no-MTP baseline for a clean A/B.
+#
+# Requires Hopper (SM_90) or Blackwell (SM_120) for hardware NVFP4 tensor
+# cores. Tested on RTX PRO 6000 Blackwell (SM 120, 96 GB).
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+# First boot: ~5-7 min (pip upgrade ~60s + model load + cudagraph capture +
+# profile/warmup).
+
+services:
+  qwen36-27b-nvfp4-nvidia:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen36-27b-nvfp4-nvidia
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        pip install -U flashinfer-python flashinfer-cubin --quiet
+        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve ==='
+        exec vllm serve nvidia/Qwen3.6-27B-NVFP4 \
+          --served-model-name qwen3.6-27b \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --dtype auto \
+          --quantization modelopt \
+          --language-model-only \
+          --gpu-memory-utilization 0.85 \
+          --max-model-len 262144 \
+          --max-num-seqs 4 \
+          --max-num-batched-tokens 8192 \
+          --enable-chunked-prefill \
+          --async-scheduling \
+          --enable-prefix-caching \
+          --reasoning-parser qwen3 \
+          --enable-auto-tool-choice \
+          --tool-call-parser qwen3_coder \
+          --chat-template /chat_template.jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 420s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

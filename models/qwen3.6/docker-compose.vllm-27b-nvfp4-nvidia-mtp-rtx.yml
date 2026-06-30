@@ -1,0 +1,117 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) + MTP — official NVFP4 + speculative decoding
+#
+# Differs from docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml ONLY in:
+#   - container_name suffix -mtp
+#   - --speculative-config enabled (qwen3_next_mtp, num_speculative_tokens=1)
+# Everything else (pip-upgrade entrypoint, sampling, language-model-only,
+# tool/reasoning parsers) is identical to keep the A/B comparison clean.
+#
+# The NVIDIA checkpoint ships the native Multi-Token-Prediction head
+# (config.json mtp_num_hidden_layers=1). vLLM's qwen3_next_mtp speculative
+# method reuses that head as a 1-token drafter — the same method the
+# official Qwen3.6-27B-FP8 config uses. num_speculative_tokens is kept at 1
+# (matching the FP8 config; the 27B hybrid has a single MTP layer, so >1 is
+# not supported).
+#
+# Note: the 35B MoE NVFP4 uses NVIDIA's MoE-specific {"method":"mtp",
+# "moe_backend":"triton"} recipe; the 27B is dense, so it uses the
+# qwen3_next_mtp method instead.
+#
+# Loader / KV-cache caveats: see docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1
+# Model name served as: qwen3.6-27b
+# First boot: ~5-7 min (pip upgrade + model load + cudagraph + warmup + MTP
+# draft head warmup).
+
+services:
+  qwen36-27b-nvfp4-nvidia-mtp:
+    image: vllm/vllm-openai:nightly
+    container_name: qwen36-27b-nvfp4-nvidia-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        pip install -U flashinfer-python flashinfer-cubin --quiet
+        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve (with MTP qwen3_next_mtp num=1) ==='
+        exec vllm serve nvidia/Qwen3.6-27B-NVFP4 \
+          --served-model-name qwen3.6-27b \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --dtype auto \
+          --quantization modelopt \
+          --language-model-only \
+          --gpu-memory-utilization 0.85 \
+          --max-model-len 262144 \
+          --max-num-seqs 4 \
+          --max-num-batched-tokens 8192 \
+          --enable-chunked-prefill \
+          --async-scheduling \
+          --enable-prefix-caching \
+          --reasoning-parser qwen3 \
+          --enable-auto-tool-choice \
+          --tool-call-parser qwen3_coder \
+          --chat-template /chat_template.jinja \
+          --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 420s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

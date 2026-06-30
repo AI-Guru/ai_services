@@ -343,6 +343,8 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.vllm-27b-int4-baseline-rtx.yml` | vLLM | INT4 (no spec) | RTX PRO 6000 | Quant-only reference |
 | `docker-compose.vllm-27b-nvfp4-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | `sakamakismile` NVFP4-MTP, group=16 |
 | `docker-compose.vllm-27b-nvfp4-baseline-rtx.yml` | vLLM | NVFP4 (no spec) | RTX PRO 6000 | Quant-only reference |
+| `docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | **Official NVIDIA NVFP4** (`nvidia/Qwen3.6-27B-NVFP4`, modelopt v0.45). 71.1 tok/s — fastest no-MTP NVFP4, +58% over community mmangkad. Entrypoint pip-upgrades vLLM nightly + flashinfer on boot (same recipe as 35B NVIDIA) |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | NVIDIA NVFP4 + `qwen3_next_mtp` N=1 → 95.9 tok/s (+35%). Same loader recipe, port 11436 |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -355,9 +357,11 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 | **vLLM INT4 + DFlash N=8** | **140.2 / 146 steady** | **13.2s** | — | vLLM cu130-nightly, `Lorbus/Qwen3.6-27B-int4-AutoRound` + `z-lab/Qwen3.6-27B-DFlash` ★ champion |
 | **vLLM INT4 + MTP** | **102.8** | — | — | vLLM cu130-nightly, AutoRound INT4 + `qwen3_next_mtp` N=1 |
 | **vLLM FP8 + DFlash** | 103.0 | 19.2s | — | vLLM cu130-nightly, `z-lab/Qwen3.6-27B-DFlash` drafter |
+| **vLLM NVFP4 + MTP (NVIDIA official)** | **95.9** | — | — | vLLM 0.24.0, `nvidia/Qwen3.6-27B-NVFP4` (modelopt v0.45) + `qwen3_next_mtp` N=1 — fastest NVFP4 (2026-06-30) |
 | **llama.cpp UD-Q4_K_XL + MTP** | **85.7** | **18.9s** | 18.7s | `unsloth/Qwen3.6-27B-MTP-GGUF` + `--spec-type mtp` (am17an PR #22673 build) |
 | **vLLM NVFP4 + MTP (sakamakismile)** | **83.5** | — | — | vLLM cu130-nightly, `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (group_size=16) + `qwen3_next_mtp` N=1 |
 | **vLLM INT4 baseline** | 80.7 | 21.7s | — | INT4 weights alone, no spec — quant-only gain |
+| **vLLM NVFP4 (NVIDIA official, no MTP)** | **71.1** | — | — | vLLM 0.24.0, `nvidia/Qwen3.6-27B-NVFP4` (modelopt v0.45) — +58% over community mmangkad (44.9), best no-MTP NVFP4 (2026-06-30) |
 | **vLLM FP8 + MTP** | 66.2 | 26.0s | 26.0s | vLLM v0.19.0, FP8 + `qwen3_next_mtp` speculative decoding |
 | **llama.cpp Q8_0 + MTP** | **66.1** | **26.3s** | 26.2s | `unsloth/Qwen3.6-27B-MTP-GGUF` Q8_0 + `--spec-type mtp` |
 | **vLLM NVFP4 (sakamakismile, MTP dormant)** | 57.4 | — | — | vLLM cu130-nightly, same checkpoint as row 1 with `--speculative-config` omitted (MTP weights present but unused) |
@@ -412,18 +416,33 @@ generations dominate this thinking model's typical workload.
 can't restore on partial accept, so gains saturate near 1.
 
 **MTP requires baked-in head weights, not just any NVFP4 checkpoint.** As of
-2026-06, **two** of the three 27B NVFP4 quants ship the MTP layer — Unsloth
-**re-uploaded** its checkpoint (now group_size=16 *with* an MTP head; it was
-group_size=8 / no-MTP when first measured 2026-05-10):
+2026-06 there are **four** 27B NVFP4 quants; **three** ship the MTP layer —
+Unsloth **re-uploaded** its checkpoint (now group_size=16 *with* an MTP head; it
+was group_size=8 / no-MTP when first measured 2026-05-10), and NVIDIA's official
+checkpoint landed 2026-06-30 with the native MTP head intact:
 
 | Checkpoint | group_size | MTP head | Best measured |
 |---|---:|:---:|---:|
 | `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` | 16 | yes | **98.4 tok/s** (v0.23.0 + MTP; 83.5 on cu130-nightly) |
+| `nvidia/Qwen3.6-27B-NVFP4` (official, modelopt v0.45) | 16 | yes | **95.9 tok/s** (vLLM 0.24.0 + MTP; **71.1 no-MTP** — fastest no-MTP NVFP4) |
 | `unsloth/Qwen3.6-27B-NVFP4` | 16 | yes (since ~2026-06) | 81.4 tok/s (v0.23.0 + MTP; was 49.7 / no-MTP) |
 | `mmangkad/Qwen3.6-27B-NVFP4` | 16 | no | 44.9 tok/s (no spec; also forces fp8 KV → vLLM rejects DFlash combo) |
 
 Unsloth's MTP head underperforms sakamakismile's by ~21% (81.4 vs 98.4) — same
 pattern as the 35B NVIDIA-vs-Unsloth result; see the v0.23.0 re-test below.
+
+**NVIDIA official NVFP4 (measured 2026-06-30, vLLM 0.24.0):** the official
+`nvidia/Qwen3.6-27B-NVFP4` (modelopt v0.45, `modelopt_mixed`: FFN linears at
+W4A16_NVFP4 group=16, attention at FP8, lm_head 4-bit) is the **fastest no-MTP
+NVFP4** at 71.1 tok/s — +58% over the community mmangkad baseline (44.9) and
+above FP8 (47). Its native MTP head via `qwen3_next_mtp` N=1 lifts that to 95.9
+tok/s (+35%), within ~3% of sakamakismile's MTP checkpoint and second only to
+the INT4/DFlash speculative configs. Served via the same pip-upgrade loader
+recipe as the 35B NVIDIA config (docker-hub `:nightly` lags the wheel CDN). Note:
+vLLM auto-selects `kv_cache_dtype=fp8_e4m3` from the checkpoint's
+`kv_cache_quant_algo=fp8`; output stayed coherent on vLLM 0.24.0 (no #26646
+corruption observed), but if quality regresses, this is the first thing to check.
+Raw runs in [benchmarks/nvfp4-nvidia-27b.txt](benchmarks/nvfp4-nvidia-27b.txt).
 
 For a no-MTP NVFP4 checkpoint to match 83.5, you'd need to pair it with an
 external drafter (e.g. z-lab DFlash) — see the experimental DFlash section

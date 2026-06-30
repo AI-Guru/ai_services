@@ -461,13 +461,21 @@
     The MoE's forward pass on 3 B active weights is ~5 ms — the draft+verify cycle's overhead eats any speculative gain. The dense 27B's ~21 ms/token forward pass amortises that overhead easily.
   </p>
 
-  <h3>2 · NVFP4 quantization <span class="badge bad">slower than FP8 on single GPU</span></h3>
+  <h3>2 · NVFP4 quantization <span class="badge bad">community quant slower than FP8</span> <span class="badge good">official NVIDIA quant +51%</span></h3>
   <p>
-    Tested <code>mmangkad/Qwen3.6-27B-NVFP4</code> with the FlashInfer Cutlass NVFP4 backend.
-    Result: 44.9 tok/s vs FP8's 47 tok/s — <em>slower</em>. Only linear ops in transformer blocks are
-    FP4-quantised (~14 GB); the rest stays BF16/FP8 (~17 GB), so total memory pressure is similar to plain FP8.
-    Upstream recipes that report higher NVFP4 numbers use <code>--tensor-parallel-size 2</code> across two
-    GPUs — the speedup comes from tensor parallelism, not NVFP4 itself.
+    The <em>community</em> <code>mmangkad/Qwen3.6-27B-NVFP4</code> (FlashInfer Cutlass NVFP4 backend) measured
+    44.9 tok/s vs FP8's 47 — <em>slower</em>. Only linear ops in transformer blocks are FP4-quantised (~14 GB);
+    the rest stays BF16/FP8 (~17 GB), so total memory pressure is similar to plain FP8. Upstream recipes
+    reporting higher community-NVFP4 numbers use <code>--tensor-parallel-size 2</code> across two GPUs — the
+    speedup is tensor parallelism, not NVFP4 itself.
+  </p>
+  <p>
+    <strong>Overturned 2026-06-30:</strong> the <em>official</em> <code>nvidia/Qwen3.6-27B-NVFP4</code>
+    (modelopt v0.45, <code>modelopt_mixed</code>) hits <strong>71.1 tok/s</strong> single-GPU on vLLM 0.24.0 —
+    +58% over the community quant and +51% over FP8 — with no tensor parallelism. Its native MTP head
+    (<code>qwen3_next_mtp</code> N=1) lifts that to <strong>95.9 tok/s</strong>. Same pip-upgrade loader recipe
+    as the 35B NVIDIA config. The "NVFP4 isn't worth it on a single card" conclusion was a community-checkpoint
+    artefact, not a property of the format.
   </p>
 
   <h3>3 · Blackwell flag bundle <span class="badge bad">invalid / redundant in v0.19</span></h3>
