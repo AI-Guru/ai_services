@@ -1,34 +1,35 @@
-# Qwen3.6-27B-NVFP4 (NVIDIA) + MTP — official NVFP4 + speculative decoding
+# Qwen3.6-27B-NVFP4 (NVIDIA) + MTP + VISION — multimodal serving
 #
-# Differs from docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml ONLY in:
-#   - container_name suffix -mtp
-#   - --speculative-config enabled (qwen3_next_mtp, num_speculative_tokens=1)
-# Everything else (pip-upgrade entrypoint, sampling, language-model-only,
-# tool/reasoning parsers) is identical to keep the A/B comparison clean.
+# Differs from docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml (the text-only
+# live config) ONLY in:
+#   - container_name suffix -vision
+#   - --language-model-only REMOVED → the checkpoint's vision encoder
+#     (qwen3_5_vision, ~1.5 GB VRAM) loads, enabling image/video input.
 #
-# The NVIDIA checkpoint ships the native Multi-Token-Prediction head
-# (config.json mtp_num_hidden_layers=1). vLLM's qwen3_next_mtp speculative
-# method reuses that head as a 1-token drafter — the same method the
-# official Qwen3.6-27B-FP8 config uses. num_speculative_tokens is kept at 1
-# (matching the FP8 config; the 27B hybrid has a single MTP layer, so >1 is
-# not supported).
+# The nvidia/Qwen3.6-27B-NVFP4 checkpoint DOES ship the vision weights (they
+# are only suppressed by --language-model-only). Verified 2026-07-01 with
+# scripts/test_vision.sh: the model correctly described the reference image.
 #
-# Note: the 35B MoE NVFP4 uses NVIDIA's MoE-specific {"method":"mtp",
-# "moe_backend":"triton"} recipe; the 27B is dense, so it uses the
-# qwen3_next_mtp method instead.
+# Chat template: we KEEP the Unsloth template (qwen3.6_unsloth_chat_template
+# .jinja) — it already contains the vision markers (vision_start / image_pad /
+# vision_end / image_url), so it renders multimodal messages correctly AND
+# keeps the fixes it applies over the checkpoint's native template. Do NOT drop
+# --chat-template for vision — the native Qwen template has known issues (the
+# reason the Unsloth template exists in this repo).
 #
-# Loader / KV-cache caveats: see docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml.
+# MTP (qwen3_next_mtp N=1) and the pip-upgrade loader are unchanged; see
+# docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml for those + KV-cache caveats.
+# Runs at --gpu-memory-utilization 0.60: ~60 GB used incl. the vision encoder,
+# ~36 GB free on the shared card.
 #
-# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml up -d
-# API endpoint: http://localhost:11436/v1
-# Model name served as: qwen3.6-27b
-# First boot: ~5-7 min (pip upgrade + model load + cudagraph + warmup + MTP
-# draft head warmup).
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b  (text + image/video)
+# First boot: ~5-7 min (pip upgrade + model load + vision encoder + cudagraph + warmup).
 
 services:
   qwen36-27b-nvfp4-nvidia-mtp:
     image: vllm/vllm-openai:nightly
-    container_name: qwen36-27b-nvfp4-nvidia-mtp
+    container_name: qwen36-27b-nvfp4-nvidia-mtp-vision
     restart: unless-stopped
 
     deploy:
@@ -81,7 +82,6 @@ services:
           --trust-remote-code \
           --dtype auto \
           --quantization modelopt \
-          --language-model-only \
           --gpu-memory-utilization 0.60 \
           --max-model-len 262144 \
           --max-num-seqs 4 \
