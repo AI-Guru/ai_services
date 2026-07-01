@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Qwen3.6-27B NVFP4+MTP · VRAM-Skalierung & RTX-5090-Emulation</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0612;--bg-elev:#15102a;--bg-card:#1a1430;--fg:#f0e8ff;--muted:#9a8fb8;
+    --full:#4bc4c4;--full-b:#a7e8e8;--small:#e06d3b;--small-b:#f0a587;--mid:#c3a24a;
+    --line:#2a2145;--accent:#f7a513;--good:#5ac47a;--warn:#e0713b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg);color:var(--fg);line-height:1.55;padding:2rem 1.2rem 4rem}
+  main{max-width:1080px;margin:0 auto}
+  h1{font-size:2rem;font-weight:800;margin:0 0 .3rem}
+  h2{font-size:1.35rem;font-weight:700;margin:2.4rem 0 .8rem;color:var(--accent)}
+  h3{font-size:1rem;font-weight:700;margin:0 0 .3rem}
+  p{color:#d8cef0}
+  .sub{color:var(--muted);font-size:1.02rem;margin:.2rem 0 0}
+  code{background:var(--bg-elev);padding:.1rem .35rem;border-radius:4px;font-size:.85em;color:#f0a587}
+  table{width:100%;border-collapse:collapse;margin:.8rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.78rem;letter-spacing:.03em;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .hero{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1.2rem 0}
+  .hero .box{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:1rem 1.1rem;text-align:center}
+  .hero .cap{color:var(--muted);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+  .hero .big{font-size:2.4rem;font-weight:800;margin:.1rem 0;color:var(--full)}
+  .hero .unit{color:var(--muted);font-size:.8rem}
+  .hero .box.s32 .big{color:var(--small)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;margin-top:1rem}
+  .card{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:1rem 1rem .6rem}
+  .card .meta{color:var(--muted);font-size:.78rem;margin-bottom:.5rem}
+  .chartwrap{position:relative;height:220px}
+  .legend{display:flex;gap:1.4rem;align-items:center;margin:1rem 0 .2rem;font-weight:600;font-size:.9rem}
+  .sw{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:.4rem;vertical-align:-2px}
+  .badge{display:inline-block;padding:.1rem .5rem;border-radius:6px;font-size:.72rem;font-weight:700}
+  .b-full{background:rgba(75,196,196,.16);color:var(--full-b)}
+  .b-small{background:rgba(224,109,59,.16);color:var(--small-b)}
+  .b-ok{background:rgba(90,196,122,.16);color:#a7e8bd}
+  .b-warn{background:rgba(224,113,59,.18);color:var(--small-b)}
+  .findings{background:var(--bg-elev);border:1px solid var(--line);border-radius:14px;padding:.4rem 1.2rem;margin-top:1rem}
+  .findings li{margin:.7rem 0}
+  footer{color:var(--muted);font-size:.82rem;margin-top:2.6rem;border-top:1px solid var(--line);padding-top:1rem}
+  @media(max-width:720px){.grid{grid-template-columns:1fr}.hero{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>VRAM-Skalierung & RTX-5090-Emulation</h1>
+  <p class="sub">Qwen3.6-27B <strong>NVFP4 + MTP</strong> (dense, <code>nvidia/Qwen3.6-27B-NVFP4</code>), eine RTX PRO 6000 Blackwell (96 GB),
+  vLLM 0.24. Wie viel VRAM braucht dieser Quant wirklich — und was heißt das für eine 32-GB-Karte wie die RTX 5090? Gemessen 2026-07-01.</p>
+
+  <h2>Kernbefund: Single-Stream ist speicher-unabhängig</h2>
+  <p>Die Grafikkarte künstlich auf 48 GB und 32 GB gedeckelt (via <code>--gpu-memory-utilization</code>, ohne MIG) —
+  die Single-Stream-Geschwindigkeit bleibt <strong>identisch</strong>. Decode ist bandbreiten-/rechengebunden auf den ~21 GB Gewichten;
+  ob 96 oder 32 GB Budget ändert daran nichts, weil ohne MIG die volle Rechenleistung und Bandbreite anliegen.</p>
+  <div class="hero">
+    <div class="box"><div class="cap">96 GB (util 0.90)</div><div class="big">95.9</div><div class="unit">tok/s · KV 61.4 GiB</div></div>
+    <div class="box"><div class="cap">48 GB (util 0.50)</div><div class="big">95.8</div><div class="unit">tok/s · KV 23.4 GiB</div></div>
+    <div class="box s32"><div class="cap">32 GB (util 0.31) · 5090</div><div class="big">96.2</div><div class="unit">tok/s · KV 5.4 GiB</div></div>
+  </div>
+
+  <h2>Was mit dem VRAM-Budget skaliert (und was nicht)</h2>
+  <table>
+    <thead><tr><th>VRAM-Cap</th><th class="num">GPU belegt</th><th class="num">KV-Pool</th><th class="num">KV-Tokens</th><th class="num">max. Concurrency @32K</th><th class="num">Single-Stream</th><th class="num">frei auf Karte</th></tr></thead>
+    <tbody>
+      <tr><td>96 GB · util 0.90</td><td class="num">~86 GB</td><td class="num">61.4 GiB</td><td class="num">1.31 M</td><td class="num">39.8×</td><td class="num">95.9 tok/s</td><td class="num">~10 GB</td></tr>
+      <tr><td>48 GB · util 0.50</td><td class="num">~50 GB</td><td class="num">23.4 GiB</td><td class="num">498 K</td><td class="num">15.2×</td><td class="num">95.8 tok/s</td><td class="num">~46 GB</td></tr>
+      <tr><td>32 GB · util 0.31 <span class="badge b-small">5090</span></td><td class="num">32.6 GB</td><td class="num">5.4 GiB</td><td class="num">115 K</td><td class="num">3.5×</td><td class="num">96.2 tok/s</td><td class="num">~63 GB</td></tr>
+    </tbody>
+  </table>
+  <p class="sub">Nur der <strong>KV-Cache</strong> (= max. Kontext × gleichzeitige Anfragen) skaliert mit dem Budget. Single-Stream: flat.</p>
+
+  <h2>Durchsatz unter Last: 96 GB vs 32 GB pro Szenario</h2>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--full)"></span>96 GB (volles Budget)</span>
+    <span><span class="sw" style="background:var(--small)"></span>32 GB (5090-Emulation)</span>
+  </div>
+  <div class="grid">
+    <div class="card"><h3>chat <span class="badge b-ok">deckungsgleich</span></h3><div class="meta">2K in / 300 out</div><div class="chartwrap"><canvas id="c_chat"></canvas></div></div>
+    <div class="card"><h3>rag <span class="badge b-ok">≈ gleich</span></h3><div class="meta">8K in / 256 out</div><div class="chartwrap"><canvas id="c_rag"></canvas></div></div>
+    <div class="card"><h3>agentic <span class="badge b-ok">≈ gleich</span></h3><div class="meta">16K in / 800 out</div><div class="chartwrap"><canvas id="c_agentic"></canvas></div></div>
+    <div class="card"><h3>codegen <span class="badge b-warn">32 GB deckelt</span></h3><div class="meta">4K in / 1.5K out · lange Ausgabe füllt KV</div><div class="chartwrap"><canvas id="c_codegen"></canvas></div></div>
+  </div>
+  <p class="sub">Aggregierter Ausgabe-Durchsatz (tok/s) über die erreichte Concurrency. Drei Szenarien überlappen fast vollständig —
+  nur <strong>codegen</strong> deckelt bei 32 GB (~530 statt 811 tok/s), weil die langen Ausgaben den KV-Cache füllen und vLLM verdrängt.</p>
+
+  <h2>Kapazität: wie viele User pro Karte?</h2>
+  <p class="sub"><strong>Gleichz.</strong> = gleichzeitige Anfragen innerhalb eines interaktiven p95-Latenzbudgets. <strong>≈ User</strong> mit Think-Time-Multiplikator
+  (Chat ×5, RAG ×3, Codegen ×2, Agenten ×1). Ein Workload-Typ pro Karte.</p>
+  <table>
+    <thead><tr><th>Szenario</th><th class="num">p95</th><th class="num">96 GB gleichz. → User</th><th class="num">32 GB gleichz. → User</th><th>Effekt bei 32 GB</th></tr></thead>
+    <tbody>
+      <tr><td>chat (2K/300)</td><td class="num">≤10 s</td><td class="num">7 → ~35</td><td class="num">7 → ~35</td><td><span class="badge b-ok">unverändert</span></td></tr>
+      <tr><td>rag (8K/256)</td><td class="num">≤20 s</td><td class="num">6 → ~18</td><td class="num">5 → ~15</td><td><span class="badge b-ok">leicht drunter</span></td></tr>
+      <tr><td>agentic (16K/800)</td><td class="num">≤75 s</td><td class="num">6 → ~6</td><td class="num">6 → ~6</td><td><span class="badge b-ok">unverändert</span></td></tr>
+      <tr><td>codegen (4K/1.5K)</td><td class="num">≤60 s</td><td class="num">15 → ~30</td><td class="num">10 → ~20</td><td><span class="badge b-warn">−⅓ · KV-Wand</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Hochrechnung: die <em>echte</em> RTX 5090</h2>
+  <p class="sub">Gemessene 32-GB-Kapazität × Hardware-Faktor der 5090: Compute ~−10 % (170 vs 188 SM), Bandbreite ~+12 % (1,79 vs 1,6 TB/s).
+  Beides hebt sich je nach Szenario weitgehend auf.</p>
+  <table>
+    <thead><tr><th>Szenario</th><th class="num">≈ User (5090-Schätzung)</th><th>Treiber</th></tr></thead>
+    <tbody>
+      <tr><td>chat</td><td class="num">~30–35</td><td>rechengeb. → −10 % Compute drückt leicht</td></tr>
+      <tr><td>rag</td><td class="num">~13–15</td><td>rechengeb., KV knapp am Knie</td></tr>
+      <tr><td>agentic</td><td class="num">~6</td><td>Prefill-/KV-Wand, quasi identisch</td></tr>
+      <tr><td>codegen</td><td class="num">~18–20</td><td>KV-limitiert bei 32 GB; +12 % Bandbreite gleicht Compute aus</td></tr>
+    </tbody>
+  </table>
+  <p class="sub">Schätzung, nicht auf echter 5090 gemessen — Consumer-Drosselung unter Dauerlast kann weitere 5–15 % kosten; kein ECC.</p>
+
+  <h2>Empfohlene <code>--gpu-memory-utilization</code> auf dieser Karte</h2>
+  <p class="sub">Da Single-Stream flat ist, kauft Utilization nur KV-Headroom (Kontextlänge, Concurrency, Prefix-Cache). „Gut" = genug KV für den realen Bedarf, Rest der geteilten Karte frei lassen.</p>
+  <table>
+    <thead><tr><th>util</th><th class="num">gesamt VRAM</th><th class="num">KV-Pool</th><th class="num">≈ KV-Tokens</th><th class="num">frei auf Karte</th><th>Einsatz</th></tr></thead>
+    <tbody>
+      <tr><td>0.31</td><td class="num">~33 GB</td><td class="num">~5 GB</td><td class="num">~115 K</td><td class="num">~63 GB</td><td>5090-Emulation / zweites Modell daneben</td></tr>
+      <tr><td>0.50</td><td class="num">~48 GB</td><td class="num">~23 GB</td><td class="num">~470 K</td><td class="num">~48 GB</td><td>halbe Karte reservieren (Coexistenz)</td></tr>
+      <tr style="background:rgba(90,196,122,.07)"><td><strong>0.60</strong> <span class="badge b-ok">empfohlen</span></td><td class="num">~58 GB</td><td class="num">~31 GB</td><td class="num">~660 K</td><td class="num">~38 GB</td><td><strong>Default geteilte Karte</strong> (LibreChat + Image-Pipeline)</td></tr>
+      <tr><td>0.85</td><td class="num">~82 GB</td><td class="num">~55 GB</td><td class="num">~1.17 M</td><td class="num">~14 GB</td><td>nur wenn LLM alleiniger GPU-Nutzer</td></tr>
+      <tr><td>0.90</td><td class="num">~86 GB</td><td class="num">~61 GB</td><td class="num">~1.31 M</td><td class="num">~10 GB</td><td>max. KV-Headroom (selten nötig)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Erkenntnisse</h2>
+  <div class="findings"><ul>
+    <li><strong>Single-Stream kostet kein VRAM.</strong> 96 → 48 → 32 GB: konstant ~96 tok/s. Der Speicher bestimmt Kapazität, nicht Geschwindigkeit.</li>
+    <li><strong>Für die meisten Workloads reichen 32 GB.</strong> chat, rag und agentic laufen bei 32 GB praktisch wie bei 96 GB — die KV-Decke bindet erst weit über dem Punkt, an dem die Rechenleistung ohnehin sättigt.</li>
+    <li><strong>Ausnahme: lange Generierung.</strong> Bei codegen wächst der KV-Cache pro Anfrage mit der Ausgabelänge; bei 32 GB summiert sich das über die 115K-Token-Grenze → Verdrängung, Kapazität −⅓ (30 → 20 User). Das ist der eine Fall, wo sich die 96 GB im Multi-User-Betrieb konkret auszahlen.</li>
+    <li><strong>RTX 5090 als Karte für diesen Quant:</strong> für Single-User & moderate Concurrency top (32 GB reichen, NVFP4-Tensor-Cores, ~+12 % Bandbreite). Für langes Multi-User-Coding oder 128K-Kontexte gewinnt die PRO 6000 mit KV-Headroom.</li>
+    <li><strong>Praktisch:</strong> auf dieser geteilten Karte <code>--gpu-memory-utilization 0.60</code> statt 0.85–0.90 — voller Single-Stream-Speed, ~660K Tokens KV, und ~38 GB frei für die Image-Pipeline oder ein zweites Modell.</li>
+  </ul></div>
+
+  <footer>
+    Gemessen auf NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) · vLLM 0.24.0 · <code>nvidia/Qwen3.6-27B-NVFP4</code> + MTP (<code>qwen3_next_mtp</code> N=1),
+    text-only, <code>--max-num-seqs 256</code>, <code>--max-model-len 32768</code> · Single-Stream mit <code>test_chat.py</code> (3 Läufe, --no-think),
+    Concurrency mit guidellm <code>--profile concurrent</code> [1,4,8,16,32], 75 s/Stufe · VRAM-Cap über <code>--gpu-memory-utilization</code> (ohne MIG,
+    volle Rechenleistung/Bandbreite bleibt aktiv). „5090" = Kapazität emuliert (VRAM-Cap), Compute/Bandbreite als Faktor hochgerechnet. Rohdaten unter <code>benchmarks/parallel-2x2/</code>.
+  </footer>
+</main>
+
+<script>
+const D = {
+  chat:{g96:[[1,87],[3.9,225],[7.6,335],[14.7,401],[26.2,418]],g32:[[1,87],[3.9,226],[7.7,331],[14.7,349],[25.3,335]]},
+  rag:{g96:[[1,64],[3.9,122],[7.2,147],[13.2,148],[15.2,141]],g32:[[1,64],[3.8,122],[7.3,142],[12.1,133],[17.7,134]]},
+  agentic:{g96:[[1,80],[3.6,180],[5.7,211],[6.1,198]],g32:[[1,83],[3.6,174],[6,181],[6.4,149],[7,183]]},
+  codegen:{g96:[[1,103],[3.8,327],[6.6,492],[11.8,658],[19.1,811]],g32:[[1,107],[3.6,326],[7.1,530],[10.3,522],[13.1,530]]},
+};
+const FULL='#4bc4c4', SMALL='#e06d3b', GRID='#2a2145', TICK='#9a8fb8';
+function mk(id,sc){
+  const p=D[sc];
+  new Chart(document.getElementById(id),{type:'line',
+    data:{datasets:[
+      {label:'96 GB',data:p.g96.map(x=>({x:x[0],y:x[1]})),borderColor:FULL,backgroundColor:FULL,tension:.25,borderWidth:2.5,pointRadius:3},
+      {label:'32 GB (5090)',data:p.g32.map(x=>({x:x[0],y:x[1]})),borderColor:SMALL,backgroundColor:SMALL,tension:.25,borderWidth:2.5,pointRadius:3},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:TICK,boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y} tok/s @ c${c.parsed.x}`}}},
+      scales:{
+        x:{type:'linear',min:0,title:{display:true,text:'erreichte Concurrency',color:TICK,font:{size:10}},grid:{color:GRID},ticks:{color:TICK,font:{size:10}}},
+        y:{beginAtZero:true,title:{display:true,text:'aggregierter Ausgabe-tok/s',color:TICK,font:{size:10}},grid:{color:GRID},ticks:{color:TICK,font:{size:10}}}}}
+  });
+}
+['chat','rag','agentic','codegen'].forEach(sc=>mk('c_'+sc,sc));
+</script>
+</body>
+</html>

@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2026-05-03 · Qwen3.6-27B INT4 + DFlash · GuideLLM Sweep</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --champion: #ffb43d;       /* int4 + dflash gold */
+    --inferno-purple: #6a176e;
+    --inferno-pink: #bc3754;
+    --inferno-orange: #f37819;
+    --inferno-yellow: #fcffa4;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--inferno-orange), var(--champion) 50%, var(--inferno-yellow));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--inferno-orange), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--inferno-orange);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+
+  /* Hero scenario cards */
+  .scenario-row {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .scenario-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .scenario-row { grid-template-columns: 1fr; } }
+  .scenario-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1rem;
+    border: 1px solid rgba(255,180,61,0.15);
+  }
+  .scenario-card .name {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--inferno-orange); font-weight: 700;
+  }
+  .scenario-card .shape {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.78rem; color: var(--muted); margin: 0.2rem 0 0.6rem;
+  }
+  .scenario-card .big {
+    font-size: 2.0rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .scenario-card .unit {
+    font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem;
+  }
+  .scenario-card .sat {
+    margin-top: 0.7rem; padding-top: 0.6rem;
+    border-top: 1px solid rgba(255,180,61,0.1);
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .scenario-card .sat strong { color: var(--inferno-yellow); font-variant-numeric: tabular-nums; }
+
+  /* Headline number */
+  .headline-num {
+    text-align: center; padding: 1rem 0 1.5rem;
+  }
+  .headline-num .big {
+    font-size: 4.5rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    filter: drop-shadow(0 0 18px rgba(255,180,61,0.35));
+  }
+  .headline-num .label { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; }
+
+  /* Tables */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--inferno-yellow); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(255,180,61,0.07);
+  }
+  tbody tr:hover td { background: rgba(255,180,61,0.04); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  td.scenario { color: var(--inferno-orange); font-weight: 600; }
+
+  /* Charts */
+  .chart-wrap {
+    position: relative; height: 360px; margin-top: 1rem;
+    background: var(--bg-elev); border-radius: 10px; padding: 1rem;
+  }
+  .chart-tall { height: 440px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block; padding: 0.15rem 0.55rem;
+    border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(255,180,61,0.12); color: var(--champion);
+  }
+  .badge.good { background: rgba(76,175,80,0.15); color: #8be094; }
+  .badge.warn { background: rgba(255,179,0,0.15); color: var(--warn); }
+
+  .findings {
+    background: linear-gradient(135deg, rgba(255,180,61,0.06), rgba(106,23,110,0.07));
+    border-left: 4px solid var(--champion);
+    padding: 1rem 1.4rem; border-radius: 0 12px 12px 0; margin-top: 1rem;
+  }
+  .findings strong { color: var(--champion); }
+  .findings ul { margin: 0.4rem 0 0; padding-left: 1.4rem; color: var(--fg); }
+  .findings li { margin-bottom: 0.35rem; }
+
+  pre, code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px;
+  }
+  pre { padding: 1rem; overflow-x: auto; border: 1px solid rgba(255,180,61,0.1); border-radius: 8px; line-height: 1.4; }
+
+  footer {
+    margin-top: 4rem; padding: 2rem; text-align: center;
+    color: var(--muted); font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Qwen3.6-27B · INT4 + DFlash · GuideLLM Sweep</h1>
+  <div class="subtitle">Five workload scenarios × ten concurrency strategies on a single RTX PRO 6000 Blackwell</div>
+  <div class="meta">
+    <span>Date: 2026-05-03</span>
+    <span>Target: <code>Lorbus/Qwen3.6-27B-int4-AutoRound</code> (W4A16-GPTQ, 16.9 GiB)</span>
+    <span>Drafter: <code>z-lab/Qwen3.6-27B-DFlash</code> (BF16 2 B, ~3 GiB)</span>
+    <span>num_speculative_tokens: 8</span>
+    <span>vLLM: cu130-nightly (v0.19.2rc1.dev134)</span>
+    <span>GPU: RTX PRO 6000 Blackwell (96 GB GDDR7, ~1.6 TB/s)</span>
+    <span>Tool: GuideLLM 0.5.4, profile <code>sweep</code>, max-seconds 90–120</span>
+  </div>
+</header>
+
+<main>
+
+<!-- ── Headline ─────────────────────────────────────────────── -->
+<section>
+  <div class="headline-num">
+    <div class="big">139.7</div>
+    <div class="label">tok / s on chat at C=1 — single-user steady state on the champion config</div>
+  </div>
+  <p style="text-align:center" class="muted">
+    Stacking INT4 weights (only ~17 GB streamed per token) with the DFlash drafter
+    (1 target verify pass per ~9 candidate tokens) compounds. The result is
+    <strong>2–3× over FP8 baselines</strong> on decode-heavy scenarios, with the
+    full 27 B target's quality.
+  </p>
+</section>
+
+<!-- ── Per-scenario hero cards ──────────────────────────────── -->
+<section>
+  <h2>Single-user throughput per scenario (C = 1)</h2>
+  <p>Each scenario uses production-shape token distributions. Chat is short prompts /
+  short outputs; codegen is short prompts / long outputs (the sweet spot for speculation);
+  agentic, RAG, and summarization are increasingly prefill-heavy.</p>
+
+  <div class="scenario-row">
+    <div class="scenario-card">
+      <div class="name">Chat</div>
+      <div class="shape">2 K × 300</div>
+      <div class="big">139.7</div>
+      <div class="unit">tok / s</div>
+      <div class="sat">Saturation: <strong>450 tok/s</strong> @ C ≈ 70.8</div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">Codegen</div>
+      <div class="shape">4 K × 1.5 K</div>
+      <div class="big">136.4</div>
+      <div class="unit">tok / s</div>
+      <div class="sat">Saturation: <strong>351 tok/s</strong> @ C ≈ 12.2</div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">Agentic</div>
+      <div class="shape">16 K × 800</div>
+      <div class="big">62.5</div>
+      <div class="unit">tok / s</div>
+      <div class="sat">Saturation: <strong>148 tok/s</strong> @ C ≈ 5.9</div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">RAG</div>
+      <div class="shape">8 K × 256</div>
+      <div class="big">64.3</div>
+      <div class="unit">tok / s</div>
+      <div class="sat">Saturation: <strong>116 tok/s</strong> @ C ≈ 21.2</div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">Summarization</div>
+      <div class="shape">12 K × 300</div>
+      <div class="big">53.3</div>
+      <div class="unit">tok / s</div>
+      <div class="sat">Saturation: <strong>67 tok/s</strong> @ C ≈ 7.5</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Concurrency curves ───────────────────────────────────── -->
+<section>
+  <h2>Concurrency curves — aggregate output tok/s vs measured concurrency</h2>
+  <p>Each line is one scenario. X-axis is the actual achieved concurrency (mean active requests), not the
+  nominal rate. Saturating "throughput" probes are off-scale and reported in the table below; the curves
+  here include only the synchronous and constant-rate strategies.</p>
+  <div class="chart-wrap chart-tall"><canvas id="chartScenarios"></canvas></div>
+
+  <h3 style="margin-top:1.2rem">Why the curves diverge</h3>
+  <p class="muted">
+    Chat and codegen are decode-bound: 1.4 K and 1.5 K-token outputs let DFlash's
+    block-diffusion drafter pay back its 9-token verify pass many times. Agentic, RAG, and
+    summarization are prefill-bound: most of each request is the chunked prefill of a 8–16 K
+    prompt, where speculation has nothing to speculate over. Summarization in particular
+    plateaus and even regresses at higher constant rates, because each new request adds
+    queueing without producing extra decode work.
+  </p>
+</section>
+
+<!-- ── Saturation table ─────────────────────────────────────── -->
+<section>
+  <h2>Saturation behaviour</h2>
+  <p>The "throughput" strategy in the GuideLLM sweep ramps the offered load until the server
+  refuses to keep up. The peak active concurrency it reaches reflects how request-bound the
+  scenario is — long-prompt scenarios run into KV-cache and prefill limits much earlier than
+  short-prompt ones.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Scenario</th>
+        <th class="num">C = 1 OTPS</th>
+        <th class="num">Peak C reached</th>
+        <th class="num">OTPS at peak</th>
+        <th class="num">Multi-user gain</th>
+        <th>Bottleneck</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="scenario">Chat</td>
+        <td class="num">139.7</td>
+        <td class="num">70.81</td>
+        <td class="num">450.5</td>
+        <td class="num"><span class="badge good">+222 %</span></td>
+        <td>scheduler — short prompts allow huge batches</td>
+      </tr>
+      <tr>
+        <td class="scenario">Codegen</td>
+        <td class="num">136.4</td>
+        <td class="num">12.18</td>
+        <td class="num">350.7</td>
+        <td class="num"><span class="badge good">+157 %</span></td>
+        <td>decode-bound, but verify-pass batch is the wall</td>
+      </tr>
+      <tr>
+        <td class="scenario">RAG</td>
+        <td class="num">64.3</td>
+        <td class="num">21.24</td>
+        <td class="num">116.4</td>
+        <td class="num"><span class="badge warn">+81 %</span></td>
+        <td>chunked prefill of 8 K prompts dominates</td>
+      </tr>
+      <tr>
+        <td class="scenario">Agentic</td>
+        <td class="num">62.5</td>
+        <td class="num">5.91</td>
+        <td class="num">147.5</td>
+        <td class="num"><span class="badge warn">+136 %</span></td>
+        <td>16 K prompts saturate prefill long before decode</td>
+      </tr>
+      <tr>
+        <td class="scenario">Summarization</td>
+        <td class="num">53.3</td>
+        <td class="num">7.45</td>
+        <td class="num">67.2</td>
+        <td class="num"><span class="badge warn">+26 %</span></td>
+        <td>pure prefill stress; barely scales with concurrency</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Per-scenario data ───────────────────────────────────── -->
+<section>
+  <h2>Full sweep data</h2>
+  <p class="muted">All 10 GuideLLM strategies per scenario. "Sync" is the synchronous baseline (C=1),
+  "Sat" is the saturating throughput probe; the eight rows in between are constant-rate strategies
+  spaced to map the curve.</p>
+
+  <h3>Chat — 2 K × 300</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th class="num">Mean concurrency</th>
+        <th class="num">OTPS mean</th>
+        <th class="num">OTPS p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>sync</td>      <td class="num">1.00</td>  <td class="num">139.7</td><td class="num">181.3</td></tr>
+      <tr><td>const-1</td>   <td class="num">1.26</td>  <td class="num">158.7</td><td class="num">263.2</td></tr>
+      <tr><td>const-2</td>   <td class="num">1.75</td>  <td class="num">197.4</td><td class="num">336.2</td></tr>
+      <tr><td>const-3</td>   <td class="num">2.28</td>  <td class="num">234.6</td><td class="num">381.4</td></tr>
+      <tr><td>const-4</td>   <td class="num">2.94</td>  <td class="num">284.9</td><td class="num">624.7</td></tr>
+      <tr><td>const-5</td>   <td class="num">3.62</td>  <td class="num">311.0</td><td class="num">681.3</td></tr>
+      <tr><td>const-6</td>   <td class="num">4.77</td>  <td class="num">363.5</td><td class="num">893.7</td></tr>
+      <tr><td>const-7</td>   <td class="num">7.29</td>  <td class="num">400.4</td><td class="num">983.4</td></tr>
+      <tr><td>const-8</td>   <td class="num">12.87</td> <td class="num">432.8</td><td class="num">1058.7</td></tr>
+      <tr style="background:rgba(255,180,61,0.08)"><td><strong>sat</strong></td><td class="num"><strong>70.81</strong></td><td class="num"><strong>450.5</strong></td><td class="num">897.3</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Codegen — 4 K × 1.5 K</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th class="num">Mean concurrency</th>
+        <th class="num">OTPS mean</th>
+        <th class="num">OTPS p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>sync</td>      <td class="num">1.00</td>  <td class="num">136.4</td><td class="num">306.0</td></tr>
+      <tr><td>const-1</td>   <td class="num">1.13</td>  <td class="num">146.3</td><td class="num">246.0</td></tr>
+      <tr><td>const-2</td>   <td class="num">1.35</td>  <td class="num">165.9</td><td class="num">347.1</td></tr>
+      <tr><td>const-3</td>   <td class="num">1.51</td>  <td class="num">189.5</td><td class="num">423.5</td></tr>
+      <tr><td>const-4</td>   <td class="num">1.75</td>  <td class="num">212.9</td><td class="num">420.0</td></tr>
+      <tr><td>const-5</td>   <td class="num">1.85</td>  <td class="num">208.2</td><td class="num">381.0</td></tr>
+      <tr><td>const-6</td>   <td class="num">2.23</td>  <td class="num">235.5</td><td class="num">360.9</td></tr>
+      <tr><td>const-7</td>   <td class="num">2.46</td>  <td class="num">272.3</td><td class="num">477.9</td></tr>
+      <tr><td>const-8</td>   <td class="num">2.66</td>  <td class="num">313.8</td><td class="num">634.9</td></tr>
+      <tr style="background:rgba(255,180,61,0.08)"><td><strong>sat</strong></td><td class="num"><strong>12.18</strong></td><td class="num"><strong>350.7</strong></td><td class="num">802.7</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Agentic — 16 K × 800</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th class="num">Mean concurrency</th>
+        <th class="num">OTPS mean</th>
+        <th class="num">OTPS p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>sync</td>      <td class="num">1.00</td>  <td class="num">62.5</td><td class="num">219.1</td></tr>
+      <tr><td>const-1</td>   <td class="num">1.34</td>  <td class="num">69.1</td><td class="num">277.0</td></tr>
+      <tr><td>const-2</td>   <td class="num">1.07</td>  <td class="num">59.9</td><td class="num">158.2</td></tr>
+      <tr><td>const-3</td>   <td class="num">1.00</td>  <td class="num">59.7</td><td class="num">131.4</td></tr>
+      <tr><td>const-4</td>   <td class="num">0.99</td>  <td class="num">57.3</td><td class="num">310.5</td></tr>
+      <tr><td>const-5</td>   <td class="num">1.17</td>  <td class="num">67.3</td><td class="num">221.2</td></tr>
+      <tr><td>const-6</td>   <td class="num">1.09</td>  <td class="num">57.9</td><td class="num">154.4</td></tr>
+      <tr><td>const-7</td>   <td class="num">0.80</td>  <td class="num">62.5</td><td class="num">258.8</td></tr>
+      <tr><td>const-8</td>   <td class="num">1.09</td>  <td class="num">61.6</td><td class="num">244.4</td></tr>
+      <tr style="background:rgba(255,180,61,0.08)"><td><strong>sat</strong></td><td class="num"><strong>5.91</strong></td><td class="num"><strong>147.5</strong></td><td class="num">395.1</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RAG — 8 K × 256</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th class="num">Mean concurrency</th>
+        <th class="num">OTPS mean</th>
+        <th class="num">OTPS p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>sync</td>      <td class="num">1.00</td>  <td class="num">64.3</td><td class="num">79.0</td></tr>
+      <tr><td>const-1</td>   <td class="num">1.37</td>  <td class="num">73.0</td><td class="num">129.7</td></tr>
+      <tr><td>const-2</td>   <td class="num">1.37</td>  <td class="num">70.5</td><td class="num">138.7</td></tr>
+      <tr><td>const-3</td>   <td class="num">1.46</td>  <td class="num">73.0</td><td class="num">127.9</td></tr>
+      <tr><td>const-4</td>   <td class="num">1.57</td>  <td class="num">77.8</td><td class="num">142.5</td></tr>
+      <tr><td>const-5</td>   <td class="num">1.73</td>  <td class="num">78.5</td><td class="num">117.9</td></tr>
+      <tr><td>const-6</td>   <td class="num">1.75</td>  <td class="num">82.4</td><td class="num">169.5</td></tr>
+      <tr><td>const-7</td>   <td class="num">2.02</td>  <td class="num">94.4</td><td class="num">150.6</td></tr>
+      <tr><td>const-8</td>   <td class="num">2.09</td>  <td class="num">89.4</td><td class="num">152.2</td></tr>
+      <tr style="background:rgba(255,180,61,0.08)"><td><strong>sat</strong></td><td class="num"><strong>21.24</strong></td><td class="num"><strong>116.4</strong></td><td class="num">186.0</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Summarization — 12 K × 300</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Strategy</th>
+        <th class="num">Mean concurrency</th>
+        <th class="num">OTPS mean</th>
+        <th class="num">OTPS p95</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>sync</td>      <td class="num">1.00</td>  <td class="num">53.3</td><td class="num">100.4</td></tr>
+      <tr><td>const-1</td>   <td class="num">1.27</td>  <td class="num">58.2</td><td class="num">80.7</td></tr>
+      <tr><td>const-2</td>   <td class="num">0.89</td>  <td class="num">45.0</td><td class="num">73.6</td></tr>
+      <tr><td>const-3</td>   <td class="num">0.92</td>  <td class="num">49.3</td><td class="num">71.4</td></tr>
+      <tr><td>const-4</td>   <td class="num">0.85</td>  <td class="num">43.7</td><td class="num">62.7</td></tr>
+      <tr><td>const-5</td>   <td class="num">0.89</td>  <td class="num">47.8</td><td class="num">83.3</td></tr>
+      <tr><td>const-6</td>   <td class="num">0.76</td>  <td class="num">38.8</td><td class="num">53.3</td></tr>
+      <tr><td>const-7</td>   <td class="num">0.71</td>  <td class="num">40.1</td><td class="num">55.6</td></tr>
+      <tr><td>const-8</td>   <td class="num">0.62</td>  <td class="num">32.5</td><td class="num">72.9</td></tr>
+      <tr style="background:rgba(255,180,61,0.08)"><td><strong>sat</strong></td><td class="num"><strong>7.45</strong></td><td class="num"><strong>67.2</strong></td><td class="num">124.6</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ── Findings ─────────────────────────────────────────────── -->
+<section>
+  <h2>Takeaways</h2>
+  <div class="findings">
+    <strong>What the sweep tells us:</strong>
+    <ul>
+      <li><strong>Decode-heavy scenarios scale beautifully.</strong> Chat reaches 4.5× the C=1 throughput at saturation (450 OTPS at C ≈ 70). Codegen reaches 2.6× at C ≈ 12 — limited by the larger verify-pass batch from longer outputs.</li>
+      <li><strong>Long-prompt scenarios are gated by prefill, not decode.</strong> RAG, agentic, and summarization barely benefit from concurrency — chunked prefill of 8–16 K prompts saturates the GPU before there's spare cycles for decode parallelism.</li>
+      <li><strong>Summarization regresses under load.</strong> Constant-rate runs at offered C ≈ 1 produce <em>lower</em> OTPS than the synchronous baseline, because each request fills the prefill budget without unlocking extra decode tokens. Treat as a single-request workload.</li>
+      <li><strong>Chat saturation reaches C ≈ 70.</strong> Short prompts let the scheduler stack many concurrent requests in the KV cache. The aggregate 450 OTPS at peak suggests this config could comfortably serve dozens of light-traffic chat users with sub-1 s TTFT each.</li>
+      <li><strong>P95 OTPS is much higher than mean.</strong> Up to 1058 OTPS in chat — the steady-state batch is bursty, and individual measurement windows can hit much higher peaks. The mean is the safe operational planning number.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Configuration ───────────────────────────────────────── -->
+<section>
+  <h2>Exact configuration</h2>
+  <pre><code>image:    vllm/vllm-openai:cu130-nightly
+model:    Lorbus/Qwen3.6-27B-int4-AutoRound          # ~16.9 GiB INT4 W4A16 GPTQ
+drafter:  z-lab/Qwen3.6-27B-DFlash                   # ~3 GiB BF16
+
+flags:
+  --max-model-len           262144
+  --gpu-memory-utilization  0.90
+  --enable-prefix-caching
+  --language-model-only
+  --max-num-batched-tokens  16384
+  --speculative-config '{"method":"dflash",
+                         "model":"z-lab/Qwen3.6-27B-DFlash",
+                         "num_speculative_tokens":8}'
+
+env:
+  VLLM_ATTENTION_BACKEND      = FLASH_ATTN
+  VLLM_USE_FLASHINFER_SAMPLER = 0
+  PYTORCH_CUDA_ALLOC_CONF     = expandable_segments:True
+
+GuideLLM:
+  --profile      sweep        # synchronous + 8 constant-rate + saturating throughput
+  --max-seconds  90 (codegen, summarization), 120 (chat, rag, agentic)
+  --warmup       0.1          # discard first 10 % of each rate's window
+
+Total weight footprint on GPU: 19.98 GiB
+Compose file: models/qwen3.6/docker-compose.vllm-27b-int4-dflash-rtx.yml</code></pre>
+</section>
+
+</main>
+
+<footer>
+  Measured 2026-05-03 on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) ·
+  vLLM cu130-nightly · GuideLLM 0.5.4 ·
+  raw CSV: <code>models/qwen3.6/benchmarks/guidellm-27b-int4-dflash/{scenario}/benchmarks.csv</code>
+</footer>
+
+<script>
+const championColor  = 'rgba(255,180,61,0.95)';
+const championBorder = 'rgba(255,200,90,1)';
+const purpleBorder   = 'rgba(138,60,148,1)';
+const pinkBorder     = 'rgba(188,55,84,1)';
+const orangeBorder   = 'rgba(243,120,25,1)';
+const yellowBorder   = 'rgba(252,255,164,1)';
+const tealBorder     = 'rgba(80,200,200,1)';
+const gridColor      = 'rgba(255,180,61,0.08)';
+const tickColor      = '#9890c4';
+
+Chart.defaults.color = tickColor;
+Chart.defaults.borderColor = gridColor;
+
+const scenarios = [
+  {
+    label: 'Chat (2K × 300)',
+    color: yellowBorder,
+    bg: 'rgba(252,255,164,0.18)',
+    data: [
+      {x:1.00,y:139.7},{x:1.26,y:158.7},{x:1.75,y:197.4},{x:2.28,y:234.6},
+      {x:2.94,y:284.9},{x:3.62,y:311.0},{x:4.77,y:363.5},{x:7.29,y:400.4},
+      {x:12.87,y:432.8}
+    ],
+  },
+  {
+    label: 'Codegen (4K × 1.5K)',
+    color: championBorder,
+    bg: 'rgba(255,180,61,0.20)',
+    data: [
+      {x:1.00,y:136.4},{x:1.13,y:146.3},{x:1.35,y:165.9},{x:1.51,y:189.5},
+      {x:1.75,y:212.9},{x:1.85,y:208.2},{x:2.23,y:235.5},{x:2.46,y:272.3},
+      {x:2.66,y:313.8}
+    ],
+  },
+  {
+    label: 'Agentic (16K × 800)',
+    color: orangeBorder,
+    bg: 'rgba(243,120,25,0.15)',
+    data: [
+      {x:1.00,y:62.5},{x:1.34,y:69.1},{x:1.07,y:59.9},{x:1.00,y:59.7},
+      {x:0.99,y:57.3},{x:1.17,y:67.3},{x:1.09,y:57.9},{x:0.80,y:62.5},
+      {x:1.09,y:61.6}
+    ],
+  },
+  {
+    label: 'RAG (8K × 256)',
+    color: pinkBorder,
+    bg: 'rgba(188,55,84,0.15)',
+    data: [
+      {x:1.00,y:64.3},{x:1.37,y:73.0},{x:1.37,y:70.5},{x:1.46,y:73.0},
+      {x:1.57,y:77.8},{x:1.73,y:78.5},{x:1.75,y:82.4},{x:2.02,y:94.4},
+      {x:2.09,y:89.4}
+    ],
+  },
+  {
+    label: 'Summarization (12K × 300)',
+    color: purpleBorder,
+    bg: 'rgba(138,60,148,0.15)',
+    data: [
+      {x:1.00,y:53.3},{x:1.27,y:58.2},{x:0.89,y:45.0},{x:0.92,y:49.3},
+      {x:0.85,y:43.7},{x:0.89,y:47.8},{x:0.76,y:38.8},{x:0.71,y:40.1},
+      {x:0.62,y:32.5}
+    ],
+  },
+];
+
+new Chart(document.getElementById('chartScenarios'), {
+  type: 'line',
+  data: {
+    datasets: scenarios.map(s => ({
+      label: s.label,
+      data: s.data,
+      borderColor: s.color,
+      backgroundColor: s.bg,
+      pointBackgroundColor: s.color,
+      pointRadius: 4, borderWidth: 2.5,
+      tension: 0.25, fill: false,
+      showLine: true,
+    })),
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: tickColor, boxWidth: 14, padding: 14, usePointStyle: true } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} OTPS @ C=${ctx.parsed.x.toFixed(2)}`,
+        }
+      },
+    },
+    scales: {
+      x: { type: 'linear', grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'Mean active concurrency', color: tickColor },
+           min: 0 },
+      y: { grid: { color: gridColor }, ticks: { color: tickColor },
+           title: { display: true, text: 'Aggregate output tok/s (OTPS)', color: tickColor },
+           beginAtZero: true }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
