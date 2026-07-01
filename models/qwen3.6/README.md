@@ -345,6 +345,8 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.vllm-27b-nvfp4-baseline-rtx.yml` | vLLM | NVFP4 (no spec) | RTX PRO 6000 | Quant-only reference |
 | `docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | **Official NVIDIA NVFP4** (`nvidia/Qwen3.6-27B-NVFP4`, modelopt v0.45). 71.1 tok/s — fastest no-MTP NVFP4, +58% over community mmangkad. Entrypoint pip-upgrades vLLM nightly + flashinfer on boot (same recipe as 35B NVIDIA) |
 | `docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | NVIDIA NVFP4 + `qwen3_next_mtp` N=1 → 95.9 tok/s (+35%). Same loader recipe, port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | Concurrency-tuned (`--max-num-seqs 256`) NVIDIA NVFP4+MTP for the parallelization study; wins long-output workloads at scale |
+| `docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml` | vLLM | FP8 + MTP | RTX PRO 6000 | Concurrency-tuned FP8+MTP A/B partner; wins high-concurrency short-reply serving |
 
 ## Benchmarks (RTX PRO 6000, 96 GB)
 
@@ -606,3 +608,32 @@ Full GuideLLM sweep across 5 production-shaped scenarios. See [`benchmark-27b.ht
 - **One RTX PRO 6000 serves**: 15 chat users · 6 coders · 3 RAG users · 1 agentic agent.
 
 Reproduce with `./bench-guidellm-parallel.sh` (defaults to vLLM FP8+MTP on port 11436).
+
+## Parallelization: NVFP4 vs FP8 (both + MTP), 2026-07-01
+
+Head-to-head of the two official checkpoints **both with MTP** (`qwen3_next_mtp` N=1) under a
+fixed-concurrency ladder [1, 4, 8, 16, 32], four production-shaped scenarios. Charts +
+methodology in [`comparison-nvfp4-fp8-parallel.html`](comparison-nvfp4-fp8-parallel.html); raw
+guidellm output under [`benchmarks/parallel-2x2/`](benchmarks/parallel-2x2/). Configs:
+[`docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml`](docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml)
+and [`docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml`](docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml)
+(both text-only, `--max-num-seqs 256`, `--max-model-len 32768`, `--gpu-memory-utilization 0.90`).
+
+Aggregate output tok/s — single-stream vs saturated:
+
+| Scenario (in/out) | C=1 NVFP4 | C=1 FP8 | peak NVFP4 | peak FP8 | winner @ scale |
+|---|---:|---:|---:|---:|---|
+| chat (2K/300)     | **87.3** | 68.2 | 418 @c26 | **677 @c29** | FP8 +62% |
+| rag (8K/256)      | **64.0** | 51.7 | 148 @c13 | **198 @c21** | FP8 +34% |
+| agentic (16K/800) | **80.0** | 54.9 | **211 @c6** | 180 @c6 | NVFP4 +17% |
+| codegen (4K/1.5K) | **102.8** | 71.9 | **811 @c19** | 704 @c19 | NVFP4 +15% |
+
+**Findings (these overturned the going-in hypothesis):**
+
+1. **NVFP4+MTP wins single-stream in every scenario** (C=1, +20–40%). For 1–4 concurrent users it is strictly better and is the recommended default endpoint.
+2. **Output length decides the parallel winner, not the quant.** Short-output workloads (chat 300, rag 256) go **compute-bound** when batched, where NVFP4's group=16 dequant tax dominates and FP8's W8A8 kernels pull ahead past a crossover around C≈5. Long-output workloads (codegen 1.5K, agentic 800) stay **bandwidth-bound**, where MTP + 4-bit weights keep NVFP4 in front throughout.
+3. **NVFP4's ~2.1× KV-cache ceiling is a mirage here.** vLLM reports 39.8× vs 19.2× max concurrency at 32K/req (61.4 vs 49.8 GiB free; NVFP4 also gets fp8 KV from the modelopt checkpoint), but **compute saturates before KV does** — on rag, FP8 actually sustained *higher* concurrency (21 vs 15) and NVFP4's throughput fell at the top step. The KV headroom would only pay off on very long shared-prefix contexts where KV, not compute, is the wall.
+
+**Recommendation:** NVFP4+MTP for low-concurrency or long-generation (coding/agents); FP8+MTP for high-concurrency short-reply serving (chat, RAG Q&A at 10+ users).
+
+**Confound:** the FP8 checkpoint runs vLLM v0.19.0 (stable image) and NVFP4 v0.24.0 (nightly, required by the modelopt loader) — a version difference on the batched-compute kernels, not purely the quant. Reproduce with `./bench-guidellm-concurrent.sh` (fixed-concurrency ladder; the sweep script's throughput strategy dispatches 512 requests and yields zero completions for long scenarios).

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Qwen3.6-27B · NVFP4 vs FP8 (both + MTP) — Parallelization</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0612; --bg-elev:#15102a; --bg-card:#1a1430; --fg:#f0e8ff; --muted:#9a8fb8;
+    --nvfp4:#e06d3b; --nvfp4-b:#f0a587; --fp8:#8e5cd6; --fp8-b:#c3aef0;
+    --line:#2a2145; --accent:#f7a513;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:var(--bg);color:var(--fg);line-height:1.55;padding:2rem 1.2rem 4rem}
+  main{max-width:1080px;margin:0 auto}
+  h1{font-size:2rem;font-weight:800;margin:0 0 .3rem}
+  h2{font-size:1.35rem;font-weight:700;margin:2.4rem 0 .8rem;color:var(--accent)}
+  h3{font-size:1rem;font-weight:700;margin:0 0 .4rem}
+  p{color:#d8cef0}
+  .sub{color:var(--muted);font-size:1.02rem;margin:.2rem 0 0}
+  code{background:var(--bg-elev);padding:.1rem .35rem;border-radius:4px;font-size:.85em;color:#f0a587}
+  .legend{display:flex;gap:1.4rem;align-items:center;margin:1rem 0 .2rem;font-weight:600;font-size:.9rem}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:.4rem;vertical-align:-2px}
+  table{width:100%;border-collapse:collapse;margin:.8rem 0;font-size:.9rem}
+  th,td{text-align:left;padding:.5rem .6rem;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.78rem;letter-spacing:.03em;text-transform:uppercase}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;margin-top:1rem}
+  .card{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:1rem 1rem .6rem}
+  .card h3{margin-bottom:.1rem}
+  .card .meta{color:var(--muted);font-size:.78rem;margin-bottom:.5rem}
+  .chartwrap{position:relative;height:230px}
+  .badge{display:inline-block;padding:.1rem .5rem;border-radius:6px;font-size:.72rem;font-weight:700}
+  .b-nvfp4{background:rgba(224,109,59,.16);color:var(--nvfp4-b)}
+  .b-fp8{background:rgba(142,92,214,.18);color:var(--fp8-b)}
+  .findings{background:var(--bg-elev);border:1px solid var(--line);border-radius:14px;padding:.4rem 1.2rem;margin-top:1rem}
+  .findings li{margin:.7rem 0}
+  .rec{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem}
+  .rec .col{background:var(--bg-card);border:1px solid var(--line);border-radius:14px;padding:1rem 1.1rem}
+  .rec .col.n{border-color:rgba(224,109,59,.4)}
+  .rec .col.f{border-color:rgba(142,92,214,.4)}
+  footer{color:var(--muted);font-size:.82rem;margin-top:2.6rem;border-top:1px solid var(--line);padding-top:1rem}
+  @media(max-width:720px){.grid,.rec{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+  <h1>NVFP4 vs FP8 — parallelization on Qwen3.6-27B</h1>
+  <p class="sub">Both quants <strong>+ MTP</strong> (<code>qwen3_next_mtp</code> N=1), dense 27B, single RTX PRO 6000 Blackwell (96 GB).
+  Fixed-concurrency ladder [1, 4, 8, 16, 32] · guidellm <code>--profile concurrent</code> · 2026-07-01.</p>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--nvfp4)"></span>NVFP4 + MTP <span class="badge b-nvfp4">nvidia/Qwen3.6-27B-NVFP4 · vLLM 0.24</span></span>
+    <span><span class="swatch" style="background:var(--fp8)"></span>FP8 + MTP <span class="badge b-fp8">Qwen/Qwen3.6-27B-FP8 · vLLM 0.19</span></span>
+  </div>
+
+  <h2>The one-line answer</h2>
+  <p><strong>It depends on output length, not on which quant looks faster single-stream.</strong>
+  NVFP4+MTP wins every workload at low concurrency, but under parallel load the winner flips by scenario:
+  <strong>FP8 wins short-output serving</strong> (chat, RAG Q&amp;A) because batched decode turns compute-bound and
+  NVFP4's group=16 dequant tax bites; <strong>NVFP4 wins long-output serving</strong> (codegen, agents) where decode
+  stays bandwidth-bound and MTP compounds. The much-larger NVFP4 KV pool <em>does not</em> convert into a higher
+  concurrency ceiling — compute saturates first.</p>
+
+  <h2>Aggregate output throughput vs concurrency</h2>
+  <p class="sub">Higher = more total tokens/s the server sustains. Each point is a fixed concurrency level; x = achieved concurrency.</p>
+  <div class="grid">
+    <div class="card"><h3>chat <span class="badge b-fp8">FP8 wins @scale</span></h3><div class="meta">2K in / 300 out · short reply, latency-sensitive</div><div class="chartwrap"><canvas id="c_chat"></canvas></div></div>
+    <div class="card"><h3>rag <span class="badge b-fp8">FP8 wins @scale</span></h3><div class="meta">8K in / 256 out · prefill-heavy, short reply</div><div class="chartwrap"><canvas id="c_rag"></canvas></div></div>
+    <div class="card"><h3>agentic <span class="badge b-nvfp4">NVFP4 wins</span></h3><div class="meta">16K in / 800 out · long context + long reply</div><div class="chartwrap"><canvas id="c_agentic"></canvas></div></div>
+    <div class="card"><h3>codegen <span class="badge b-nvfp4">NVFP4 wins</span></h3><div class="meta">4K in / 1.5K out · decode-heavy</div><div class="chartwrap"><canvas id="c_codegen"></canvas></div></div>
+  </div>
+
+  <h2>Single-stream vs saturated</h2>
+  <table>
+    <thead><tr><th>Scenario</th><th class="num">C=1 NVFP4</th><th class="num">C=1 FP8</th><th class="num">peak NVFP4</th><th class="num">peak FP8</th><th>winner @ scale</th></tr></thead>
+    <tbody>
+      <tr><td>chat (2K/300)</td><td class="num">87.3</td><td class="num">68.2</td><td class="num">418 <span class="meta">@c26</span></td><td class="num">677 <span class="meta">@c29</span></td><td><span class="badge b-fp8">FP8 +62%</span></td></tr>
+      <tr><td>rag (8K/256)</td><td class="num">64.0</td><td class="num">51.7</td><td class="num">148 <span class="meta">@c13</span></td><td class="num">198 <span class="meta">@c21</span></td><td><span class="badge b-fp8">FP8 +34%</span></td></tr>
+      <tr><td>agentic (16K/800)</td><td class="num">80.0</td><td class="num">54.9</td><td class="num">211 <span class="meta">@c6</span></td><td class="num">180 <span class="meta">@c6</span></td><td><span class="badge b-nvfp4">NVFP4 +17%</span></td></tr>
+      <tr><td>codegen (4K/1.5K)</td><td class="num">102.8</td><td class="num">71.9</td><td class="num">811 <span class="meta">@c19</span></td><td class="num">704 <span class="meta">@c19</span></td><td><span class="badge b-nvfp4">NVFP4 +15%</span></td></tr>
+    </tbody>
+  </table>
+  <p class="sub">Values are aggregate output tok/s (3-run guidellm, warmup 15%). NVFP4+MTP is faster in <strong>every</strong> C=1 cell.</p>
+
+  <h2>Structural: KV headroom that never gets used</h2>
+  <table>
+    <thead><tr><th>Config</th><th class="num">Weights</th><th class="num">Free KV</th><th class="num">KV dtype</th><th class="num">vLLM max concurrency @32K/req</th></tr></thead>
+    <tbody>
+      <tr><td><span class="swatch" style="background:var(--nvfp4)"></span>NVFP4 + MTP</td><td class="num">~18 GiB</td><td class="num">61.4 GiB</td><td class="num">fp8 (from ckpt)</td><td class="num">39.8×</td></tr>
+      <tr><td><span class="swatch" style="background:var(--fp8)"></span>FP8 + MTP</td><td class="num">~27 GiB</td><td class="num">49.8 GiB</td><td class="num">BF16</td><td class="num">19.2×</td></tr>
+    </tbody>
+  </table>
+  <p>NVFP4 reports <strong>~2.1× the KV-cache ceiling</strong> (smaller weights + fp8 KV from the modelopt checkpoint).
+  Yet in the sweeps it never <em>reaches</em> that ceiling: on rag, FP8 sustained higher concurrency (21 vs 15) and
+  NVFP4's throughput actually fell at the top step. The bottleneck under load is compute, not KV capacity.</p>
+
+  <h2>What we learned</h2>
+  <div class="findings"><ul>
+    <li><strong>NVFP4+MTP wins single-stream, every scenario.</strong> C=1 aggregate is 20–40% higher (e.g. codegen 102.8 vs 71.9). For 1–4 concurrent users, NVFP4+MTP is strictly better.</li>
+    <li><strong>Output length is the deciding variable — not the quant, not KV.</strong> Short outputs (chat 300, rag 256) make batched decode <em>compute-bound</em>, where NVFP4's group=16 dequant tax dominates and FP8's W8A8 tensor cores pull ahead past a crossover around C≈5. Long outputs (codegen 1.5K, agentic 800) stay <em>bandwidth-bound</em>, where MTP + 4-bit weights keep NVFP4 in front throughout.</li>
+    <li><strong>The KV-ceiling advantage is a mirage under these workloads.</strong> Compute saturates before the 39.8× KV pool is exhausted, so NVFP4's structural headroom doesn't convert into higher sustainable concurrency. It would matter for very long shared-prefix contexts where KV, not compute, is the wall.</li>
+  </ul></div>
+
+  <h2>Which should you run?</h2>
+  <div class="rec">
+    <div class="col n">
+      <h3><span class="swatch" style="background:var(--nvfp4)"></span>NVFP4 + MTP</h3>
+      <p>Low concurrency (1–8), or any <strong>long-generation</strong> workload: coding agents, tool-use agents, document drafting.
+      Also the better default single endpoint (smaller footprint, faster interactive replies). Best C=1 latency in every scenario.</p>
+    </div>
+    <div class="col f">
+      <h3><span class="swatch" style="background:var(--fp8)"></span>FP8 + MTP</h3>
+      <p>High-concurrency <strong>short-reply</strong> serving: chatbots and RAG Q&amp;A at 10+ simultaneous users, where aggregate
+      tokens/s is the KPI. FP8 delivers up to +62% (chat) / +34% (rag) peak throughput once the batch is compute-bound.</p>
+    </div>
+  </div>
+
+  <footer>
+    Measured on NVIDIA RTX PRO 6000 Blackwell (96 GB GDDR7) · guidellm 0.5.4 <code>--profile concurrent</code>,
+    max-seconds 75, warmup 15% · both configs text-only, <code>--max-num-seqs 256</code>, <code>--max-model-len 32768</code>,
+    <code>--gpu-memory-utilization 0.90</code>, identical MTP <code>qwen3_next_mtp</code> N=1.<br/>
+    <strong>Confound to note:</strong> the FP8 checkpoint runs vLLM v0.19.0 (stable image) and NVFP4 runs v0.24.0 (nightly, required
+    by the modelopt loader) — a version difference on the batched-compute kernels, not just the quant. Compose files:
+    <code>docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml</code>, <code>docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml</code>.
+    Raw guidellm output under <code>benchmarks/parallel-2x2/</code>.
+  </footer>
+</main>
+
+<script>
+const D = {
+  chat:{fp8:[[1,68.2],[3.9,225.3],[7.6,369.0],[15.0,554.6],[28.7,676.6]],nvfp4:[[1,87.3],[3.9,224.5],[7.6,335.1],[14.7,400.7],[26.2,418.1]]},
+  rag:{fp8:[[1,51.7],[3.8,128.4],[7.4,169.4],[14.1,195.3],[21.1,198.3]],nvfp4:[[1,64.0],[3.9,122.0],[7.2,146.7],[13.2,148.1],[15.2,140.5]]},
+  agentic:{fp8:[[1,54.9],[3.4,140.1],[5.8,177.8],[6.5,180.2]],nvfp4:[[1,80.0],[3.6,179.6],[5.7,210.8],[6.1,198.0]]},
+  codegen:{fp8:[[1,71.9],[3.0,203.6],[6.5,382.9],[10.8,547.5],[19.3,704.0]],nvfp4:[[1,102.8],[3.8,326.7],[6.6,492.1],[11.8,658.1],[19.1,811.0]]},
+};
+const NV='#e06d3b', FP='#8e5cd6', GRID='#2a2145', TICK='#9a8fb8';
+function mk(id,sc){
+  const pts=D[sc];
+  new Chart(document.getElementById(id),{
+    type:'line',
+    data:{datasets:[
+      {label:'NVFP4+MTP',data:pts.nvfp4.map(p=>({x:p[0],y:p[1]})),borderColor:NV,backgroundColor:NV,tension:.25,borderWidth:2.5,pointRadius:3.5},
+      {label:'FP8+MTP',data:pts.fp8.map(p=>({x:p[0],y:p[1]})),borderColor:FP,backgroundColor:FP,tension:.25,borderWidth:2.5,pointRadius:3.5},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:TICK,boxWidth:12,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y.toFixed(0)} tok/s @ c${c.parsed.x}`}}},
+      scales:{
+        x:{type:'linear',title:{display:true,text:'achieved concurrency',color:TICK,font:{size:10}},
+           grid:{color:GRID},ticks:{color:TICK,font:{size:10}},min:0},
+        y:{title:{display:true,text:'aggregate output tok/s',color:TICK,font:{size:10}},
+           grid:{color:GRID},ticks:{color:TICK,font:{size:10}},beginAtZero:true}}}
+  });
+}
+['chat','rag','agentic','codegen'].forEach(sc=>mk('c_'+sc,sc));
+</script>
+</body>
+</html>

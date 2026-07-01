@@ -1,0 +1,6 @@
+# guidellm per-run JSONs are 5-90 MB each — keep CSV + console.log + summary only
+benchmarks.json
+# superseded sweep-profile raw data (throughput strategy yielded 0 completions on long scenarios)
+nvfp4-mtp/
+fp8-mtp/
+*-sweep.log

@@ -1,0 +1,254 @@
+{
+ "chat": {
+  "fp8": [
+   {
+    "conc": 1.0,
+    "agg": 68.2,
+    "lat": 4.6,
+    "perstream": 68.2
+   },
+   {
+    "conc": 3.9,
+    "agg": 225.3,
+    "lat": 5.4,
+    "perstream": 57.1
+   },
+   {
+    "conc": 7.6,
+    "agg": 369.0,
+    "lat": 6.8,
+    "perstream": 48.3
+   },
+   {
+    "conc": 15.0,
+    "agg": 554.6,
+    "lat": 9.3,
+    "perstream": 37.0
+   },
+   {
+    "conc": 28.7,
+    "agg": 676.6,
+    "lat": 14.6,
+    "perstream": 23.6
+   }
+  ],
+  "nvfp4": [
+   {
+    "conc": 1.0,
+    "agg": 87.3,
+    "lat": 3.5,
+    "perstream": 87.3
+   },
+   {
+    "conc": 3.9,
+    "agg": 224.5,
+    "lat": 5.2,
+    "perstream": 58.0
+   },
+   {
+    "conc": 7.6,
+    "agg": 335.1,
+    "lat": 7.7,
+    "perstream": 44.0
+   },
+   {
+    "conc": 14.7,
+    "agg": 400.7,
+    "lat": 12.5,
+    "perstream": 27.2
+   },
+   {
+    "conc": 26.2,
+    "agg": 418.1,
+    "lat": 22.5,
+    "perstream": 16.0
+   }
+  ]
+ },
+ "rag": {
+  "fp8": [
+   {
+    "conc": 1.0,
+    "agg": 51.7,
+    "lat": 5.1,
+    "perstream": 51.7
+   },
+   {
+    "conc": 3.8,
+    "agg": 128.4,
+    "lat": 8.4,
+    "perstream": 33.9
+   },
+   {
+    "conc": 7.4,
+    "agg": 169.4,
+    "lat": 13.2,
+    "perstream": 22.8
+   },
+   {
+    "conc": 14.1,
+    "agg": 195.3,
+    "lat": 25.1,
+    "perstream": 13.9
+   },
+   {
+    "conc": 21.1,
+    "agg": 198.3,
+    "lat": 54.3,
+    "perstream": 9.4
+   }
+  ],
+  "nvfp4": [
+   {
+    "conc": 1.0,
+    "agg": 64.0,
+    "lat": 4.1,
+    "perstream": 64.0
+   },
+   {
+    "conc": 3.9,
+    "agg": 122.0,
+    "lat": 9.1,
+    "perstream": 31.5
+   },
+   {
+    "conc": 7.2,
+    "agg": 146.7,
+    "lat": 16.2,
+    "perstream": 20.3
+   },
+   {
+    "conc": 13.2,
+    "agg": 148.1,
+    "lat": 34.0,
+    "perstream": 11.2
+   },
+   {
+    "conc": 15.2,
+    "agg": 140.5,
+    "lat": 62.5,
+    "perstream": 9.2
+   }
+  ]
+ },
+ "agentic": {
+  "fp8": [
+   {
+    "conc": 1.0,
+    "agg": 54.9,
+    "lat": 21.0,
+    "perstream": 54.9
+   },
+   {
+    "conc": 3.4,
+    "agg": 140.1,
+    "lat": 26.4,
+    "perstream": 41.8
+   },
+   {
+    "conc": 5.8,
+    "agg": 177.8,
+    "lat": 46.5,
+    "perstream": 30.5
+   },
+   {
+    "conc": 6.5,
+    "agg": 180.2,
+    "lat": 63.8,
+    "perstream": 27.5
+   }
+  ],
+  "nvfp4": [
+   {
+    "conc": 1.0,
+    "agg": 80.0,
+    "lat": 11.2,
+    "perstream": 80.0
+   },
+   {
+    "conc": 3.6,
+    "agg": 179.6,
+    "lat": 22.7,
+    "perstream": 50.4
+   },
+   {
+    "conc": 5.7,
+    "agg": 210.8,
+    "lat": 41.2,
+    "perstream": 37.1
+   },
+   {
+    "conc": 6.1,
+    "agg": 198.0,
+    "lat": 66.8,
+    "perstream": 32.7
+   }
+  ]
+ },
+ "codegen": {
+  "fp8": [
+   {
+    "conc": 1.0,
+    "agg": 71.9,
+    "lat": 28.8,
+    "perstream": 71.9
+   },
+   {
+    "conc": 3.0,
+    "agg": 203.6,
+    "lat": 27.0,
+    "perstream": 66.8
+   },
+   {
+    "conc": 6.5,
+    "agg": 382.9,
+    "lat": 33.7,
+    "perstream": 59.1
+   },
+   {
+    "conc": 10.8,
+    "agg": 547.5,
+    "lat": 39.4,
+    "perstream": 50.9
+   },
+   {
+    "conc": 19.3,
+    "agg": 704.0,
+    "lat": 58.6,
+    "perstream": 36.5
+   }
+  ],
+  "nvfp4": [
+   {
+    "conc": 1.0,
+    "agg": 102.8,
+    "lat": 19.4,
+    "perstream": 102.8
+   },
+   {
+    "conc": 3.8,
+    "agg": 326.7,
+    "lat": 19.5,
+    "perstream": 86.0
+   },
+   {
+    "conc": 6.6,
+    "agg": 492.1,
+    "lat": 24.4,
+    "perstream": 74.7
+   },
+   {
+    "conc": 11.8,
+    "agg": 658.1,
+    "lat": 33.3,
+    "perstream": 55.9
+   },
+   {
+    "conc": 19.1,
+    "agg": 811.0,
+    "lat": 56.4,
+    "perstream": 42.4
+   }
+  ]
+ }
+}
