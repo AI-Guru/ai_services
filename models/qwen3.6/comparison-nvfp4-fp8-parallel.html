@@ -104,6 +104,35 @@
     <li><strong>The KV-ceiling advantage is a mirage under these workloads.</strong> Compute saturates before the 39.8× KV pool is exhausted, so NVFP4's structural headroom doesn't convert into higher sustainable concurrency. It would matter for very long shared-prefix contexts where KV, not compute, is the wall.</li>
   </ul></div>
 
+  <h2>How many parallel requests can one card serve?</h2>
+  <p class="sub">Estimated from the ladder above, single model resident on one RTX PRO 6000.
+  <strong>Good</strong> = the most concurrent in-flight requests that still meet an interactive p95 latency budget
+  for that use case. <strong>Max</strong> = concurrency at peak aggregate throughput (higher latency, maximal total
+  output — batch/offline mode). <strong>≈ users</strong> applies a typical think-time multiplier (users cycle
+  request → read/act → next), so served users exceed in-flight requests: chat ×5, RAG ×3, codegen ×2, agents ×1 (autonomous, back-to-back).</p>
+
+  <table>
+    <thead><tr>
+      <th>Use case</th><th class="num">p95 budget</th>
+      <th class="num">NVFP4 good</th><th class="num">FP8 good</th>
+      <th class="num">≈ users NVFP4 / FP8</th>
+      <th class="num">max (batch)</th><th>capacity winner</th>
+    </tr></thead>
+    <tbody>
+      <tr><td>chat (2K/300)</td><td class="num">≤10 s</td><td class="num">7</td><td class="num">8</td><td class="num">~35 / <strong>~40</strong></td><td class="num">26 / 29</td><td><span class="badge b-fp8">FP8</span></td></tr>
+      <tr><td>rag (8K/256)</td><td class="num">≤20 s</td><td class="num">6</td><td class="num">8</td><td class="num">~18 / <strong>~24</strong></td><td class="num">13 / 21</td><td><span class="badge b-fp8">FP8 ~+33%</span></td></tr>
+      <tr><td>agentic (16K/800)</td><td class="num">≤75 s</td><td class="num">6</td><td class="num">6</td><td class="num">~6 / ~6</td><td class="num">6 / 6</td><td><span class="badge" style="background:#2a2145;color:var(--muted)">tie ~6</span></td></tr>
+      <tr><td>codegen (4K/1.5K)</td><td class="num">≤60 s</td><td class="num">15</td><td class="num">12</td><td class="num"><strong>~30</strong> / ~24</td><td class="num">19 / 19</td><td><span class="badge b-nvfp4">NVFP4 ~+25%</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="findings"><ul>
+    <li><strong>Short-reply serving (chat, RAG):</strong> FP8+MTP holds ~30% more concurrent requests inside the latency budget — roughly <strong>40 chat</strong> or <strong>24 RAG</strong> users vs 35 / 18 on NVFP4.</li>
+    <li><strong>Long-generation (codegen):</strong> NVFP4+MTP sustains ~25% more — <strong>~30 concurrent coders</strong> vs ~24, and it starts each of them faster (lower C=1 latency).</li>
+    <li><strong>Agentic (16K context):</strong> a tie at <strong>~6 concurrent agents</strong> per card for both — prefill + compute on 16K prompts is the wall, not the quant. Plan one card per ~6 parallel agents regardless of quant.</li>
+    <li>These are estimates from 75 s measurement windows with the stated latency budgets; relax the p95 budget and the "good" numbers climb toward the "max" column (FP8 especially, which degrades latency more gracefully on short replies).</li>
+  </ul></div>
+
   <h2>Which should you run?</h2>
   <div class="rec">
     <div class="col n">
