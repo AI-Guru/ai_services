@@ -123,6 +123,75 @@ broken on SM120 (sglang #19637 / cutlass #3096 / vllm #31085). On the current
 on the RTX PRO 6000 — verified coherent output, 157 tok/s. (Still avoid the SM100-only
 `trtllm_*` backends.) vLLM keeps a throughput edge (~14%); SGLang has much lower TTFT.
 
+### Tool-calling: use SGLang, not the vLLM NVFP4 compose (2026-07-02)
+
+A user reported that Gemma 4 26B **leaks its internal channel scaffolding**
+(`<|channel>thought … <channel|>`) as plaintext into the `content` field on
+tool-calling requests, with the `reasoning` field left empty — and only when
+`tools` are present (clean without tools). Qwen 3.6 27B and Nemotron Nano 30B did
+not exhibit this on the identical request.
+
+**Root cause:** the `vllm-26b-nvfp4-rtx.yml` compose configures **no
+`--reasoning-parser` and no `--tool-call-parser`** (the same config gap that gives
+it 0/4 on tools, above). Without `--reasoning-parser gemma4`, vLLM emits the raw
+Gemma 4 reasoning delimiters into `content`. It surfaces only with tools because
+Gemma 4's chat template opens the `thought` channel in the **post-tool-response
+continuation** case (the prompt ends inside an open `<|channel>` block). The
+working models simply have their parsers configured.
+
+**Fix — verified on `sglang-26b-nvfp4-rtx.yml`** (which sets `--reasoning-parser
+gemma4 --tool-call-parser gemma4`):
+
+- `test_tools.py` → **4/4 passed**.
+- Andi's exact repro (assistant tool_call + tool result already in `messages`,
+  model must answer): `content` **marker-free**, both non-streaming and streaming.
+- With `chat_template_kwargs={"enable_thinking":true}`: the chain-of-thought lands
+  cleanly in the **`reasoning` field** (509 chars) and `content` stays clean — i.e.
+  the expected OpenAI-compatible behaviour, matching Qwen/Nemotron.
+
+vLLM's own `gemma4` parser could close the gap (`--enable-auto-tool-choice
+--tool-call-parser gemma4 --reasoning-parser gemma4 --chat-template
+examples/tool_chat_template_gemma4.jinja`) but has open bugs in exactly this
+multi-turn/streaming path (vllm #39885, #38855, #39392). **SGLang is the vetted
+path for tool calling here.**
+
+### Concurrency scaling — SGLang NVFP4 (2026-07-02)
+
+Aggregate-throughput sweep (32 distinct prompts, `max_tokens=256`, streaming TTFT):
+
+| Concurrency | Aggregate tok/s | Per-request tok/s | Scaling | TTFT p50 |
+|---:|---:|---:|---:|---:|
+| 1  | 157   | 157 | 1.0× | 56 ms |
+| 8  | 922   | 115 | 5.9× | 38 ms |
+| 16 | 1 593 | 100 | 10.1× | 41 ms |
+| 32 | 2 867 | 90  | **18.3×** | 58 ms |
+
+SGLang's continuous batching scales strongly: **18.3× aggregate throughput at
+32-way concurrency**, each individual request still decoding at 90 tok/s (57% of
+single-stream) with sub-60 ms TTFT throughout. The single-stream 157 tok/s
+reproduces the table above exactly.
+
+### Speculative decoding does NOT help Gemma 4 26B here (2026-07-02)
+
+Unlike Qwen 3.6 (whose checkpoint ships a native MTP head → +116% with MTP), there
+is **no viable, beneficial MTP path** for Gemma 4 26B on this host:
+
+- **No native MTP/NEXTN module** in `nvidia/Gemma-4-26B-A4B-NVFP4`
+  (`config.json` has no `nextn`/`mtp`/`predict` keys). SGLang's builtin speculative
+  algorithms (`EAGLE`/`EAGLE3`/`NEXTN`) all require a draft head *in the checkpoint*.
+- Google's `gemma-4-26B-A4B-it-assistant` is a **standalone draft model** (the
+  vLLM assistant-draft path), which SGLang's builtins don't consume — and that
+  path was already ❌ under vLLM (weight-load AssertionError / −23% regression, above).
+- **Model-free n-gram speculative (`--speculative-algorithm NGRAM`) is a net loss**
+  at every concurrency level (measured 2026-07-02): 1-way 157→104 (−34%), 8-way
+  922→541 (−41%), 16-way 1 593→735 (−54%), 32-way 2 867→1 125 (**−61%**). SGLang
+  logs the reason: *"The overlap scheduler and mixed chunked prefill are disabled
+  because of using ngram speculative decoding"* — n-gram spec turns off the very
+  scheduler that powers the batching, and open-ended chat has low draft acceptance.
+
+**Conclusion:** run plain SGLang NVFP4 (no speculative). Throughput comes from
+batching, not MTP.
+
 ## Service Variants
 
 | File | Backend | Model | GGUF / Quant | Size | Port |
