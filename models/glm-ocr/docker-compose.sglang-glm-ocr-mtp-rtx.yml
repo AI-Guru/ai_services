@@ -1,0 +1,119 @@
+# GLM-OCR (zai-org / Z.ai) via SGLang + MTP speculative decoding
+#
+# A 0.9B vision-LM for document -> markdown / JSON parsing: CogViT vision
+# encoder (~0.4B) + token-downsampling connector + GLM-0.5B decoder. Handles
+# full-page layout, tables (HTML/TEDS), formulas (LaTeX/UniMERNet), charts,
+# seals, and key-information-extraction incl. handwritten KIE. Outputs Markdown
+# + JSON layout (bounding boxes + reading order).
+#
+# Reported accuracy (Z.ai, verify against the card): OmniDocBench v1.5 = 94.62
+# (claimed #1 open-or-closed), OCRBench-Text 94.0, UniMERNet 96.5. Released
+# ~2026-03-11. Weights MIT / code Apache-2.0. Model id: zai-org/GLM-OCR.
+#
+# MTP: GLM-OCR ships a native Multi-Token-Prediction head used as a
+# self-speculative drafter. SGLang exposes it via the NEXTN spec algorithm
+# (same family as the qwen3.6 sglang composes), gated by SGLANG_ENABLE_SPEC_V2=1.
+# num-steps=3 mirrors Z.ai's published SGLang recipe. This is the headline
+# speed mechanism; A/B it against spec-off by removing the --speculative-* flags.
+#
+# GPU budget (RTX PRO 6000 Blackwell, 96 GiB): weights BF16 ~1.8 GiB, but
+# SGLang has a real memory floor here — the NEXTN draft head + spec-decode
+# cudagraph capture make it refuse to start much below ~0.30 when a large
+# model is already resident (0.10/0.20 -> "Not enough memory. Please try to
+# increase --mem-fraction-static"). 0.30 (~28.8 GiB) coexists with a ~60 GiB
+# resident model. This is SGLang's floor, not the weights — the vLLM sibling
+# compose runs the same model happily at 0.10. Drop it when standalone.
+#
+# !! FLAGS TO VERIFY against the live README (https://github.com/zai-org/GLM-OCR)
+#    before trusting a benchmark run: the exact NEXTN step/topk/draft-token
+#    numbers and whether a --chat-template is required were extracted from docs
+#    that had minor conflicts. If the server crash-loops on an unknown-arch
+#    error, the installed SGLang predates the native glm_ocr.py registry
+#    (merged 2026-01-27) -- bump the image or add --trust-remote-code.
+#
+# Usage:
+#   docker compose --env-file ../../.env -f docker-compose.sglang-glm-ocr-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11438/v1
+# Model name served as: glm-ocr
+
+services:
+  glm-ocr-sglang-mtp:
+    image: lmsysorg/sglang:latest
+    container_name: glm-ocr-sglang-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11438:11438"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_SPEC_V2=1
+
+    entrypoint: python3 -m sglang.launch_server
+    command:
+      - --model-path
+      - zai-org/GLM-OCR
+      - --served-model-name
+      - glm-ocr
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11438"
+      - --mem-fraction-static
+      - "0.30"
+      - --tp-size
+      - "1"
+      - --max-running-requests
+      - "16"
+      - --speculative-algorithm
+      - NEXTN
+      - --speculative-num-steps
+      - "3"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "4"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11438/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: glm_ocr_huggingface_cache
+
+networks:
+  default:
+    name: glm-ocr-network

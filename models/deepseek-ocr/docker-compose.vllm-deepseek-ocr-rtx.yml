@@ -1,0 +1,100 @@
+# DeepSeek-OCR — vision-LM for document → markdown / structured text
+#
+# A ~6.7B-param vision model (DeepEncoder = SAM+CLIP hybrid → 3B MoE decoder,
+# ~570M activated). Designed to compress a page of dense text into a small
+# number of vision tokens, then decode it back as plain text, markdown, HTML
+# tables, or LaTeX. Strong on PDFs, scans, handwriting, charts, formulas.
+#
+# Resolution modes (controlled via the prompt / image preprocessing on the
+# client side — server just serves the model):
+#   Tiny     512x512    (~64  vision tokens, fastest, low-detail)
+#   Small    640x640    (~100 tokens)
+#   Base    1024x1024   (~256 tokens, default for normal documents)
+#   Large   1280x1280   (~400 tokens, dense / small-font pages)
+#   Gundam   dynamic    (multi-crop, for very large or mixed-DPI pages)
+#
+# RTX PRO 6000 Blackwell budget @ --gpu-memory-utilization 0.20:
+#   Model weights BF16 ≈ 6.7 GiB, KV cache trivial (short context).
+#   Co-existence note: tried to run this alongside qwen36-27b-fp8-dflash
+#   (which holds ~86 GiB) — does NOT fit. The model + minimum runtime
+#   needs ~9 GiB, free GPU was only ~8 GiB. Even at the lowest viable
+#   utilization the startup check fails because the target is below
+#   the weight size. Stop qwen36 first if you need DeepSeek-OCR.
+#
+# Usage:
+#   docker compose --env-file ../../.env -f docker-compose.vllm-deepseek-ocr-rtx.yml up -d
+# API endpoint: http://localhost:8000/v1   (vLLM default — no --port set)
+# Model name served as: deepseek-ai/DeepSeek-OCR  (no --served-model-name set)
+#
+# Refs:
+#   https://huggingface.co/deepseek-ai/DeepSeek-OCR
+
+services:
+  deepseek-ocr:
+    image: vllm/vllm-openai:v0.19.0-cu130
+    container_name: deepseek-ocr
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - deepseek-ai/DeepSeek-OCR
+      - --logits_processors
+      - vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor
+      - --no-enable-prefix-caching
+      - --mm-processor-cache-gb
+      - "0"
+      # Explicit low util (~11.5 GiB): weights are ~6.7 GiB, so this fits
+      # alongside a resident model instead of vLLM's default 0.90 grabbing the
+      # whole card. Raise toward 0.20+ when running standalone.
+      - --gpu-memory-utilization
+      - "0.12"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: deepseek_ocr_huggingface_cache
+
+networks:
+  default:
+    name: deepseek-ocr-network

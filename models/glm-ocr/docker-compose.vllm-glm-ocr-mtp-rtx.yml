@@ -1,0 +1,110 @@
+# GLM-OCR (zai-org / Z.ai) via vLLM + MTP speculative decoding
+#
+# Same 0.9B document-parsing vision-LM as the SGLang compose in this dir
+# (CogViT ~0.4B + token-downsampling connector + GLM-0.5B decoder). This file
+# is the vLLM counterpart so you can A/B the two engines the same way the
+# qwen3.6 family does. Model id: zai-org/GLM-OCR. Weights MIT / code Apache-2.0.
+#
+# MTP: vLLM reuses GLM-OCR's native Multi-Token-Prediction head as the
+# speculative drafter via --speculative-config. num_speculative_tokens=3
+# mirrors Z.ai's published vLLM recipe. Drop the flag to benchmark spec-off.
+#
+# --allowed-local-media-path / lets you pass file:// image paths (handy for
+# batch-OCR'ing a local folder of scans without a data server). Remove it if
+# you only ever send https/base64 image_url payloads.
+#
+# GPU budget (RTX PRO 6000 Blackwell, 96 GiB): weights BF16 ~1.8 GiB.
+# --gpu-memory-utilization is set to 0.10 (~9.6 GiB) so this coexists with a
+# resident model without a card-hogging grab; raise toward 0.20+ standalone.
+#
+# !! FLAGS TO VERIFY against the live README (https://github.com/zai-org/GLM-OCR):
+#    the two doc extractions disagreed on the exact vLLM invocation. The
+#    --speculative-config '{"method":"mtp",...}' form is the load-bearing one
+#    for MTP -- confirm "mtp" is the accepted method string for this arch and
+#    that the pinned image registers glm_ocr. If the container crash-loops on
+#    an unknown model_type, bump the vLLM image tag or add --trust-remote-code.
+#
+# Usage:
+#   docker compose --env-file ../../.env -f docker-compose.vllm-glm-ocr-mtp-rtx.yml up -d
+# API endpoint: http://localhost:8010/v1
+# Model name served as: glm-ocr
+
+services:
+  glm-ocr-vllm-mtp:
+    image: vllm/vllm-openai:nightly
+    container_name: glm-ocr-vllm-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8010:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - zai-org/GLM-OCR
+      - --served-model-name
+      - glm-ocr
+      - --trust-remote-code
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.10"
+      # Cap context so the KV pool fits inside the minimal 0.10 util budget
+      # (GLM-OCR defaults to 131072, which alone needs ~8.5 GiB KV/request and
+      # OOMs at low util). OCR prompts+outputs are short; 16384 is ample.
+      - --max-model-len
+      - "16384"
+      - --max-num-seqs
+      - "32"
+      - --allowed-local-media-path
+      - /
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: glm_ocr_huggingface_cache
+
+networks:
+  default:
+    name: glm-ocr-network
