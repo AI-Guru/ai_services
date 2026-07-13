@@ -1,0 +1,110 @@
+# Qwen3-TTS-12Hz-1.7B-CustomVoice — vLLM-Omni online serving (RTX PRO 6000)
+#
+# Qwen3-TTS is an open (Apache-2.0) text-to-speech family from Alibaba Qwen,
+# derived from the Qwen3-Omni foundation. Architecture is a TWO-STAGE discrete
+# multi-codebook LM: a 1.7B "talker" predicts 12 Hz audio codes, and a
+# lightweight non-DiT "code2wav" decoder turns codes into a waveform. Both
+# stages run as separate vLLM engines on one GPU, wired by a shared-memory
+# connector for low first-audio latency.
+#
+# CustomVoice = 9 preset premium voices with style control via `instructions`:
+#   vivian, serena, uncle_fu, dylan, eric, ryan, aiden, ono_anna, sohee
+# Languages: Chinese, English, Japanese, Korean, German, French, Russian,
+# Portuguese, Spanish, Italian.
+#
+# API — OpenAI-compatible TTS (this is the standardized convention):
+#   POST /v1/audio/speech   { input, voice, language, instructions,
+#                             response_format(wav|mp3|flac|pcm|aac|opus), speed }
+#   GET  /v1/audio/voices   POST /v1/audio/voices (upload)   ...
+# Example:
+#   curl -X POST http://localhost:12437/v1/audio/speech \
+#     -H 'Content-Type: application/json' \
+#     -d '{"input":"Hallo Welt","voice":"ryan","language":"German"}' \
+#     --output hello.wav
+#
+# MEMORY: conservative by design — the mounted deploy config pins each stage to
+# gpu_memory_utilization 0.07 (~13.4 GB total for both stages of a 96 GB card),
+# enforce_eager, max_num_seqs 4. Several TTS voices + the qwen3.6 LLMs coexist.
+# See deploy/qwen3_tts-1.7b-conservative.yaml.
+#
+# IMAGE: vllm/vllm-omni:v0.22.0 (official, on Docker Hub; built on the vLLM
+# image). It has NO default entrypoint — the `vllm serve ... --omni` command is
+# supplied here. qwen3_tts model support ships in the image.
+#
+# Usage: docker compose -f docker-compose.vllm-1.7b-customvoice-rtx.yml up -d
+# API endpoint: http://localhost:12437/v1   model name: qwen3-tts-1.7b-customvoice
+
+services:
+  qwen3tts-1.7b-customvoice:
+    image: vllm/vllm-omni:v0.22.0
+    container_name: qwen3tts-1.7b-customvoice
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb   # SharedMemoryConnector streams codec chunks stage0 -> stage1
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "12437:12437"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./deploy:/deploy:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+      - --omni
+      - --task-type
+      - CustomVoice
+      - --deploy-config
+      - /deploy/qwen3_tts-1.7b-conservative.yaml
+      - --served-model-name
+      - qwen3-tts-1.7b-customvoice
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "12437"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12437/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3tts_huggingface_cache
+
+networks:
+  default:
+    name: qwen3tts-network

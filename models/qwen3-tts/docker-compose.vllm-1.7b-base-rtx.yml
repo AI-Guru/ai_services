@@ -1,0 +1,98 @@
+# Qwen3-TTS-12Hz-1.7B-Base — vLLM-Omni online serving (RTX PRO 6000)
+#
+# The Base model does zero-shot VOICE CLONING: give it ~3 s of reference audio
+# (+ optionally its transcript) and it speaks new text in that voice. Same
+# two-stage architecture and OpenAI /v1/audio/speech API; task_type=Base with
+# ref_audio / ref_text (URL, base64, or file:// URI).
+#
+# Example:
+#   curl -X POST http://localhost:12439/v1/audio/speech \
+#     -H 'Content-Type: application/json' \
+#     -d '{"input":"This is a cloned voice.","task_type":"Base",
+#          "ref_audio":"https://example.com/ref.wav",
+#          "ref_text":"transcript of the reference clip"}' \
+#     --output clone.wav
+#
+# NOTE: Base is the one variant whose stage-1 max_num_seqs was tuned higher in
+# the vendor config (ref-context decode). Our conservative override keeps it at
+# 4 to bound memory; raise it in the deploy YAML if you clone in bulk solo.
+#
+# MEMORY: conservative — deploy/qwen3_tts-1.7b-conservative.yaml (~13.4 GB total).
+#
+# Usage: docker compose -f docker-compose.vllm-1.7b-base-rtx.yml up -d
+# API endpoint: http://localhost:12439/v1   model name: qwen3-tts-1.7b-base
+
+services:
+  qwen3tts-1.7b-base:
+    image: vllm/vllm-omni:v0.22.0
+    container_name: qwen3tts-1.7b-base
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "12439:12439"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./deploy:/deploy:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-TTS-12Hz-1.7B-Base
+      - --omni
+      - --task-type
+      - Base
+      - --deploy-config
+      - /deploy/qwen3_tts-1.7b-conservative.yaml
+      - --served-model-name
+      - qwen3-tts-1.7b-base
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "12439"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12439/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3tts_huggingface_cache
+
+networks:
+  default:
+    name: qwen3tts-network

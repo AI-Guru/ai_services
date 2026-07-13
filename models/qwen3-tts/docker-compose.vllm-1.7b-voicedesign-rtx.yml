@@ -1,0 +1,94 @@
+# Qwen3-TTS-12Hz-1.7B-VoiceDesign — vLLM-Omni online serving (RTX PRO 6000)
+#
+# VoiceDesign generates a NEW voice from a natural-language description passed
+# in `instructions` — no preset speaker and no reference audio needed. Same
+# two-stage talker->code2wav architecture and same OpenAI /v1/audio/speech API
+# as the CustomVoice sibling; differs only in task_type and the served weights.
+#
+# Example (design a voice, then speak with it):
+#   curl -X POST http://localhost:12438/v1/audio/speech \
+#     -H 'Content-Type: application/json' \
+#     -d '{"input":"Guten Abend.","task_type":"VoiceDesign","language":"German",
+#          "instructions":"A calm, warm elderly male storyteller with a slow pace"}' \
+#     --output design.wav
+#
+# MEMORY: conservative — deploy/qwen3_tts-1.7b-conservative.yaml pins each stage
+# to gpu_memory_utilization 0.07, enforce_eager, max_num_seqs 4 (~13.4 GB total).
+#
+# Usage: docker compose -f docker-compose.vllm-1.7b-voicedesign-rtx.yml up -d
+# API endpoint: http://localhost:12438/v1   model name: qwen3-tts-1.7b-voicedesign
+
+services:
+  qwen3tts-1.7b-voicedesign:
+    image: vllm/vllm-omni:v0.22.0
+    container_name: qwen3tts-1.7b-voicedesign
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "12438:12438"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./deploy:/deploy:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+      - --omni
+      - --task-type
+      - VoiceDesign
+      - --deploy-config
+      - /deploy/qwen3_tts-1.7b-conservative.yaml
+      - --served-model-name
+      - qwen3-tts-1.7b-voicedesign
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "12438"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:12438/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen3tts_huggingface_cache
+
+networks:
+  default:
+    name: qwen3tts-network
