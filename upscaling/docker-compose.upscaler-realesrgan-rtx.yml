@@ -5,9 +5,13 @@
 # dedicated endpoint: POST an image -> get a 4x PNG back. ~few hundred MB weights,
 # negligible VRAM next to the 96 GB card.
 #
-# Swap upscaler: drop any ESRGAN/SwinIR/DAT-family .pth into ./weights and point
-# UPSCALER_MODEL at it (spandrel auto-detects the architecture). For diffusion
-# restoration (SUPIR / SeedVR2) use ComfyUI instead — heavier, different shape.
+# Swap upscaler: this is a CODE edit, not a config one. The served models are the
+# hardcoded NATIVE_WEIGHTS dict in app/upscaler.py — add any ESRGAN/SwinIR/DAT/HAT/
+# DRCT-family .pth keyed by native scale and spandrel auto-detects the architecture
+# (0.4.2 in this image supports 42 of them). The env vars below only select which
+# SCALE to preload/default to; there is no variable that changes WHICH model runs.
+# For diffusion restoration see the sibling service in ./supir/ (SUPIR, own port);
+# for SeedVR2 or anything wanting a node graph, ComfyUI is still the right home.
 #
 # First boot downloads RealESRGAN_x4plus.pth into ./weights if absent.
 #
