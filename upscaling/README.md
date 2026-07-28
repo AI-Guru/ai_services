@@ -18,14 +18,8 @@ docker logs -f upscaler   # first boot downloads RealESRGAN_x4plus.pth into ./we
 
 ## Use
 
-`GET /health` → readiness + native scale factor:
-
-```bash
-curl -sS http://localhost:11477/health
-# {"status":"ok","model":"RealESRGAN_x4plus.pth","scale":4}
-```
-
-`GET /health` reports available native scales:
+`GET /health` → readiness + available native scales (`loaded` is what's actually resident in VRAM,
+which trails `native_scales` until a lazily-loaded model is first used):
 
 ```bash
 curl -sS http://localhost:11477/health
@@ -68,16 +62,36 @@ open("output.png", "wb").write(r.content)
 The native ×2 model loads lazily on first use (×4 is preloaded at boot; set `UPSCALER_PRELOAD=2,4`
 in the compose to preload both).
 
+`POST /upscale/json` → JSON-in/JSON-out twin, for chaining with the generation services without a
+round-trip through disk. Same `scale` / `outscale` semantics; body is `{"image": "<base64>", ...}`
+(a `data:image/png;base64,` prefix is tolerated) and the reply reuses the generation services'
+OpenAI-shaped envelope, with the scale metadata alongside instead of in headers:
+
+```jsonc
+{
+  "created": 1753689600,
+  "data": [{"b64_json": "..."}],
+  "native_scale": 4, "effective_scale": 3.0,
+  "input_size": [512, 512], "output_size": [1536, 1536]
+}
+```
+
+Multipart `/upscale` stays the primary route — it avoids the ~33% base64 tax on both legs, so prefer
+it whenever you already hold the bytes. Use `/upscale/json` when the image is already base64 because
+it came out of a generation call.
+
 ### Chaining with generation
 
-Generate small + fast on [`z-image`](../models/z-image/), then upscale — cheaper than generating large:
+Generate small + fast on [`z-image`](../models/z-image/), then upscale — cheaper than generating large.
+Both services speak `b64_json`, so it's a two-call JSON pipeline:
 
 ```bash
 curl -sS -X POST http://localhost:11476/v1/images/generations \
   -H "Content-Type: application/json" \
   -d '{"model":"z-image-turbo","prompt":"a tiny vintage camera on a desk","size":"512x512","num_inference_steps":8,"guidance_scale":1.0}' \
-  | python3 -c "import json,sys,base64; open('small.png','wb').write(base64.b64decode(json.load(sys.stdin)['data'][0]['b64_json']))"
-curl -sS -X POST http://localhost:11477/upscale -F "file=@small.png" -o big.png   # 512 -> 2048
+  | jq '{image: .data[0].b64_json, scale: 4}' \
+  | curl -sS -X POST http://localhost:11477/upscale/json -H "Content-Type: application/json" -d @- \
+  | jq -r '.data[0].b64_json' | base64 -d > big.png   # 512 -> 2048
 ```
 
 ## Swapping the model

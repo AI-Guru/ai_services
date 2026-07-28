@@ -12,7 +12,9 @@
 # First boot downloads RealESRGAN_x4plus.pth into ./weights if absent.
 #
 # Usage: docker compose --env-file ../.env -f docker-compose.upscaler-realesrgan-rtx.yml up -d --build
-# Endpoint: POST http://localhost:11477/upscale  (multipart 'file')  ·  GET /health
+# Endpoints: POST http://localhost:11477/upscale       (multipart 'file' -> PNG bytes)
+#            POST http://localhost:11477/upscale/json  (b64 in/out, chains with generation)
+#            GET  http://localhost:11477/health
 
 services:
   upscaler:
