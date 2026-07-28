@@ -1,0 +1,86 @@
+# SeedVR2-3B on vLLM-Omni — REPRODUCIBLE NEGATIVE RESULT. This does not work.
+#
+# Kept as an executable record of the attempt, not as a service. Bringing it up
+# reproduces the failure below in ~30 s; see README.md for the full analysis.
+#
+#   ValueError: Could not determine model_type for model: ByteDance-Seed/SeedVR2-3B.
+#   Model is not in standard transformers format and does not have model_index.json.
+#   Please ensure the model has proper configuration files with 'model_type' field
+#     -- vllm_omni/entrypoints/utils.py:284, in resolve_model_config_path()
+#
+# Why: SeedVR2 publishes raw PyTorch checkpoints, not an HF/diffusers model repo.
+# The whole HF repo is seedvr2_ema_3b.pth + ema_vae.pth + pos_emb.pt + neg_emb.pt
+# (+ apex wheels for py3.9/3.10). There is no config.json and no model_index.json,
+# so vLLM-Omni cannot even reach its model registry — it fails while resolving the
+# stage config, before architecture lookup begins. Verified on v0.22.0 and v0.24.0.
+#
+# Repackaging would NOT fix it. Feeding vLLM-Omni a hand-written config.json
+# (model_type: seedvr2, architectures: ["SeedVR2Model"]) clears the format check and
+# lands immediately on the second, independent blocker — tested, not assumed:
+#
+#   ValueError: Model class SeedVR2Model not found in diffusion model registry.
+#   RuntimeError: Orchestrator initialization failed
+#
+# vLLM-Omni's registry is generation-only (text-to-image, video gen, TTS, audio). It
+# lists no restoration / super-resolution / upscaling model of any kind, so even a
+# correctly-formatted SeedVR2 has no architecture to bind to. Supporting it means
+# writing a model implementation upstream, not configuring one.
+# See https://docs.vllm.ai/projects/vllm-omni/en/latest/models/supported_models/
+#
+# NOTE `restart: "no"` — deliberate, and the opposite of every other compose here.
+# A container that cannot start plus `restart: unless-stopped` is precisely the
+# silent crash-loop the repo CLAUDE.md warns about: docker keeps reporting
+# State.Running=true through each restart while the model never loads.
+#
+# Usage (to reproduce the failure):
+#   docker compose -f docker-compose.vllm-omni-3b-rtx.yml up
+#   # exits non-zero with the ValueError above; nothing is left running
+
+services:
+  seedvr2-3b:
+    image: vllm/vllm-omni:v0.24.0
+    container_name: seedvr2-3b-vllm-attempt
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11479:11479"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - vllm
+      - serve
+      - ByteDance-Seed/SeedVR2-3B
+      - --omni
+      - --served-model-name
+      - seedvr2-3b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11479"
+
+volumes:
+  huggingface_cache:
