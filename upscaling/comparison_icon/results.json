@@ -1,0 +1,44 @@
+{
+  "config": {
+    "scale": 4,
+    "jpeg_quality": null,
+    "edm_steps": 50,
+    "s_cfg": 4.0,
+    "prompt": ""
+  },
+  "results": [
+    {
+      "name": "iconography.png",
+      "source_size": [
+        2912,
+        1632
+      ],
+      "degraded_size": [
+        728,
+        408
+      ],
+      "metrics": {
+        "lanczos": {
+          "psnr": 27.621096548334442,
+          "ssim": 0.8313841582000766,
+          "seconds": 0.026865482330322266
+        },
+        "realesrgan": {
+          "psnr": 27.89403891667902,
+          "ssim": 0.8291166722600576,
+          "seconds": 1.461012601852417
+        },
+        "supir": {
+          "psnr": 23.724702588420033,
+          "ssim": 0.4394643211717833,
+          "seconds": 58.866995096206665
+        },
+        "seedvr2": {
+          "psnr": 25.780852273338468,
+          "ssim": 0.7758838149477536,
+          "seconds": 32.17106318473816
+        }
+      }
+    }
+  ]
+}

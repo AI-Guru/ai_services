@@ -89,9 +89,17 @@ def ssim(a: np.ndarray, b: np.ndarray) -> float:
 # --------------------------------------------------------------------------
 # degradation + backends
 # --------------------------------------------------------------------------
-def degrade(src: Image.Image, scale: int, jpeg_quality: int) -> Image.Image:
-    """Downscale by `scale` then round-trip through JPEG to add real artifacts."""
+def degrade(src: Image.Image, scale: int, jpeg_quality: int | None) -> Image.Image:
+    """Downscale by `scale`, optionally round-tripping through JPEG for artifacts.
+
+    `jpeg_quality=None` gives a PURE resolution round-trip — the only thing lost is
+    detail below the new Nyquist limit, with no compression damage on top. That
+    isolates "can the upscaler invent back what downsampling removed?" from "can it
+    also clean up compression?", which are different questions.
+    """
     small = src.resize((src.width // scale, src.height // scale), Image.LANCZOS)
+    if jpeg_quality is None:
+        return small.convert("RGB")
     buf = io.BytesIO()
     small.convert("RGB").save(buf, format="JPEG", quality=jpeg_quality)
     buf.seek(0)
@@ -232,7 +240,7 @@ def write_html(results: list[dict], out_path: Path, cfg: dict) -> None:
 </style></head><body>
 <h1>Upscaler comparison — &times;{cfg['scale']}</h1>
 <p style="color:#9aa0a6;margin:.2rem 0 1.4rem">
-  Degradation: &divide;{cfg['scale']} Lanczos + JPEG q{cfg['jpeg_quality']} &middot;
+  Degradation: &divide;{cfg['scale']} Lanczos" + (" + JPEG q%s" % cfg['jpeg_quality'] if cfg['jpeg_quality'] else " (no JPEG)") + " &middot;
   SUPIR: {cfg['edm_steps']} steps, s_cfg {cfg['s_cfg']} &middot; scored against the undegraded source
 </p>
 <div class="note"><b>PSNR and SSIM measure distortion, not beauty.</b> They reward pixel-fidelity to
@@ -277,6 +285,8 @@ def main() -> None:
     ap.add_argument("--images", nargs="+", required=True, help="high-quality source images")
     ap.add_argument("--scale", type=int, default=4, help="degrade by /N, restore by xN")
     ap.add_argument("--jpeg-quality", type=int, default=40)
+    ap.add_argument("--no-jpeg", action="store_true",
+                    help="pure resolution round-trip: skip the JPEG degradation entirely")
     ap.add_argument("--edm-steps", type=int, default=50, help="SUPIR diffusion steps")
     ap.add_argument("--s-cfg", type=float, default=4.0, help="SUPIR guidance scale")
     ap.add_argument("--prompt", default="", help="SUPIR restoration prompt")
@@ -293,7 +303,7 @@ def main() -> None:
         # crop to a multiple of scale so the degrade/restore round-trip is exact
         w, h = (src.width // args.scale) * args.scale, (src.height // args.scale) * args.scale
         src = src.crop((0, 0, w, h))
-        lq = degrade(src, args.scale, args.jpeg_quality)
+        lq = degrade(src, args.scale, None if args.no_jpeg else args.jpeg_quality)
         name = Path(path).name
         print(f"\n=== {name}  {src.size} -> degraded {lq.size} ===")
 
@@ -305,7 +315,7 @@ def main() -> None:
             "metrics": {},
             "thumbs": {"source": _b64_png(src), "degraded": _b64_png(lq)},
             "crops": {"source": _b64_png(_crop(src), 256), "degraded": _b64_png(_crop(lq.resize(src.size, Image.NEAREST)), 256)},
-            "captions": {"source": "<br>ground truth", "degraded": f"<br>{lq.width}&times;{lq.height} q{args.jpeg_quality}"},
+            "captions": {"source": "<br>ground truth", "degraded": f"<br>{lq.width}&times;{lq.height}" + ('' if args.no_jpeg else f' q{args.jpeg_quality}')},
         }
         src.save(outdir / "images" / f"{Path(path).stem}_source.png")
         lq.save(outdir / "images" / f"{Path(path).stem}_degraded.png")
@@ -336,7 +346,7 @@ def main() -> None:
 
     cfg = {
         "scale": args.scale,
-        "jpeg_quality": args.jpeg_quality,
+        "jpeg_quality": None if args.no_jpeg else args.jpeg_quality,
         "edm_steps": args.edm_steps,
         "s_cfg": args.s_cfg,
         "prompt": args.prompt,

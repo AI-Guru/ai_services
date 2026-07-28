@@ -1,0 +1,5 @@
+# Ad-hoc upscale outputs, regenerable. Full-size PNGs are gitignored;
+# the montage_*.png crops are committed as the evidence.
+images/
+comparison.html
+*.4x-*.png
