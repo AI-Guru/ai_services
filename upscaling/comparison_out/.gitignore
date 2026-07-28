@@ -1,0 +1,5 @@
+# Regenerable via ../compare_upscalers.py. The full-size outputs (12 MB) and the
+# base64-embedded HTML (6 MB) are 200x the repo comparison*.html convention (14-36 KB).
+# The montage_*.png crops are committed instead — they are the actual evidence.
+images/
+comparison.html

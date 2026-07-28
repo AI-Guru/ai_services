@@ -1,0 +1,49 @@
+# SUPIR's own requirements.txt pins early-2023 versions that collide head-on with
+# torch 2.7 + SM_120 (Blackwell). Deliberately relaxed here. Dropped, and why:
+#
+#   triton==2.1.0     torch 2.7 ships triton 3.x — the pin downgrades and breaks CUDA
+#   xformers          sgm/modules/attention.py has an XFORMERS_IS_AVAILABLE fallback;
+#                     torch 2.7 native SDPA is used instead (xformers wheels are
+#                     torch-version-locked and would drag torch backwards)
+#   transformers==4.28.1, tokenizers==0.13.3, numpy==1.24.2, Pillow==9.4.0
+#                     pinned for LLaVA, which this service does not load
+#   gradio*, wandb, matplotlib, pandas, scikit-learn, webdataset   UI / training only
+#   facexlib, dlib    only SUPIR/utils/face_restoration_helper.py (face restore path)
+#   pytorch_fid       imported lazily inside a class this service never instantiates
+#
+# The Dockerfile asserts torch is still 2.7.x+cu128 after this file installs, so a
+# transitive downgrade fails the build loudly instead of at CUDA-kernel launch.
+
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+
+omegaconf
+einops
+einops-exts
+safetensors
+
+# PINNED, unlike the rest. open-clip 3.x rewrote both create_model_and_transforms
+# and the text-transformer attention mask handling; sgm drives the transformer
+# directly and breaks on it with
+#   RuntimeError: The shape of the 2D attn_mask is torch.Size([77, 77]),
+#                 but should be (1, 1).
+# 2.24.x is the last line matching what sgm expects. It only needs torch>=1.9, so
+# it does not fight the cu128 wheel — the build-time torch assertion proves that.
+open-clip-torch==2.24.0
+transformers
+pytorch-lightning
+kornia
+timm
+opencv-python-headless
+scipy
+numpy
+Pillow
+tqdm
+fsspec
+diffusers
+
+# sgm/modules/diffusionmodules/sampling.py imports get_sigmas_karras and
+# BrownianTreeNoiseSampler at module level — this is not optional.
+k-diffusion

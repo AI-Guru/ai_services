@@ -1,0 +1,71 @@
+# SUPIR — diffusion restoration (CVPR 2024), SDXL-based.
+#
+# The "creative" tier beside ../docker-compose.upscaler-realesrgan-rtx.yml: it
+# INVENTS detail using SDXL's generative prior rather than interpolating, so it
+# is the right tool for heavily degraded input and the wrong tool for anything
+# where fidelity to the original pixels matters. ~50 diffusion steps per call —
+# tens of seconds, not the Real-ESRGAN service's 0.85 s.
+#
+# Weights (~21 GB, gitignored) are fetched by ./fetch_weights.sh, NOT on boot:
+#   SUPIR-v0Q_fp16.safetensors  2.7 GB   Kijai's pruned fp16 (community mirror —
+#                                        upstream ships .ckpt via Google Drive /
+#                                        Baidu only, which is unscriptable)
+#   sd_xl_base_1.0_0.9vae       6.9 GB   stabilityai (first-party)
+#   CLIP-ViT-bigG-14            10.2 GB  laion (first-party)
+#   clip-vit-large-patch14      1.7 GB   openai (first-party)
+#
+# LLaVA (13B auto-captioner) is intentionally not used — pass `prompt` instead.
+#
+# Usage: docker compose -f docker-compose.supir-sdxl-fp16-rtx.yml up -d --build
+#        ./fetch_weights.sh   # once, before first boot
+# Endpoints: POST http://localhost:11478/upscale       (multipart 'file')
+#            POST http://localhost:11478/upscale/json  (b64 in/out)
+#            GET  http://localhost:11478/health
+
+services:
+  supir:
+    build: .
+    container_name: supir
+    restart: unless-stopped
+
+    ports:
+      - "11478:8000"
+
+    environment:
+      - SUPIR_SIGN=${SUPIR_SIGN:-Q}              # Q = high generalization, F = light degradation
+      - SUPIR_DEFAULT_UPSCALE=${SUPIR_DEFAULT_UPSCALE:-2}
+      - SUPIR_DEFAULT_STEPS=${SUPIR_DEFAULT_STEPS:-50}
+      - SUPIR_DEFAULT_CFG=${SUPIR_DEFAULT_CFG:-4.0}
+      - SUPIR_HALF_PARAMS=${SUPIR_HALF_PARAMS:-1} # fp16 weights; halves VRAM
+      - SUPIR_TILE_VAE=${SUPIR_TILE_VAE:-1}       # tiled VAE; bounds VRAM on big outputs
+      - SUPIR_MAX_OUTPUT_PIXELS=${SUPIR_MAX_OUTPUT_PIXELS:-16777216}  # 4096^2
+      - WEIGHTS_DIR=/weights
+
+    volumes:
+      - ./weights:/weights
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Loading ~21 GB of state dicts takes a while; the app answers /health with
+    # status=loading meanwhile, so start_period must cover the whole load.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 600s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

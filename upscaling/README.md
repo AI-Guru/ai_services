@@ -101,9 +101,39 @@ images. To add or swap a model, edit `NATIVE_WEIGHTS` in [`app/upscaler.py`](app
 **ESRGAN / Real-ESRGAN / SwinIR / DAT-family `.pth`** keyed by its native scale (spandrel auto-detects the
 architecture). Weights download to `./weights` on first use.
 
-For **diffusion restoration** (SUPIR, SeedVR2) — which *invents* detail rather than interpolating it —
-use ComfyUI instead. It's heavier, stateful, and a different API shape; this service intentionally stays
-a one-call upscaler. Decision rationale lives in the repo discussion, not here.
+For **diffusion restoration** — which *invents* detail rather than interpolating it — see the sibling
+service in [`supir/`](supir/). It runs SUPIR (CVPR 2024) on its own port with its own 21 GB of
+checkpoints, rather than as a tier inside this container: 15 GB VRAM vs ~0.3 GB and ~11 s vs 0.85 s
+have no business sharing a process. This service intentionally stays a one-call upscaler.
+
+(That note previously said "use ComfyUI instead". Still true for SeedVR2 and for anything wanting a
+node graph — but SUPIR turned out to be servable as a plain one-call endpoint, so it is.)
+
+## Which one to use
+
+Measured ×4 restoration from ÷4 + JPEG q40 degradation, scored against the undegraded original by
+[`compare_upscalers.py`](compare_upscalers.py). Side-by-side 1:1 crops:
+[church](comparison_out/montage_church1.png) ·
+[photo](comparison_out/montage_testimage.png) ·
+[diagram](comparison_out/montage_agentworld-roles.png):
+
+| | PSNR / SSIM | speed | fails at |
+|---|---|---|---|
+| **Lanczos** (built in, no model) | 22.5–25.2 dB | instant | detail — it can only blur |
+| **Real-ESRGAN** (this service) | 21.6–25.1 dB, best SSIM on graphics | ~0.3 s | plasticky on AI-generated input |
+| **SUPIR** ([`supir/`](supir/)) | **lowest on every image** | ~11–22 s | **corrupts text** — see below |
+
+SUPIR losing every distortion metric is the expected result, not a defect: PSNR/SSIM reward
+pixel-fidelity and generative restoration trades exactly that away for perceptual quality (Blau &
+Michaeli, CVPR 2018). Visually it is the sharpest of the three on photos.
+
+Two results worth knowing before choosing:
+
+- On the photo, **Real-ESRGAN scored below plain Lanczos** (21.64 vs 22.53 dB). A model is not
+  automatically better than resampling.
+- On a diagram, **SUPIR rendered the word "action" as "nstion"** — crisply, and wrong. Do not point
+  it at documents, screenshots, or anything evidential. Its SSIM on that image (0.9147) looks fine,
+  which is the problem.
 
 ## Status / measured on this box (RTX PRO 6000, 96 GB)
 
