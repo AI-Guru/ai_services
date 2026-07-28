@@ -1,0 +1,69 @@
+# SeedVR2-3B — native serving path (upstream inference stack, patched for Blackwell).
+#
+# The vLLM route does NOT work; docker-compose.vllm-omni-3b-rtx.yml is kept as the
+# reproducible negative result and README.md has the analysis. This compose is the
+# one that actually serves.
+#
+# Two upstream hard dependencies are patched out at build time (patch_seedvr2.py):
+#   flash-attn  -> torch SDPA   (no SM_120 build exists upstream; only community forks)
+#   apex        -> stock norms  (py3.9/3.10 wheels only, vs this image's 3.12)
+#
+# Weights (~14.6 GB, gitignored) come from ./fetch_weights.sh, not on boot.
+# Apache 2.0 — unlike upscaling/supir, which is non-commercial only.
+#
+# Usage: ./fetch_weights.sh    # once
+#        docker compose -f docker-compose.native-3b-rtx.yml up -d --build
+# Endpoints: POST http://localhost:11480/upscale       (multipart 'file')
+#            POST http://localhost:11480/upscale/json  (b64 in/out)
+#            GET  http://localhost:11480/health
+
+services:
+  seedvr2:
+    build: .
+    container_name: seedvr2
+    restart: unless-stopped
+
+    ports:
+      - "11480:8000"
+
+    environment:
+      - SEEDVR2_DEFAULT_SCALE=${SEEDVR2_DEFAULT_SCALE:-4}
+      - SEEDVR2_DEFAULT_STEPS=${SEEDVR2_DEFAULT_STEPS:-1}   # one-step is the whole point
+      - SEEDVR2_DEFAULT_CFG=${SEEDVR2_DEFAULT_CFG:-1.0}
+      - SEEDVR2_MAX_OUTPUT_PIXELS=${SEEDVR2_MAX_OUTPUT_PIXELS:-16777216}  # 4096^2
+      - SEEDVR2_CONFIG=${SEEDVR2_CONFIG:-configs_3b/main.yaml}
+      - SEEDVR2_DIT=${SEEDVR2_DIT:-seedvr2_ema_3b.pth}
+      - WEIGHTS_DIR=/weights
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    volumes:
+      - ./weights:/weights
+
+    # SeedVR calls dist.init_process_group unconditionally, even at world size 1.
+    ipc: host
+    shm_size: 16gb
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # ~14.6 GB of state dict; /health answers 503 until it is really resident.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -13,6 +13,7 @@ Methods compared:
   lanczos      classical resampling, no model — the floor everything must beat
   realesrgan   GAN, ../docker-compose.upscaler-realesrgan-rtx.yml   (port 11477)
   supir        SDXL diffusion, supir/docker-compose.supir-*.yml     (port 11478)
+  seedvr2      SeedVR2-3B one-step DiT, ../models/seedvr2/          (port 11480)
 
 READ THE NUMBERS CAREFULLY. PSNR and SSIM are *distortion* metrics: they reward
 staying close to the original pixels. Blau & Michaeli (CVPR 2018) proved
@@ -40,6 +41,7 @@ from PIL import Image
 
 REALESRGAN_URL = "http://localhost:11477"
 SUPIR_URL = "http://localhost:11478"
+SEEDVR2_URL = "http://localhost:11480"
 
 
 # --------------------------------------------------------------------------
@@ -142,7 +144,28 @@ def run_supir(
     return Image.open(io.BytesIO(base64.b64decode(body["data"][0]["b64_json"]))), dt
 
 
-METHODS = {"lanczos": run_lanczos, "realesrgan": run_realesrgan, "supir": run_supir}
+def run_seedvr2(img: Image.Image, scale: int, seed: int = 666, **_: object) -> tuple[Image.Image, float]:
+    """SeedVR2-3B (models/seedvr2). One-step; takes no prompt (frozen conditioning)."""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    t0 = time.time()
+    r = requests.post(
+        f"{SEEDVR2_URL}/upscale/json",
+        json={"image": base64.b64encode(buf.getvalue()).decode(), "scale": scale, "seed": seed},
+        timeout=1800,
+    )
+    dt = time.time() - t0
+    r.raise_for_status()
+    body = r.json()
+    return Image.open(io.BytesIO(base64.b64decode(body["data"][0]["b64_json"]))), dt
+
+
+METHODS = {
+    "lanczos": run_lanczos,
+    "realesrgan": run_realesrgan,
+    "supir": run_supir,
+    "seedvr2": run_seedvr2,
+}
 
 
 # --------------------------------------------------------------------------
@@ -231,7 +254,7 @@ def write_montage(stem: str, imgs: dict[str, Image.Image], out_path: Path, size:
     """
     from PIL import ImageDraw
 
-    order = [n for n in ("source", "degraded", "lanczos", "realesrgan", "supir") if n in imgs]
+    order = [n for n in ("source", "degraded", *METHODS) if n in imgs]
     tiles = []
     for n in order:
         im = imgs[n]

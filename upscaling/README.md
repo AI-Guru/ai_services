@@ -117,23 +117,31 @@ Measured ×4 restoration from ÷4 + JPEG q40 degradation, scored against the und
 [photo](comparison_out/montage_testimage.png) ·
 [diagram](comparison_out/montage_agentworld-roles.png):
 
-| | PSNR / SSIM | speed | fails at |
+| | PSNR / SSIM | speed | verdict |
 |---|---|---|---|
-| **Lanczos** (built in, no model) | 22.5–25.2 dB | instant | detail — it can only blur |
-| **Real-ESRGAN** (this service) | 21.6–25.1 dB, best SSIM on graphics | ~0.3 s | plasticky on AI-generated input |
-| **SUPIR** ([`supir/`](supir/)) | **lowest on every image** | ~11–22 s | **corrupts text** — see below |
+| **Lanczos** (built in, no model) | 22.5–25.2 dB | instant | can only blur — but a real baseline |
+| **Real-ESRGAN** (this service) | 21.6–25.1 dB | ~0.3 s | fast default; plasticky on AI-generated input |
+| **SUPIR** ([`supir/`](supir/)) | lowest on every image | ~11–41 s | **corrupts text**; non-commercial licence |
+| **SeedVR2** ([`../models/seedvr2/`](../models/seedvr2/)) | **best on the diagram (27.30 / 0.9695)** | ~6–11 s | best overall; Apache 2.0 |
 
-SUPIR losing every distortion metric is the expected result, not a defect: PSNR/SSIM reward
-pixel-fidelity and generative restoration trades exactly that away for perceptual quality (Blau &
-Michaeli, CVPR 2018). Visually it is the sharpest of the three on photos.
+Generative restorers are *expected* to score below Lanczos on PSNR/SSIM — those measure pixel
+fidelity, which generative methods trade away for perceptual quality (Blau & Michaeli, CVPR 2018).
+SUPIR follows that pattern exactly.
 
-Two results worth knowing before choosing:
+Three results worth knowing before choosing:
 
 - On the photo, **Real-ESRGAN scored below plain Lanczos** (21.64 vs 22.53 dB). A model is not
   automatically better than resampling.
-- On a diagram, **SUPIR rendered the word "action" as "nstion"** — crisply, and wrong. Do not point
-  it at documents, screenshots, or anything evidential. Its SSIM on that image (0.9147) looks fine,
-  which is the problem.
+- **SUPIR rendered the word "action" as "nstion"** on a diagram — crisply, and wrong, while holding a
+  respectable 0.9147 SSIM. Do not point it at documents, screenshots, or anything evidential.
+- **SeedVR2 broke the pattern.** On the same diagram it scored **27.30 dB / 0.9695 — the best of all
+  four**, beating even Lanczos by 2.1 dB, *and* rendered "action" correctly and sharply. It wins
+  fidelity and appearance together rather than trading one for the other, at roughly half SUPIR's
+  time and under Apache 2.0.
+
+**Recommendation:** Real-ESRGAN stays the default for latency-sensitive and chained work (~35× faster
+than anything generative here). Where quality matters, reach for SeedVR2 rather than SUPIR — it beat
+it on fidelity, text integrity, speed, and licence.
 
 ## Status / measured on this box (RTX PRO 6000, 96 GB)
 

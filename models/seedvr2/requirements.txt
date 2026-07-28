@@ -1,0 +1,31 @@
+# SeedVR2's own requirements.txt pins a torch 2.3 / diffusers 0.29 / transformers
+# 4.38 stack from early 2025, plus flash_attn==2.5.9.post1 and apex. Relaxed here.
+#
+# Dropped, and why:
+#   torch==2.3.0 / torchvision==0.18.0  no SM_120 kernels; replaced by the cu128
+#                                       wheels installed in the Dockerfile
+#   flash_attn==2.5.9.post1             no SM_120 build exists upstream; patched
+#                                       out in favour of torch SDPA, see
+#                                       patch_seedvr2.py
+#   apex                                py3.9/3.10 wheels only vs this image's
+#                                       3.12; the fused norms fall back to stock
+#                                       torch/diffusers equivalents (same weights)
+#
+# The Dockerfile asserts torch is still 2.7.x+cu128 after this file installs, so a
+# transitive downgrade fails the build rather than surfacing as a CUDA error later.
+
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+Pillow
+
+einops
+omegaconf
+opencv-python-headless
+diffusers
+rotary-embedding-torch
+transformers
+mediapy
+tqdm
+numpy
