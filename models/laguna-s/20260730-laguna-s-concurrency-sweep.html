@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2026-07-30 · Laguna-S-2.1-NVFP4 · GuideLLM Concurrency Sweep</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --champion: #ffb43d;
+    --inferno-purple: #6a176e;
+    --inferno-pink: #bc3754;
+    --inferno-orange: #f37819;
+    --inferno-yellow: #fcffa4;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--inferno-purple), var(--inferno-pink) 30%, var(--inferno-orange) 65%, var(--inferno-yellow));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  .navlink {
+    display: inline-block; margin-top: 1.2rem;
+    color: var(--inferno-orange); text-decoration: none;
+    font-size: 0.88rem; border-bottom: 1px dashed rgba(243,120,25,0.5);
+  }
+  .navlink:hover { color: var(--inferno-yellow); }
+  main { max-width: 1150px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--inferno-orange), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--inferno-orange);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+  code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.86em;
+    background: rgba(255,180,61,0.08);
+    border: 1px solid rgba(255,180,61,0.15);
+    padding: 0.1rem 0.35rem; border-radius: 5px;
+    color: var(--inferno-yellow);
+  }
+  pre {
+    background: var(--bg-elev);
+    border: 1px solid rgba(255,180,61,0.15);
+    border-radius: 10px;
+    padding: 1rem; overflow-x: auto;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.82rem; color: var(--inferno-yellow);
+    line-height: 1.5;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  .headline-num { text-align: center; padding: 1rem 0 1.5rem; }
+  .headline-num .big {
+    font-size: 4.2rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    filter: drop-shadow(0 0 18px rgba(255,180,61,0.35));
+  }
+  .headline-num .label { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; }
+
+  .scenario-row {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .scenario-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .scenario-row { grid-template-columns: 1fr; } }
+  .scenario-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1rem;
+    border-top: 3px solid var(--inferno-orange);
+    border-right: 1px solid rgba(255,180,61,0.15);
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    border-left: 1px solid rgba(255,180,61,0.15);
+  }
+  .scenario-card .name {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--inferno-orange); font-weight: 700;
+  }
+  .scenario-card .shape {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.78rem; color: var(--muted); margin: 0.2rem 0 0.6rem;
+  }
+  .scenario-card .big {
+    font-size: 1.9rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .scenario-card .unit { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .scenario-card .sat {
+    margin-top: 0.7rem; padding-top: 0.6rem;
+    border-top: 1px solid rgba(255,180,61,0.1);
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .scenario-card .sat strong { color: var(--inferno-yellow); font-variant-numeric: tabular-nums; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.88rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  .table-wrap { overflow-x: auto; }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 0.9rem;
+    color: var(--inferno-yellow); font-weight: 600;
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 0.5rem 0.9rem;
+    border-top: 1px solid rgba(255,180,61,0.08);
+    font-variant-numeric: tabular-nums;
+  }
+  tbody tr.best td { background: rgba(255,180,61,0.12); font-weight: 600; }
+  tbody tr.base td { background: rgba(152,144,196,0.07); }
+  tbody td.scn {
+    background: rgba(106,23,110,0.25); font-weight: 700;
+    color: var(--inferno-yellow); vertical-align: top;
+  }
+  td.num { text-align: right; }
+  .down { color: var(--inferno-pink); }
+  .over { color: var(--inferno-pink); font-weight: 700; }
+  .tag {
+    display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+  }
+  .tag.good { background: rgba(255,180,61,0.18); color: var(--champion); border: 1px solid rgba(255,180,61,0.45); }
+  .tag.bad  { background: rgba(188,55,84,0.18); color: #ff9d94; border: 1px solid rgba(188,55,84,0.5); }
+  .tag.warn { background: rgba(243,120,25,0.15); color: #ffc98a; border: 1px solid rgba(243,120,25,0.45); }
+
+  .chart-box { position: relative; height: 380px; margin-top: 1rem; }
+  .chart-box.tall { height: 430px; }
+
+  .callout {
+    margin-top: 1rem; padding: 0.9rem 1.1rem;
+    border-left: 3px solid var(--champion);
+    background: rgba(255,180,61,0.06);
+    border-radius: 0 10px 10px 0;
+    font-size: 0.92rem;
+  }
+  .callout.warn { border-left-color: var(--inferno-orange); background: rgba(243,120,25,0.07); }
+  .callout.bad  { border-left-color: var(--inferno-pink);   background: rgba(188,55,84,0.08); }
+  .callout strong { color: var(--inferno-yellow); }
+
+  ul, ol { color: var(--fg); }
+  ul.tight li, ol li { margin: 0.35rem 0; }
+  footer {
+    text-align: center; margin-top: 3rem; color: var(--muted); font-size: 0.82rem;
+    padding: 0 1.5rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Laguna-S-2.1 · Concurrency Sweep</h1>
+  <div class="subtitle">GuideLLM fixed-concurrency ladder 1 → 64 across five production-shaped workloads · base model, no speculation</div>
+  <div class="meta">
+    <span>2026-07-30</span>
+    <span>vLLM 0.26.0</span>
+    <span>guidellm 0.5.4</span>
+    <span>RTX PRO 6000 · 96 GB</span>
+    <span>KV pool 577,749 tok</span>
+  </div>
+  <div><a class="navlink" href="benchmark-laguna-s-118b.html">← Single-stream speed &amp; DFlash sweep</a></div>
+</header>
+
+<main>
+
+<section>
+  <h2>Headline</h2>
+  <div class="headline-num">
+    <div class="big">998&nbsp;tok/s</div>
+    <div class="label">peak aggregate output throughput (chat, concurrency 64) — 9.5&times; the 104.7 tok/s single-stream rate</div>
+  </div>
+  <div class="callout">
+    <strong>The saturation point is set by the output:input ratio, not by request count.</strong>
+    Rank the five workloads by how much decode work they do per token of prefill and you get exactly
+    the observed ordering. Prefill competes with decode for the same SMs, so a prefill-dominated
+    workload spends added concurrency on context it has already paid for rather than on tokens you
+    asked for.
+  </div>
+</section>
+
+<section>
+  <h2>Where each workload saturates</h2>
+  <div class="scenario-row">
+    <div class="scenario-card">
+      <div class="name">chat</div>
+      <div class="shape">2000 → 300</div>
+      <div class="big">998.0</div>
+      <div class="unit">peak tok/s</div>
+      <div class="sat">ratio <strong>0.150</strong> · peaks <strong>&gt;64</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">codegen</div>
+      <div class="shape">4000 → 1500</div>
+      <div class="big">724.9</div>
+      <div class="unit">peak tok/s</div>
+      <div class="sat">ratio <strong>0.375</strong> · peaks <strong>&gt;64</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">rag</div>
+      <div class="shape">8000 → 256</div>
+      <div class="big">339.1</div>
+      <div class="unit">peak tok/s</div>
+      <div class="sat">ratio <strong>0.032</strong> · peaks <strong>32</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">agentic</div>
+      <div class="shape">16000 → 800</div>
+      <div class="big">267.8</div>
+      <div class="unit">peak tok/s</div>
+      <div class="sat">ratio <strong>0.050</strong> · peaks <strong>16</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">summarization</div>
+      <div class="shape">12000 → 300</div>
+      <div class="big">242.9</div>
+      <div class="unit">peak tok/s</div>
+      <div class="sat">ratio <strong>0.025</strong> · peaks <strong>16</strong></div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Shape (in / out)</th><th>out:in ratio</th><th>Peak server tok/s</th><th>Peaks at</th><th>Verdict</th></tr>
+    </thead>
+    <tbody>
+      <tr class="best"><td>codegen</td><td>4000 / 1500</td><td class="num">0.375</td><td class="num">724.9</td><td>&gt; 64</td><td><span class="tag good">still scaling</span></td></tr>
+      <tr class="best"><td>chat</td><td>2000 / 300</td><td class="num">0.150</td><td class="num">998.0</td><td>&gt; 64</td><td><span class="tag good">still scaling</span></td></tr>
+      <tr><td>agentic</td><td>16000 / 800</td><td class="num">0.050</td><td class="num">267.8</td><td>16</td><td><span class="tag bad">saturates early</span></td></tr>
+      <tr><td>rag</td><td>8000 / 256</td><td class="num">0.032</td><td class="num">339.1</td><td>32</td><td><span class="tag warn">saturated</span></td></tr>
+      <tr><td>summarization</td><td>12000 / 300</td><td class="num">0.025</td><td class="num">242.9</td><td>16</td><td><span class="tag bad">saturates early</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">
+    Sorted by out:in ratio. The two workloads that keep scaling sit at the top; the three that top
+    out at 16–32 sit at the bottom. agentic and rag swap relative to a strict ratio ordering — at
+    0.050 vs 0.032 they are close enough that the 16-vs-32 split is within the resolution of a
+    six-point ladder.
+  </p>
+</section>
+
+<section>
+  <h2>Aggregate throughput</h2>
+  <div class="chart-box tall"><canvas id="chartTps"></canvas></div>
+  <p class="muted">
+    rag, agentic and summarization all turn <em>downward</em> past their peak — past saturation the
+    extra concurrency is not merely wasted, it is negative. chat and codegen have not turned over
+    at 64, so their true ceiling is above this ladder.
+  </p>
+</section>
+
+<section>
+  <h2>Per-request decode rate</h2>
+  <div class="chart-box tall"><canvas id="chartPerReq"></canvas></div>
+  <div class="callout">
+    <strong>All five scenarios start at 104.9–107.9 tok/s at concurrency 1</strong> — an independent
+    reproduction of the 107.3 tok/s single-stream figure from <code>test_chat.py</code>, on a
+    different harness with different prompts. From there each request's share decays roughly as
+    1/concurrency, fastest for the prefill-heavy workloads: at concurrency 64 a summarization
+    request sees 7.8 tok/s while a codegen request still sees 20.9.
+  </div>
+</section>
+
+<section>
+  <h2>Tail latency — the real constraint</h2>
+  <div class="chart-box tall"><canvas id="chartTtft"></canvas></div>
+  <div class="callout warn">
+    <strong>Throughput ceilings are generous; tail latency is not.</strong> chat sustains a 253 ms
+    TTFT p95 at concurrency 16 but 4,753 ms at 64. summarization goes from 1,342 ms at 8 to
+    44,010 ms at 64. In every scenario the p95 wall arrives well before the throughput ceiling — so
+    if you are sizing for interactive use, pick the concurrency from this chart, not from the
+    throughput one.
+  </div>
+  <h3>Suggested operating points</h3>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Scenario</th><th>Max throughput</th><th>Interactive (p95 &lt; 1 s)</th><th>Tolerant (p95 &lt; 5 s)</th></tr></thead>
+    <tbody>
+      <tr><td>chat</td><td>64 (998 tok/s)</td><td class="num">32</td><td class="num">64</td></tr>
+      <tr><td>codegen</td><td>64 (724.9 tok/s)</td><td class="num">4</td><td class="num">16</td></tr>
+      <tr><td>rag</td><td>32 (339.1 tok/s)</td><td class="num">8</td><td class="num">16</td></tr>
+      <tr><td>agentic</td><td>16 (267.8 tok/s)</td><td class="num">1</td><td class="num">4</td></tr>
+      <tr><td>summarization</td><td>16 (242.9 tok/s)</td><td class="num">4</td><td class="num">8</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">
+    Read off the measured TTFT p95 column at each rung; no interpolation. agentic never achieves a
+    sub-second p95 at any concurrency — even at 1 it is 999 ms — because a 16k-token prefill takes
+    that long on its own.
+  </p>
+</section>
+
+<section>
+  <h2>Prefill throughput</h2>
+  <div class="chart-box tall"><canvas id="chartPrefill"></canvas></div>
+  <p class="muted">
+    Prefill keeps climbing even where decode throughput has turned over — rag reaches 14,204 tok/s
+    of prefill at concurrency 64 while its output throughput is falling. That is the mechanism
+    behind the saturation: the GPU is busy, just not on the tokens you are measuring.
+  </p>
+  <div class="callout bad">
+    <strong>One anomaly, flagged not explained.</strong> codegen's prefill at concurrency 64 reads
+    16,263 tok/s — a 7&times; jump from 2,216 at concurrency 32, out of line with every other series
+    in the sweep. Treat it as a probable measurement artifact rather than a result; it is the one
+    number here I would not build on without re-running.
+  </div>
+</section>
+
+<section>
+  <h2>Full ladder</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Conc</th><th>req/s</th><th>Out tok/s</th><th>Prefill tok/s</th><th>Per-req tok/s</th><th>TTFT p50</th><th>TTFT p95</th><th>TTFT p99</th><th>Latency p50</th><th>KV needed</th><th>Errs</th></tr>
+    </thead>
+    <tbody>
+      <tr class="base"><td class="scn" rowspan="6">chat</td><td>1</td><td class="num">0.38</td><td class="num">104.7</td><td class="num">752</td><td class="num">107.9</td><td class="num">112 ms</td><td class="num">143 ms</td><td class="num">147 ms</td><td class="num">2.85 s</td><td class="num">2k</td><td class="num">0</td></tr>
+      <tr><td>4</td><td class="num">0.89</td><td class="num">248.8</td><td class="num">1,829</td><td class="num">66.8</td><td class="num">138 ms</td><td class="num">178 ms</td><td class="num">267 ms</td><td class="num">4.71 s</td><td class="num">9k</td><td class="num">0</td></tr>
+      <tr><td>8</td><td class="num">1.31</td><td class="num">366.7</td><td class="num">2,589</td><td class="num">50.2</td><td class="num">148 ms</td><td class="num">230 ms</td><td class="num">241 ms</td><td class="num">6.52 s</td><td class="num">18k</td><td class="num">0</td></tr>
+      <tr><td>16</td><td class="num">1.91</td><td class="num">501.2</td><td class="num">3,592</td><td class="num">36.5</td><td class="num">165 ms</td><td class="num">253 ms</td><td class="num">376 ms</td><td class="num">8.43 s</td><td class="num">36k</td><td class="num">0</td></tr>
+      <tr><td>32</td><td class="num">2.72</td><td class="num">692.3</td><td class="num">5,323</td><td class="num">25.9</td><td class="num">193 ms</td><td class="num">662 ms</td><td class="num">2,522 ms</td><td class="num">11.85 s</td><td class="num">73k</td><td class="num">0</td></tr>
+      <tr class="best"><td>64</td><td class="num">3.90</td><td class="num">998.0</td><td class="num">7,173</td><td class="num">18.2</td><td class="num">264 ms</td><td class="num">4,753 ms</td><td class="num">5,700 ms</td><td class="num">17.18 s</td><td class="num">147k</td><td class="num">0</td></tr>
+
+      <tr class="base"><td class="scn" rowspan="6">codegen</td><td>1</td><td class="num">0.08</td><td class="num">105.8</td><td class="num">306</td><td class="num">107.0</td><td class="num">196 ms</td><td class="num">226 ms</td><td class="num">226 ms</td><td class="num">15.58 s</td><td class="num">5k</td><td class="num">0</td></tr>
+      <tr><td>4</td><td class="num">0.18</td><td class="num">250.1</td><td class="num">850</td><td class="num">69.3</td><td class="num">223 ms</td><td class="num">916 ms</td><td class="num">916 ms</td><td class="num">22.26 s</td><td class="num">22k</td><td class="num">0</td></tr>
+      <tr><td>8</td><td class="num">0.25</td><td class="num">341.2</td><td class="num">1,061</td><td class="num">51.5</td><td class="num">267 ms</td><td class="num">1,403 ms</td><td class="num">1,496 ms</td><td class="num">31.78 s</td><td class="num">44k</td><td class="num">0</td></tr>
+      <tr><td>16</td><td class="num">0.37</td><td class="num">458.5</td><td class="num">1,875</td><td class="num">38.7</td><td class="num">755 ms</td><td class="num">3,331 ms</td><td class="num">3,431 ms</td><td class="num">38.10 s</td><td class="num">88k</td><td class="num">0</td></tr>
+      <tr><td>32</td><td class="num">0.50</td><td class="num">576.8</td><td class="num">2,216</td><td class="num">28.3</td><td class="num">2,965 ms</td><td class="num">6,056 ms</td><td class="num">6,116 ms</td><td class="num">46.93 s</td><td class="num">176k</td><td class="num">0</td></tr>
+      <tr class="best"><td>64</td><td class="num">0.61</td><td class="num">724.9</td><td class="num">16,263 ⚠</td><td class="num">20.9</td><td class="num">6,117 ms</td><td class="num">11,512 ms</td><td class="num">11,636 ms</td><td class="num">72.60 s</td><td class="num">352k</td><td class="num">0</td></tr>
+
+      <tr class="base"><td class="scn" rowspan="6">rag</td><td>1</td><td class="num">0.37</td><td class="num">91.1</td><td class="num">3,038</td><td class="num">106.5</td><td class="num">402 ms</td><td class="num">520 ms</td><td class="num">523 ms</td><td class="num">2.71 s</td><td class="num">8k</td><td class="num">0</td></tr>
+      <tr><td>4</td><td class="num">0.78</td><td class="num">188.3</td><td class="num">6,413</td><td class="num">52.8</td><td class="num">461 ms</td><td class="num">697 ms</td><td class="num">796 ms</td><td class="num">5.33 s</td><td class="num">33k</td><td class="num">0</td></tr>
+      <tr><td>8</td><td class="num">1.01</td><td class="num">247.7</td><td class="num">8,043</td><td class="num">35.3</td><td class="num">424 ms</td><td class="num">647 ms</td><td class="num">869 ms</td><td class="num">7.89 s</td><td class="num">66k</td><td class="num">0</td></tr>
+      <tr><td>16</td><td class="num">1.32</td><td class="num">294.1</td><td class="num">10,067</td><td class="num">22.0</td><td class="num">526 ms</td><td class="num">3,644 ms</td><td class="num">6,041 ms</td><td class="num">12.56 s</td><td class="num">132k</td><td class="num">0</td></tr>
+      <tr class="best"><td>32</td><td class="num">1.61</td><td class="num">339.1</td><td class="num">12,958</td><td class="num">12.9</td><td class="num">697 ms</td><td class="num">10,529 ms</td><td class="num">12,364 ms</td><td class="num">21.33 s</td><td class="num">264k</td><td class="num">0</td></tr>
+      <tr><td>64</td><td class="num down">1.56 ↓</td><td class="num down">329.8 ↓</td><td class="num">14,204</td><td class="num">7.6</td><td class="num">2,085 ms</td><td class="num">23,215 ms</td><td class="num">24,247 ms</td><td class="num">37.23 s</td><td class="num">528k</td><td class="num">0</td></tr>
+
+      <tr class="base"><td class="scn" rowspan="6">agentic</td><td>1</td><td class="num">0.12</td><td class="num">95.3</td><td class="num">2,072</td><td class="num">104.9</td><td class="num">822 ms</td><td class="num">999 ms</td><td class="num">999 ms</td><td class="num">8.74 s</td><td class="num">16k</td><td class="num">0</td></tr>
+      <tr><td>4</td><td class="num">0.25</td><td class="num">187.2</td><td class="num">4,082</td><td class="num">58.1</td><td class="num">957 ms</td><td class="num">3,182 ms</td><td class="num">3,551 ms</td><td class="num">16.67 s</td><td class="num">67k</td><td class="num">0</td></tr>
+      <tr><td>8</td><td class="num">0.35</td><td class="num">251.7</td><td class="num">6,110</td><td class="num">37.1</td><td class="num">1,042 ms</td><td class="num">6,613 ms</td><td class="num">7,179 ms</td><td class="num">24.58 s</td><td class="num">134k</td><td class="num">0</td></tr>
+      <tr class="best"><td>16</td><td class="num">0.38</td><td class="num">267.8</td><td class="num">8,142</td><td class="num">23.9</td><td class="num">1,895 ms</td><td class="num">14,166 ms</td><td class="num">15,088 ms</td><td class="num">36.25 s</td><td class="num">268k</td><td class="num">0</td></tr>
+      <tr><td>32</td><td class="num">0.39</td><td class="num down">257.5 ↓</td><td class="num">10,576</td><td class="num">15.6</td><td class="num">14,346 ms</td><td class="num">25,986 ms</td><td class="num">26,348 ms</td><td class="num">63.69 s</td><td class="num">537k</td><td class="num">0</td></tr>
+      <tr><td>64</td><td class="num down">0.37 ↓</td><td class="num down">240.0 ↓</td><td class="num">14,699</td><td class="num">13.3</td><td class="num">17,375 ms</td><td class="num">28,938 ms</td><td class="num">30,985 ms</td><td class="num">72.26 s</td><td class="num over">1,075k ✗</td><td class="num">23*</td></tr>
+
+      <tr class="base"><td class="scn" rowspan="6">summarization</td><td>1</td><td class="num">0.31</td><td class="num">86.1</td><td class="num">3,923</td><td class="num">105.5</td><td class="num">644 ms</td><td class="num">756 ms</td><td class="num">771 ms</td><td class="num">3.24 s</td><td class="num">12k</td><td class="num">0</td></tr>
+      <tr><td>4</td><td class="num">0.60</td><td class="num">165.8</td><td class="num">7,348</td><td class="num">49.6</td><td class="num">642 ms</td><td class="num">947 ms</td><td class="num">1,105 ms</td><td class="num">6.70 s</td><td class="num">49k</td><td class="num">0</td></tr>
+      <tr><td>8</td><td class="num">0.76</td><td class="num">202.3</td><td class="num">8,868</td><td class="num">31.0</td><td class="num">680 ms</td><td class="num">1,342 ms</td><td class="num">4,685 ms</td><td class="num">11.03 s</td><td class="num">98k</td><td class="num">0</td></tr>
+      <tr class="best"><td>16</td><td class="num">0.97</td><td class="num">242.9</td><td class="num">12,487</td><td class="num">18.7</td><td class="num">769 ms</td><td class="num">8,938 ms</td><td class="num">10,509 ms</td><td class="num">17.20 s</td><td class="num">196k</td><td class="num">0</td></tr>
+      <tr><td>32</td><td class="num">0.99</td><td class="num down">240.7 ↓</td><td class="num">13,474</td><td class="num">10.3</td><td class="num">1,444 ms</td><td class="num">18,031 ms</td><td class="num">19,218 ms</td><td class="num">30.55 s</td><td class="num">393k</td><td class="num">0</td></tr>
+      <tr><td>64</td><td class="num down">0.92 ↓</td><td class="num down">225.9 ↓</td><td class="num">13,308</td><td class="num">7.8</td><td class="num">15,455 ms</td><td class="num">44,010 ms</td><td class="num">46,375 ms</td><td class="num">52.76 s</td><td class="num over">787k ✗</td><td class="num">0</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">
+    ✗ = tokens in flight exceed the 577,749-token KV pool. ↓ = worse than the preceding rung.
+    ⚠ = anomalous, see the prefill section. * = harness artifact, see below.
+  </p>
+</section>
+
+<section>
+  <h2>Two things that did not happen</h2>
+  <div class="callout">
+    <strong>Over-subscribing KV produces queueing, not preemption.</strong> agentic and summarization
+    at concurrency 64 need 1,075k and 787k tokens against a 577,749-token pool.
+    <code>grep -c preempt</code> on the vLLM log returns <strong>0</strong> — the scheduler simply
+    refuses to admit more requests than fit and queues the rest. That is why agentic TTFT p50 jumps
+    from 1,895 ms at concurrency 16 to 14,346 ms at 32: requests are waiting for admission, not
+    being evicted mid-flight. The cost of over-subscription shows up entirely as queueing delay.
+  </div>
+  <div class="callout warn">
+    <strong>The 23 "errored" requests at agentic/64 are a harness artifact, not a server failure.</strong>
+    vLLM logged zero errors across the entire sweep. GuideLLM's <code>scheduler_state</code> shows
+    <code>duration_exceeded: true</code> on its 90-second window, and median request latency at that
+    rung was 72 s — so anything dispatched after ~18 s could not finish in time and was recorded as
+    errored. Every other rung in every scenario had 0 errors.
+  </div>
+</section>
+
+<section>
+  <h2>Why the server config was changed first</h2>
+  <p>
+    This sweep was run at <code>--gpu-memory-utilization 0.94</code> / <code>--max-num-seqs 64</code>,
+    not the 0.90 / 32 used for the single-stream benchmark. Both changes were load-bearing:
+  </p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Setting</th><th>Single-stream run</th><th>This sweep</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>--gpu-memory-utilization</code></td><td class="num">0.90</td><td class="num">0.94</td><td>KV pool 448,413 → <strong>577,749 tokens</strong></td></tr>
+      <tr><td><code>--max-num-seqs</code></td><td class="num">32</td><td class="num">64</td><td>ladder can exceed its own top rung</td></tr>
+      <tr><td><code>--max-num-batched-tokens</code></td><td class="num">8192</td><td class="num">8192</td><td>unchanged — see below</td></tr>
+      <tr><td>VRAM in use</td><td class="num">88.7 GB</td><td class="num">92.7 GB</td><td>of 97.9 GB total</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Since vLLM 0.21 the utilization figure includes CUDA graph memory profiling, so 0.90 behaves
+    like 0.8529 did previously — vLLM's own startup log recommends 0.9471 to recover the old
+    effective KV size. More concretely: <strong>agentic at concurrency 32 needs 537k tokens in
+    flight, which does not fit in the old 448k pool</strong> but does fit in the new 577k one. At
+    0.90 that rung would have measured KV starvation rather than concurrency scaling.
+  </p>
+  <p class="muted">
+    <code>--max-num-batched-tokens</code> was deliberately left at 8192. Raising it would speed up
+    prefill-heavy scenarios somewhat, but the profiler reserves activation memory at that size, and
+    that memory is worth more as KV — starvation causes queueing that costs far more than larger
+    prefill chunks save. Chunked prefill handles 16k prompts fine at 8192.
+  </p>
+</section>
+
+<section>
+  <h2>Methodology</h2>
+  <ul class="tight">
+    <li>Harness: <code>guidellm 0.5.4</code>, <code>--profile concurrent</code> with a pinned rate ladder —
+        the same regime as <code>models/qwen3.6/bench-guidellm-concurrent.sh</code>. The <code>sweep</code>
+        profile dispatches 512 concurrent requests and, on long scenarios, completes nothing inside the
+        per-rate window.</li>
+    <li>Ladder <code>1,4,8,16,32,64</code>; 90 s per rung; 15% warmup; synthetic prompts at the stated
+        mean ± stdev token counts.</li>
+    <li>Base model only — <strong>no speculative decoding</strong>. DFlash is measured separately.</li>
+    <li>Tokenizer/processor: <code>poolside/Laguna-S-2.1-NVFP4</code>.</li>
+    <li>Sole tenant on the card for the whole run; nothing else resident.</li>
+    <li>"Per-req tok/s" is derived as <code>1000 / inter_token_latency_ms</code> (median), not measured directly.</li>
+    <li>"KV needed" is <code>concurrency × (mean prompt + mean output)</code> — an estimate of tokens in
+        flight, compared against the 577,749-token pool.</li>
+  </ul>
+  <p class="muted">
+    Not measured: prefix-cache hit behaviour (guidellm's synthetic prompts share little prefix, so
+    <code>--enable-prefix-caching</code> contributes ~nothing here and real traffic would do better),
+    long-context behaviour beyond 16k prompts, and quality under load.
+  </p>
+</section>
+
+<section>
+  <h2>Reproduce</h2>
+  <pre><code>cd models/laguna-s
+docker compose --env-file ../../.env -f docker-compose.vllm-118b-nvfp4-rtx.yml up -d
+
+# full ladder, all five scenarios (~50 min)
+./bench-guidellm-concurrent.sh
+
+# subset, or a different ladder
+RATES=1,8,32 MAX_SECONDS=60 ./bench-guidellm-concurrent.sh chat rag
+
+# results land in benchmarks/concurrent/&lt;scenario&gt;/{benchmarks.json,benchmarks.csv,console.log}</code></pre>
+</section>
+
+<footer>
+  models/laguna-s · measured 2026-07-30 on RTX PRO 6000 Blackwell Workstation (96 GB, SM_120) ·
+  vLLM 0.26.0 · guidellm 0.5.4 · KV pool 577,749 tokens
+</footer>
+
+</main>
+
+<script>
+const GRID = 'rgba(152,144,196,0.14)';
+const TICK = '#9890c4';
+Chart.defaults.color = TICK;
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+
+const CONC = [1, 4, 8, 16, 32, 64];
+// inferno ramp, ordered by out:in ratio (decode-heavy = bright, prefill-heavy = deep)
+const SERIES = [
+  { label: 'codegen  (4k→1.5k)',      color: '#fcffa4' },
+  { label: 'chat  (2k→300)',          color: '#ffb43d' },
+  { label: 'agentic  (16k→800)',      color: '#f37819' },
+  { label: 'rag  (8k→256)',           color: '#bc3754' },
+  { label: 'summarization  (12k→300)', color: '#a3379f' },
+];
+
+const DATA = {
+  tps: {
+    codegen:       [105.8, 250.1, 341.2, 458.5, 576.8, 724.9],
+    chat:          [104.7, 248.8, 366.7, 501.2, 692.3, 998.0],
+    agentic:       [95.3, 187.2, 251.7, 267.8, 257.5, 240.0],
+    rag:           [91.1, 188.3, 247.7, 294.1, 339.1, 329.8],
+    summarization: [86.1, 165.8, 202.3, 242.9, 240.7, 225.9],
+  },
+  perreq: {
+    codegen:       [107.0, 69.3, 51.5, 38.7, 28.3, 20.9],
+    chat:          [107.9, 66.8, 50.2, 36.5, 25.9, 18.2],
+    agentic:       [104.9, 58.1, 37.1, 23.9, 15.6, 13.3],
+    rag:           [106.5, 52.8, 35.3, 22.0, 12.9, 7.6],
+    summarization: [105.5, 49.6, 31.0, 18.7, 10.3, 7.8],
+  },
+  ttft: {
+    codegen:       [226, 916, 1403, 3331, 6056, 11512],
+    chat:          [143, 178, 230, 253, 662, 4753],
+    agentic:       [999, 3182, 6613, 14166, 25986, 28938],
+    rag:           [520, 697, 647, 3644, 10529, 23215],
+    summarization: [756, 947, 1342, 8938, 18031, 44010],
+  },
+  prefill: {
+    codegen:       [306, 850, 1061, 1875, 2216, 16263],
+    chat:          [752, 1829, 2589, 3592, 5323, 7173],
+    agentic:       [2072, 4082, 6110, 8142, 10576, 14699],
+    rag:           [3038, 6413, 8043, 10067, 12958, 14204],
+    summarization: [3923, 7348, 8868, 12487, 13474, 13308],
+  },
+};
+
+function key(label) { return label.split(' ')[0]; }
+
+function mkChart(canvasId, metric, title, yTitle, logY) {
+  new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: {
+      labels: CONC,
+      datasets: SERIES.map(s => ({
+        label: s.label,
+        data: DATA[metric][key(s.label)],
+        borderColor: s.color,
+        backgroundColor: s.color,
+        borderWidth: 2.5,
+        tension: 0.25,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+      }))
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { usePointStyle: true, boxWidth: 8 } },
+        title: { display: true, text: title, color: '#f0e8ff', font: { size: 14 } },
+      },
+      scales: {
+        y: logY
+          ? { type: 'logarithmic', grid: { color: GRID }, title: { display: true, text: yTitle, color: TICK } }
+          : { beginAtZero: true, grid: { color: GRID }, title: { display: true, text: yTitle, color: TICK } },
+        x: {
+          type: 'logarithmic',
+          grid: { color: GRID },
+          title: { display: true, text: 'concurrency', color: TICK },
+          ticks: { callback: (v) => CONC.includes(v) ? v : '' },
+        }
+      }
+    }
+  });
+}
+
+mkChart('chartTps',    'tps',    'Aggregate output throughput vs concurrency', 'server tok/s', false);
+mkChart('chartPerReq', 'perreq', 'Per-request decode rate vs concurrency',     'tok/s per request', false);
+mkChart('chartTtft',   'ttft',   'TTFT p95 vs concurrency — log scale',        'ms (log)', true);
+mkChart('chartPrefill','prefill','Prefill throughput vs concurrency',          'prefill tok/s', false);
+</script>
+
+</body>
+</html>

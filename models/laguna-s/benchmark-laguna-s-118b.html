@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>2026-07-30 · Laguna-S-2.1-NVFP4 · Speed + DFlash Sweep</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0612;
+    --bg-elev: #15102a;
+    --bg-card: #1a1430;
+    --fg: #f0e8ff;
+    --muted: #9890c4;
+    --champion: #ffb43d;
+    --inferno-purple: #6a176e;
+    --inferno-pink: #bc3754;
+    --inferno-orange: #f37819;
+    --inferno-yellow: #fcffa4;
+    --good: #4caf50;
+    --warn: #ffb300;
+    --bad: #f44336;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.55;
+  }
+  body {
+    background: radial-gradient(ellipse at top, #2a1a30 0%, var(--bg) 60%);
+    min-height: 100vh;
+    padding: 0 0 4rem;
+  }
+  header {
+    padding: 3rem 2rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid rgba(255,180,61,0.15);
+    background: linear-gradient(180deg, rgba(255,180,61,0.10) 0%, transparent 100%);
+  }
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 2.4rem;
+    font-weight: 700;
+    background: linear-gradient(90deg, var(--inferno-orange), var(--champion) 50%, var(--inferno-yellow));
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { color: var(--muted); font-size: 1.05rem; margin-top: 0.5rem; }
+  .meta {
+    display: inline-flex; gap: 0.75rem; flex-wrap: wrap; justify-content: center;
+    margin-top: 1rem; font-size: 0.82rem;
+    color: var(--muted);
+  }
+  .meta span {
+    background: rgba(255,180,61,0.07);
+    border: 1px solid rgba(255,180,61,0.18);
+    padding: 0.28rem 0.7rem; border-radius: 999px;
+  }
+  .navlink {
+    display: inline-block; margin-top: 1.2rem;
+    color: var(--inferno-orange); text-decoration: none;
+    font-size: 0.88rem; border-bottom: 1px dashed rgba(243,120,25,0.5);
+  }
+  .navlink:hover { color: var(--inferno-yellow); }
+  main { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem; }
+  section {
+    margin-top: 2.5rem;
+    background: var(--bg-card);
+    border: 1px solid rgba(255,180,61,0.1);
+    border-radius: 16px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 4px 30px rgba(106,23,110,0.15);
+  }
+  section h2 {
+    margin: 0 0 1rem;
+    font-size: 1.5rem;
+    color: var(--champion);
+    display: flex; align-items: center; gap: 0.6rem;
+  }
+  section h2::before {
+    content: ""; display: inline-block;
+    width: 6px; height: 24px; border-radius: 3px;
+    background: linear-gradient(180deg, var(--inferno-orange), var(--champion));
+  }
+  section h3 {
+    margin: 1.5rem 0 0.5rem;
+    font-size: 1.05rem;
+    color: var(--inferno-orange);
+    font-weight: 600;
+  }
+  p { color: var(--fg); margin: 0.6rem 0; }
+  p.muted { color: var(--muted); font-size: 0.9rem; }
+  code {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.86em;
+    background: rgba(255,180,61,0.08);
+    border: 1px solid rgba(255,180,61,0.15);
+    padding: 0.1rem 0.35rem; border-radius: 5px;
+    color: var(--inferno-yellow);
+  }
+  pre {
+    background: var(--bg-elev);
+    border: 1px solid rgba(255,180,61,0.15);
+    border-radius: 10px;
+    padding: 1rem; overflow-x: auto;
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.82rem; color: var(--inferno-yellow);
+    line-height: 1.5;
+  }
+  pre code { background: none; border: none; padding: 0; color: inherit; }
+
+  .headline-num { text-align: center; padding: 1rem 0 1.5rem; }
+  .headline-num .big {
+    font-size: 4.5rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    filter: drop-shadow(0 0 18px rgba(255,180,61,0.35));
+  }
+  .headline-num .label { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; }
+
+  .scenario-row {
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem;
+    margin-top: 1.2rem;
+  }
+  @media (max-width: 1000px) { .scenario-row { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 600px)  { .scenario-row { grid-template-columns: 1fr; } }
+  .scenario-card {
+    background: var(--bg-elev);
+    border-radius: 12px; padding: 1rem;
+    border: 1px solid rgba(255,180,61,0.15);
+  }
+  .scenario-card.win { border-color: rgba(255,180,61,0.55); box-shadow: 0 0 18px rgba(255,180,61,0.12); }
+  .scenario-card.dud { border-color: rgba(188,55,84,0.45); }
+  .scenario-card .name {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--inferno-orange); font-weight: 700;
+  }
+  .scenario-card .shape {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+    font-size: 0.78rem; color: var(--muted); margin: 0.2rem 0 0.6rem;
+  }
+  .scenario-card .big {
+    font-size: 2.0rem; font-weight: 800; color: var(--champion);
+    font-variant-numeric: tabular-nums; line-height: 1;
+  }
+  .scenario-card.dud .big { color: var(--inferno-pink); }
+  .scenario-card .unit { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+  .scenario-card .sat {
+    margin-top: 0.7rem; padding-top: 0.6rem;
+    border-top: 1px solid rgba(255,180,61,0.1);
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .scenario-card .sat strong { color: var(--inferno-yellow); font-variant-numeric: tabular-nums; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 1rem 0; font-size: 0.91rem;
+    background: var(--bg-elev); border-radius: 10px; overflow: hidden;
+  }
+  .table-wrap { overflow-x: auto; }
+  thead th {
+    background: linear-gradient(90deg, rgba(243,120,25,0.4), rgba(255,180,61,0.2));
+    text-align: left; padding: 0.7rem 1rem;
+    color: var(--inferno-yellow); font-weight: 600;
+    font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  tbody td {
+    padding: 0.6rem 1rem;
+    border-top: 1px solid rgba(255,180,61,0.08);
+    font-variant-numeric: tabular-nums;
+  }
+  tbody tr.best td { background: rgba(255,180,61,0.10); font-weight: 600; }
+  tbody tr.base td { background: rgba(152,144,196,0.07); }
+  td.num { text-align: right; }
+  .tag {
+    display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+  }
+  .tag.good { background: rgba(255,180,61,0.18); color: var(--champion); border: 1px solid rgba(255,180,61,0.45); }
+  .tag.bad  { background: rgba(188,55,84,0.18); color: #ff9d94; border: 1px solid rgba(188,55,84,0.5); }
+  .tag.warn { background: rgba(243,120,25,0.15); color: #ffc98a; border: 1px solid rgba(243,120,25,0.45); }
+
+  .chart-box { position: relative; height: 340px; margin-top: 1rem; }
+  .chart-box.tall { height: 400px; }
+
+  .callout {
+    margin-top: 1rem; padding: 0.9rem 1.1rem;
+    border-left: 3px solid var(--champion);
+    background: rgba(255,180,61,0.06);
+    border-radius: 0 10px 10px 0;
+    font-size: 0.92rem;
+  }
+  .callout.warn { border-left-color: var(--inferno-orange); background: rgba(243,120,25,0.07); }
+  .callout.bad  { border-left-color: var(--inferno-pink);   background: rgba(188,55,84,0.08); }
+  .callout strong { color: var(--inferno-yellow); }
+
+  ul, ol { color: var(--fg); }
+  ul.tight li, ol li { margin: 0.35rem 0; }
+  footer {
+    text-align: center; margin-top: 3rem; color: var(--muted); font-size: 0.82rem;
+    padding: 0 1.5rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Laguna-S-2.1-NVFP4</h1>
+  <div class="subtitle">117.6B MoE (8.5B active) on a single RTX PRO 6000 Blackwell · baseline vs DFlash speculative decoding</div>
+  <div class="meta">
+    <span>2026-07-30</span>
+    <span>vLLM 0.26.0</span>
+    <span>NVFP4 · 72 GB weights</span>
+    <span>RTX PRO 6000 · 96 GB</span>
+    <span>OpenMDW-1.1</span>
+  </div>
+  <div><a class="navlink" href="20260730-laguna-s-concurrency-sweep.html">→ Concurrency &amp; stress sweep (GuideLLM)</a></div>
+</header>
+
+<main>
+
+<section>
+  <h2>Headline</h2>
+  <div class="headline-num">
+    <div class="big">123&nbsp;tok/s</div>
+    <div class="label">warm single-stream decode with DFlash (k=6) — <strong>+15%</strong> over the 107.3 tok/s no-speculation baseline</div>
+  </div>
+  <p>
+    A 117.6B-parameter model fits and serves comfortably on one card because only 8.5B parameters
+    activate per token. The NVFP4 weights take ~72 GB, leaving room for a
+    <strong>448,413-token KV cache</strong> at <code>--gpu-memory-utilization 0.90</code> —
+    1.71&times; the model's full 262,144-token context.
+  </p>
+  <div class="callout">
+    <strong>The one tuning result that matters:</strong> the model card's
+    <code>num_speculative_tokens: 15</code> produces <em>no speedup at all</em> on this card
+    (108.6 tok/s, statistically identical to the 107.3 baseline). Dropping to k=4–8 is what
+    delivers the ~15% gain. See the sweep below.
+  </div>
+</section>
+
+<section>
+  <h2>DFlash draft-depth sweep</h2>
+  <div class="scenario-row">
+    <div class="scenario-card base">
+      <div class="name">Baseline</div>
+      <div class="shape">no speculation</div>
+      <div class="big">107.3</div>
+      <div class="unit">tok/s warm</div>
+      <div class="sat">TTFT <strong>32 ms</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">DFlash k=4</div>
+      <div class="shape">4 draft tokens</div>
+      <div class="big">124.3</div>
+      <div class="unit">tok/s warm</div>
+      <div class="sat">accept <strong>32.1%</strong></div>
+    </div>
+    <div class="scenario-card win">
+      <div class="name">DFlash k=6</div>
+      <div class="shape">6 draft tokens</div>
+      <div class="big">123.0</div>
+      <div class="unit">tok/s warm</div>
+      <div class="sat">accept <strong>25.9%</strong></div>
+    </div>
+    <div class="scenario-card">
+      <div class="name">DFlash k=8</div>
+      <div class="shape">8 draft tokens</div>
+      <div class="big">124.6</div>
+      <div class="unit">tok/s warm</div>
+      <div class="sat">accept <strong>20.3%</strong></div>
+    </div>
+    <div class="scenario-card dud">
+      <div class="name">DFlash k=15</div>
+      <div class="shape">card default</div>
+      <div class="big">108.6</div>
+      <div class="unit">tok/s warm</div>
+      <div class="sat">accept <strong>10.5%</strong></div>
+    </div>
+  </div>
+
+  <div class="chart-box"><canvas id="chartTps"></canvas></div>
+
+  <div class="callout warn">
+    <strong>Read k=4, k=6 and k=8 as a tie, not a ranking.</strong> They span 123.0–124.6 tok/s,
+    and individual warm runs inside a single session ranged from 120.2 to 135.2 tok/s. The sweep
+    resolves "roughly 4–8 is right, 15 is wrong" — it does not resolve which of 4, 6 or 8 wins.
+    Sample counts are small (2–4 warm runs per depth); see the methodology note.
+  </div>
+</section>
+
+<section>
+  <h2>Why k=15 fails: per-position acceptance</h2>
+  <p>
+    vLLM reports acceptance per draft position. The drafter is strong on the first token and decays
+    fast — beyond position ~5 it is essentially guessing, but the target model still pays to verify
+    every drafted slot. Long drafts buy near-zero extra accepted tokens at full verification cost.
+  </p>
+  <div class="chart-box tall"><canvas id="chartAccept"></canvas></div>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Draft depth</th>
+        <th>Mean acceptance length</th>
+        <th>Avg draft acceptance</th>
+        <th>Pos 1</th><th>Pos 2</th><th>Pos 3</th><th>Pos 4</th><th>Pos 5</th><th>Pos 6</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>k = 4</td><td class="num">2.28</td><td class="num">32.1%</td>
+          <td class="num">0.615</td><td class="num">0.335</td><td class="num">0.193</td><td class="num">0.142</td><td class="num">—</td><td class="num">—</td></tr>
+      <tr class="best"><td>k = 6</td><td class="num">2.55</td><td class="num">25.9%</td>
+          <td class="num">0.662</td><td class="num">0.369</td><td class="num">0.218</td><td class="num">0.129</td><td class="num">0.107</td><td class="num">0.067</td></tr>
+      <tr><td>k = 8</td><td class="num">2.62</td><td class="num">20.3%</td>
+          <td class="num">0.651</td><td class="num">0.362</td><td class="num">0.216</td><td class="num">0.140</td><td class="num">0.111</td><td class="num">0.070</td></tr>
+      <tr><td>k = 15</td><td class="num">2.57</td><td class="num">10.5%</td>
+          <td class="num">0.592</td><td class="num">0.360</td><td class="num">0.223</td><td class="num">0.158</td><td class="num">0.103</td><td class="num">0.067</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">
+    Mean acceptance length barely moves from k=6 (2.55) to k=15 (2.57) — going from 6 to 15 drafted
+    tokens buys <strong>0.02</strong> extra accepted tokens per step. poolside report 2.9–3.1 on the
+    DGX Spark; we measure 2.28–2.62 on this prompt mix, in the same neighbourhood but below their figure.
+  </p>
+</section>
+
+<section>
+  <h2>Time to first token</h2>
+  <p>
+    Speculation is not free at the front of a request: the drafter has to run before the first
+    token can be verified. Warm TTFT roughly doubles, from 32 ms to 50–60 ms. That is still fast
+    enough to be invisible in chat, but it is a real regression if you are optimising for latency
+    on very short completions.
+  </p>
+  <div class="chart-box"><canvas id="chartTtft"></canvas></div>
+  <div class="callout warn">
+    <strong>Cold-run TTFT is much worse and depends on draft depth:</strong> the first request after
+    startup measured 73 ms at baseline, ~690 ms at k=4/k=6, and ~3050 ms at k=8/k=15. Always
+    <code>--warmup</code> before trusting a TTFT number here.
+  </div>
+</section>
+
+<section>
+  <h2>Full measurements</h2>
+  <div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Config</th>
+        <th>Warm tok/s</th>
+        <th>Warm run spread</th>
+        <th>Warm TTFT</th>
+        <th>Cold TTFT</th>
+        <th>All-run avg tok/s</th>
+        <th>vs baseline</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="base">
+        <td>Baseline (no spec)</td>
+        <td class="num">107.3</td><td class="num">107.2 – 107.3</td>
+        <td class="num">32 ms</td><td class="num">73 ms</td><td class="num">106.3</td>
+        <td><span class="tag warn">ref</span></td>
+      </tr>
+      <tr>
+        <td>DFlash k = 4</td>
+        <td class="num">124.3</td><td class="num">123.1 – 125.4</td>
+        <td class="num">50–57 ms</td><td class="num">682 ms</td><td class="num">111.3</td>
+        <td><span class="tag good">+15.8%</span></td>
+      </tr>
+      <tr class="best">
+        <td>DFlash k = 6</td>
+        <td class="num">123.0</td><td class="num">120.2 – 125.5</td>
+        <td class="num">50–59 ms</td><td class="num">693 ms</td><td class="num">117.3</td>
+        <td><span class="tag good">+14.6%</span></td>
+      </tr>
+      <tr>
+        <td>DFlash k = 8</td>
+        <td class="num">124.6</td><td class="num">121.6 – 127.6</td>
+        <td class="num">52–58 ms</td><td class="num">3051 ms</td><td class="num">101.4</td>
+        <td><span class="tag good">+16.1%</span></td>
+      </tr>
+      <tr>
+        <td>DFlash k = 15 <em>(card default)</em></td>
+        <td class="num">108.6</td><td class="num">108.6 – 108.6</td>
+        <td class="num">54–62 ms</td><td class="num">3050 ms</td><td class="num">89.9</td>
+        <td><span class="tag bad">+1.2%</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="muted">
+    "Warm tok/s" excludes the first run of each session. "All-run avg" is the figure
+    <code>test_chat.py</code> prints, which includes the cold run — it is dragged down hard at
+    k=8/k=15 by the ~3 s cold TTFT, which is why the two columns disagree so much there.
+  </p>
+</section>
+
+<section>
+  <h2>Does DFlash cost quality?</h2>
+  <p>
+    In principle, no. vLLM's <code>RejectionSampler</code> docstring states it "strictly follows the
+    algorithm described in <a href="https://arxiv.org/abs/2211.17192" style="color:var(--inferno-orange)">arxiv.org/abs/2211.17192</a>" —
+    Leviathan et al., the provably distribution-preserving speculative decoding algorithm. Rejected
+    draft tokens are resampled from the target model's corrected distribution, so
+    <strong>acceptance rate is a speed dial, not a quality dial</strong>. Our 25.9% acceptance means
+    the drafter wastes compute, not that the output is worse.
+  </p>
+  <div class="callout bad">
+    <strong>Not verified here.</strong> No quality measurement was run. Two reasons not to simply
+    assume it: outputs will not be bit-identical to baseline (speculation changes batch shapes and
+    kernel paths, so logits differ in the last decimals), and this repo has previously seen
+    INT4+DFlash destabilise tool-calling on Qwen3.6-27B where FP8+DFlash was fine. Laguna is
+    structurally protected against that specific trap because poolside ship a
+    <em>quantization-matched</em> drafter (<code>Laguna-S-2.1-DFlash-NVFP4</code>), which is what was
+    used — but "avoids the known failure mode" is not the same as "verified".
+  </div>
+</section>
+
+<section>
+  <h2>Three fixes needed to boot</h2>
+  <p>Serving this checkpoint on <code>vllm/vllm-openai:nightly</code> required three environment fixes,
+     all now baked into the compose files. Each presented as a generic crash-loop far from its cause.</p>
+  <ol>
+    <li>
+      <strong>flashinfer version skew.</strong> Installing <code>flashinfer-python</code>/<code>-cubin</code>
+      from PyPI stable while taking <code>-jit-cache</code> from the cu130 nightly index gives 0.6.15
+      against a 0.6.16 cubin, and the NVFP4 MoE dies at load:
+      <code>TypeError: Mismatched number of arguments when calling init(...). Expected 9 but got 8</code>.
+      Fix: pin all three to the same nightly version.
+    </li>
+    <li>
+      <strong>quack-kernels vs cutlass-dsl.</strong> The base image's quack-kernels 0.4.1 is incompatible
+      with the nvidia-cutlass-dsl 4.6.0 the vLLM upgrade pulls in:
+      <code>AttributeError: module 'cutlass.cute.core' has no attribute 'ThrMma'</code> during the MoE
+      router warmup. That warmup is gated only on compute capability ≥ 9.0, so no serve flag skips it.
+      Fix: <code>pip install -U quack-kernels</code>.
+    </li>
+    <li>
+      <strong><code>--moe-backend triton</code> does not apply to NVFP4.</strong> The vLLM recipe lists it
+      for DFlash, but it targets the BF16/INT4 checkpoints. On NVFP4 vLLM rejects it outright:
+      <code>ValueError: moe_backend='triton' is not supported for NvFP4 MoE</code>. Leave it on
+      <code>auto</code>, which selects <code>FLASHINFER_CUTLASS</code>.
+    </li>
+  </ol>
+  <div class="callout bad">
+    <strong>Reasoning parser caveat.</strong> <code>poolside_v1</code> only splits reasoning out when the
+    request sends <code>chat_template_kwargs</code>; otherwise it falls back to an identity parser and
+    <code>&lt;/think&gt;</code> leaks into <code>content</code>. Worse, when thinking <em>is</em> enabled
+    the reasoning text is stripped from <code>content</code> but <code>reasoning_content</code> is never
+    populated in the non-streaming response — those tokens are billed and discarded. Send
+    <code>chat_template_kwargs: {"enable_thinking": false}</code> for clean direct answers.
+    Note the template variable is <code>enable_thinking</code>, not <code>thinking</code>, and it
+    defaults to <strong>true</strong>.
+  </div>
+</section>
+
+<section>
+  <h2>Methodology</h2>
+  <ul class="tight">
+    <li>Harness: <code>models/shared/test_chat.py</code>, the repo standard.</li>
+    <li>Command:
+      <pre><code>python3 test_chat.py --base-url http://localhost:11440/v1 \
+  --model laguna-s-2.1 --runs 5 --warmup --no-think</code></pre>
+    </li>
+    <li>Single stream, batch size 1. Default prompt (MoE vs dense transformers explainer), 245–628 tokens generated per run.</li>
+    <li>Baseline and k=6 measured over 5 runs; k=4, k=8 and k=15 over 3 runs each. Warm figures drop run 1.</li>
+    <li>Served at <code>--gpu-memory-utilization 0.90</code> / <code>--max-num-seqs 32</code>. The compose
+        now defaults to 0.94 / 64 for serving; neither knob affects batch-1 decode rate.</li>
+    <li>Only one model resident on the card at a time; the usual Qwen3.6-27B tenant was stopped for the duration.</li>
+    <li>Acceptance figures come from vLLM's own <code>SpecDecoding metrics</code> log lines, not derived from throughput.</li>
+  </ul>
+  <div class="callout warn">
+    <strong>Known limitation:</strong> <code>--no-think</code> is a <em>no-op</em> on this family. It sends
+    a top-level <code>enable_thinking</code>, which vLLM 0.26 ignores — only
+    <code>chat_template_kwargs.enable_thinking</code> works. So every number here was measured with
+    thinking <strong>on</strong>. That does not distort tok/s (decode rate is the same either way),
+    but it means these are not "answer-only" latencies.
+  </div>
+  <p class="muted">
+    Concurrency and long-context prefill behaviour are measured separately in the
+    <a href="20260730-laguna-s-concurrency-sweep.html" style="color:var(--inferno-orange)">GuideLLM concurrency sweep</a>.
+    Quality was not measured: poolside report 70.2% Terminal-Bench 2.1, 78.5% SWE-bench Multilingual
+    and 59.4% SWE-Bench Pro for this model, none independently verified here.
+  </p>
+</section>
+
+<section>
+  <h2>Reproduce</h2>
+  <pre><code># baseline, no speculation
+cd models/laguna-s
+docker compose --env-file ../../.env -f docker-compose.vllm-118b-nvfp4-rtx.yml up -d
+
+# DFlash — sweep the draft depth with SPEC_TOKENS (default 4)
+SPEC_TOKENS=6 docker compose --env-file ../../.env \
+  -f docker-compose.vllm-118b-nvfp4-dflash-rtx.yml up -d
+
+# benchmark
+cd ../shared
+python3 test_chat.py --base-url http://localhost:11440/v1 \
+  --model laguna-s-2.1 --runs 5 --warmup --no-think
+
+# acceptance metrics
+docker logs laguna-s-118b-nvfp4-dflash 2>&amp;1 | grep "SpecDecoding metrics" | tail -1</code></pre>
+</section>
+
+<footer>
+  models/laguna-s · measured 2026-07-30 on RTX PRO 6000 Blackwell Workstation (96 GB, SM_120) ·
+  vLLM 0.26.0 · flashinfer 0.6.16.dev20260730
+</footer>
+
+</main>
+
+<script>
+const GRID = 'rgba(152,144,196,0.14)';
+const TICK = '#9890c4';
+Chart.defaults.color = TICK;
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
+
+const LABELS = ['Baseline\n(no spec)', 'DFlash k=4', 'DFlash k=6', 'DFlash k=8', 'DFlash k=15\n(card default)'];
+const TPS    = [107.3, 124.3, 123.0, 124.6, 108.6];
+const COLORS = ['#6a176e', '#f37819', '#ffb43d', '#f37819', '#bc3754'];
+
+new Chart(document.getElementById('chartTps'), {
+  type: 'bar',
+  data: {
+    labels: LABELS,
+    datasets: [{
+      label: 'Warm decode (tok/s)',
+      data: TPS,
+      backgroundColor: COLORS,
+      borderColor: COLORS,
+      borderWidth: 1,
+      borderRadius: 6,
+    }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          afterLabel: (ctx) => {
+            const d = ((TPS[ctx.dataIndex] / 107.3 - 1) * 100);
+            return ctx.dataIndex === 0 ? 'reference' : (d >= 0 ? '+' : '') + d.toFixed(1) + '% vs baseline';
+          }
+        }
+      },
+      title: { display: true, text: 'Warm single-stream decode throughput', color: '#f0e8ff', font: { size: 14 } }
+    },
+    scales: {
+      y: {
+        beginAtZero: false, suggestedMin: 95, suggestedMax: 132,
+        grid: { color: GRID }, title: { display: true, text: 'tok/s', color: TICK }
+      },
+      x: { grid: { display: false } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartAccept'), {
+  type: 'line',
+  data: {
+    labels: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+    datasets: [
+      { label: 'k=4',  data: [0.615,0.335,0.193,0.142], borderColor: '#fcffa4', backgroundColor: '#fcffa4', tension: 0.25, pointRadius: 3 },
+      { label: 'k=6',  data: [0.662,0.369,0.218,0.129,0.107,0.067], borderColor: '#ffb43d', backgroundColor: '#ffb43d', borderWidth: 3, tension: 0.25, pointRadius: 3 },
+      { label: 'k=8',  data: [0.651,0.362,0.216,0.140,0.111,0.070,0.051,0.022], borderColor: '#f37819', backgroundColor: '#f37819', tension: 0.25, pointRadius: 3 },
+      { label: 'k=15', data: [0.592,0.360,0.223,0.158,0.103,0.067,0.043,0.014,0.005,0.002,0.002,0.000,0.000,0.000,0.000], borderColor: '#bc3754', backgroundColor: '#bc3754', borderDash: [5,4], tension: 0.25, pointRadius: 3 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { usePointStyle: true } },
+      title: { display: true, text: 'Acceptance rate by draft position — the drafter decays fast', color: '#f0e8ff', font: { size: 14 } },
+      tooltip: { callbacks: { label: (c) => c.dataset.label + ': ' + (c.parsed.y * 100).toFixed(1) + '%' } }
+    },
+    scales: {
+      y: {
+        beginAtZero: true, max: 0.72, grid: { color: GRID },
+        title: { display: true, text: 'acceptance rate', color: TICK },
+        ticks: { callback: (v) => (v * 100).toFixed(0) + '%' }
+      },
+      x: { grid: { color: GRID }, title: { display: true, text: 'draft position', color: TICK } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartTtft'), {
+  type: 'bar',
+  data: {
+    labels: LABELS,
+    datasets: [
+      { label: 'Warm TTFT (ms)', data: [32, 53, 54, 55, 58], backgroundColor: '#ffb43d', borderRadius: 6 },
+      { label: 'Cold TTFT (ms)', data: [73, 682, 693, 3051, 3050], backgroundColor: '#bc3754', borderRadius: 6 },
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { usePointStyle: true } },
+      title: { display: true, text: 'Time to first token — log scale (cold vs warm)', color: '#f0e8ff', font: { size: 14 } }
+    },
+    scales: {
+      y: {
+        type: 'logarithmic', grid: { color: GRID },
+        title: { display: true, text: 'ms (log)', color: TICK }
+      },
+      x: { grid: { display: false } }
+    }
+  }
+});
+</script>
+
+</body>
+</html>

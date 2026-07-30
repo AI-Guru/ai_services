@@ -1,0 +1,138 @@
+# Laguna-S-2.1-NVFP4 + DFlash speculative decoding — 117.6B MoE on one RTX PRO 6000
+#
+# Differs from docker-compose.vllm-118b-nvfp4-rtx.yml (the no-speculation
+# baseline) ONLY in:
+#   - --speculative-config with the quantization-matched DFlash drafter
+#   - --max-num-seqs 32 → 16 (headroom: the drafter adds ~2.2 GB of weights
+#     plus its own KV; 32 is the model card's ceiling, not a target)
+#   - --async-scheduling REMOVED (it does not compose with spec decode)
+#
+# Drafter: poolside/Laguna-S-2.1-DFlash-NVFP4 (~2.2 GB), first-party and
+# quantization-matched to the NVFP4 target. Using the BF16 DFlash drafter
+# against an NVFP4 target is the documented mismatch to avoid.
+#
+# NOTE: the vLLM recipe's `--moe-backend triton` line does NOT apply here. It
+# targets the BF16/INT4 checkpoints; for NVFP4 vLLM rejects it outright:
+#   ValueError: moe_backend='triton' is not supported for NvFP4 MoE.
+#   Expected one of ['cutlass','flashinfer_trtllm','flashinfer_cutlass',
+#                    'flashinfer_cutedsl','flashinfer_b12x','marlin',
+#                    'humming','emulation']
+# Left on 'auto', which picks FLASHINFER_CUTLASS — the same backend the
+# no-speculation baseline runs on, which keeps the two configs comparable.
+#
+# num_speculative_tokens 15 is the model card's value. poolside report 2.9-3.1
+# accepted tokens per step; the acceptance rate is what actually matters, and
+# vLLM logs it as "Draft acceptance rate" — check the logs, not just tok/s.
+#
+# Requirements confirmed present in vllm/vllm-openai:nightly (0.26.0):
+#   - DFlashLagunaForCausalLM in the model registry
+#   - vllm/v1/spec_decode/dflash.py (vLLM PR #46853 merged)
+#   - poolside_v1 tool + reasoning parsers
+#
+# GPU: needs the whole card. Stop any other resident model first.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-118b-nvfp4-dflash-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1  ·  model: laguna-s-2.1
+# NOTE: same port 11440 as the baseline — run one or the other, never both.
+
+services:
+  laguna-s-118b-nvfp4-dflash:
+    image: vllm/vllm-openai:nightly
+    container_name: laguna-s-118b-nvfp4-dflash
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER=0
+      - CUTE_DSL_ARCH=sm_120a
+      # Single source of truth for the matched flashinfer trio (see entrypoint).
+      - FI_VERSION=${FI_VERSION:-0.6.16.dev20260730}
+      # Draft depth. Override to sweep: SPEC_TOKENS=4 docker compose ... up -d
+      - SPEC_TOKENS=${SPEC_TOKENS:-4}
+      - MAX_JOBS=4
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        # All three flashinfer packages must match — see the baseline compose
+        # for the mismatched-init crash this avoids.
+        # $$ so docker compose passes the literal $FI_VERSION through to bash.
+        pip install -U --quiet \
+          "flashinfer-python==$${FI_VERSION}" \
+          "flashinfer-cubin==$${FI_VERSION}" \
+          "flashinfer-jit-cache==$${FI_VERSION}" \
+          --extra-index-url https://flashinfer.ai/whl/nightly/ \
+          --extra-index-url https://flashinfer.ai/whl/nightly/cu130/
+        # base-image quack-kernels 0.4.1 vs nvidia-cutlass-dsl 4.6.0 → ThrMma
+        # AttributeError in the MoE router warmup. See the baseline compose.
+        pip install -U quack-kernels --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve (Laguna-S-2.1-NVFP4 + DFlash num=15) ==='
+        exec vllm serve poolside/Laguna-S-2.1-NVFP4 \
+          --served-model-name laguna-s-2.1 \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --max-model-len 262144 \
+          --gpu-memory-utilization 0.90 \
+          --max-num-seqs 16 \
+          --max-num-batched-tokens 8192 \
+          --enable-chunked-prefill \
+          --enable-prefix-caching \
+          --reasoning-parser poolside_v1 \
+          --enable-auto-tool-choice \
+          --tool-call-parser poolside_v1 \
+          --override-generation-config '{"temperature":0.7,"top_p":0.95}' \
+          --speculative-config "{\"model\":\"poolside/Laguna-S-2.1-DFlash-NVFP4\",\"num_speculative_tokens\":$${SPEC_TOKENS},\"method\":\"dflash\"}"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: laguna_huggingface_cache
+
+networks:
+  default:
+    name: laguna-network

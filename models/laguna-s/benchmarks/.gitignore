@@ -1,0 +1,4 @@
+# guidellm per-run JSONs are 5-90 MB each (this sweep: ~113 MB across 5 scenarios)
+# — keep benchmarks.csv only, same rule as models/qwen3.6/benchmarks/parallel-2x2/.
+# console.log is already covered by the repo-root *.log ignore.
+benchmarks.json

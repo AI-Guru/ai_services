@@ -1,0 +1,202 @@
+# Laguna-S-2.1-NVFP4 (poolside) — 117.6B MoE, 8.5B active, single RTX PRO 6000
+#
+# FIRST-PARTY checkpoint: poolside/Laguna-S-2.1-NVFP4 is published by poolside
+# themselves (quantized from poolside/Laguna-S-2.1), not a community quant.
+# License: OpenMDW-1.1 (commercial + non-commercial use permitted).
+#
+# Architecture (config.json):
+#   model_type: laguna  ·  LagunaForCausalLM  ·  custom_code → --trust-remote-code
+#   48 layers: 36 sliding-window (window 512) + 12 global attention
+#   256 experts + 1 shared expert, top-10 routing, per-head gating
+#   hidden 3072 · 48 heads · 8 KV heads · head_dim 128 · vocab 100352
+#   YaRN rope (factor 32, orig 8192) on the global layers → 262144 native ctx
+#
+# Memory: NVFP4 weights are ~72 GB. On the 96 GB card that leaves ~14 GB at
+# --gpu-memory-utilization 0.90 for KV + activations. The SWA layers cap at a
+# 512-token window, so only the 12 global layers scale with context:
+#   12 layers x 8 KV heads x 128 dim x 2 (K+V) x 1 B (fp8) = ~24 KB/token
+#   → the full 262144-token context costs only ~6.4 GB of KV. It fits.
+#
+# NVFP4 on Blackwell: the vLLM recipe (recipes.vllm.ai/poolside/Laguna-S-2.1)
+# requires VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER=0 for the NVFP4 checkpoint on
+# Blackwell. Quantization is auto-detected from quantization_config in the
+# checkpoint, so NO --quantization flag is passed (unlike the modelopt Qwen
+# NVFP4 composes in models/qwen3.6/).
+#
+# Parsers: poolside_v1 for BOTH tool calls and reasoning. The model does
+# interleaved thinking between tool calls, so the reasoning parser is not
+# optional if you want clean assistant content.
+#
+# --override-generation-config is kept per the model card: many clients send no
+# sampling params and vLLM would otherwise fall back to greedy, which degrades
+# this model. Do NOT add min_p (vLLM rejects min_p/logit_bias here).
+#
+# DFlash speculative decoding is a SEPARATE file
+# (docker-compose.vllm-118b-nvfp4-dflash-rtx.yml) — it needs --moe-backend
+# triton and a much lower --max-num-seqs, and is worth measuring against this
+# baseline rather than assuming it wins.
+#
+# GPU: needs the whole card. Stop any other resident model first.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-118b-nvfp4-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1  ·  model: laguna-s-2.1
+# First boot: ~15 min per the model card (72 GB load + FP4 kernel JIT + warmup).
+
+services:
+  laguna-s-118b-nvfp4:
+    image: vllm/vllm-openai:nightly
+    container_name: laguna-s-118b-nvfp4
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      # Required by the vLLM recipe for the NVFP4 checkpoint on Blackwell.
+      - VLLM_BLOCKSCALE_FP8_GEMM_FLASHINFER=0
+      # FP4 kernel JIT arch. sm_120a = RTX PRO 6000 Blackwell Workstation.
+      # (The model card's sm_121a is the DGX Spark GB10 — wrong card for us.)
+      - CUTE_DSL_ARCH=sm_120a
+      # Single source of truth for the matched flashinfer trio (see entrypoint).
+      # Bump all three together or not at all.
+      - FI_VERSION=${FI_VERSION:-0.6.16.dev20260730}
+      # Capacity knobs. Defaults are the SERVING values, not the values the
+      # single-stream numbers in README.md were taken at (0.90 / 32) — neither
+      # knob affects batch-1 decode rate, they only size the KV pool and the
+      # concurrency ceiling.
+      #
+      # 0.94, not 0.90: since vLLM 0.21 the utilization figure includes CUDA
+      # graph memory profiling, so 0.90 here behaves like 0.8529 did before.
+      # vLLM's own startup log recommends 0.9471 to recover the old effective
+      # KV size; 0.94 takes most of that back while leaving ~5.8 GB of headroom
+      # for allocator fragmentation under high concurrency.
+      #
+      # 64, not 32: the guidellm concurrency ladder tops out at 32, and a cap
+      # equal to the top rung can never show saturation headroom.
+      - GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.94}
+      - MAX_NUM_SEQS=${MAX_NUM_SEQS:-64}
+      # Left at 8192 deliberately. Raising it would speed up prefill-heavy
+      # scenarios somewhat, but the profiler reserves activation memory at this
+      # size, and that memory is worth more as KV: KV starvation causes
+      # preemption + recompute, which costs far more than larger prefill chunks
+      # save. Chunked prefill handles long prompts fine at 8192.
+      - MAX_BATCHED_TOKENS=${MAX_BATCHED_TOKENS:-8192}
+      # --default-chat-template-kwargs fixes the "</think> leaks into content"
+      # bug seen in OpenCode and any other client that does not send
+      # chat_template_kwargs itself.
+      #
+      # Mechanism: the chat template defaults enable_thinking=true, so the
+      # generation prompt ends with a bare '<think>' and the model closes it
+      # with '</think>' before the answer. But poolside_v1 subclasses
+      # DeepSeekV3ReasoningParser, which selects IdentityReasoningParser —
+      # i.e. strips nothing — unless the REQUEST carries chat_template_kwargs.
+      # Clients that send none therefore get thinking turned on by the template
+      # and the parser turned off, so the closing tag lands in content.
+      # Setting a server-side default makes the parser engage for every request.
+      #
+      # true  = keep reasoning (poolside advertise interleaved thinking between
+      #         tool calls; their Terminal-Bench numbers assume it) and strip
+      #         the tags properly.
+      # false = no reasoning at all: the template emits '</think>' as the
+      #         generation prefix so the model never produces it. Faster, but
+      #         gives up whatever the thinking was buying.
+      - ENABLE_THINKING=${ENABLE_THINKING:-true}
+      # Cap nvcc parallelism on a cold ~/.cache/flashinfer; an uncapped build
+      # exhausts memory during the first startup.
+      - MAX_JOBS=4
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        # The three flashinfer packages MUST be the SAME version. Installing
+        # flashinfer-python/-cubin from PyPI stable while taking -jit-cache from
+        # the cu130 nightly index (what the other composes in this repo do) gives
+        # python 0.6.15 against a 0.6.16 cubin, and the NVFP4 MoE dies at load:
+        #   TypeError: Mismatched number of arguments when calling `init(...)`.
+        #   Expected 9 but got 8 arguments   (flashinfer/fused_moe/core.py:403)
+        # flashinfer-python and -cubin live at /whl/nightly/, -jit-cache under
+        # /whl/nightly/cu130/, so both extra-index-urls are required.
+        # $$ so docker compose passes the literal $FI_VERSION through to bash
+        # instead of interpolating it away at YAML-parse time.
+        pip install -U --quiet \
+          "flashinfer-python==$${FI_VERSION}" \
+          "flashinfer-cubin==$${FI_VERSION}" \
+          "flashinfer-jit-cache==$${FI_VERSION}" \
+          --extra-index-url https://flashinfer.ai/whl/nightly/ \
+          --extra-index-url https://flashinfer.ai/whl/nightly/cu130/
+        # The base image's quack-kernels 0.4.1 is incompatible with the
+        # nvidia-cutlass-dsl 4.6.0 the vLLM upgrade pulls in:
+        #   AttributeError: module 'cutlass.cute.core' has no attribute 'ThrMma'
+        # raised from quack/layout_utils.py during the MoE router warmup. That
+        # warmup is gated only on compute capability >= 9.0, so no serve flag
+        # can skip it — the package genuinely has to be newer (0.6.1+).
+        pip install -U quack-kernels --quiet
+        echo '=== versions ==='
+        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
+        echo '=== launching vllm serve (Laguna-S-2.1-NVFP4, no speculation) ==='
+        exec vllm serve poolside/Laguna-S-2.1-NVFP4 \
+          --served-model-name laguna-s-2.1 \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --max-model-len 262144 \
+          --gpu-memory-utilization $${GPU_MEM_UTIL} \
+          --max-num-seqs $${MAX_NUM_SEQS} \
+          --max-num-batched-tokens $${MAX_BATCHED_TOKENS} \
+          --enable-chunked-prefill \
+          --enable-prefix-caching \
+          --async-scheduling \
+          --reasoning-parser poolside_v1 \
+          --enable-auto-tool-choice \
+          --tool-call-parser poolside_v1 \
+          --default-chat-template-kwargs "{\"enable_thinking\": $${ENABLE_THINKING}}" \
+          --override-generation-config '{"temperature":0.7,"top_p":0.95}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 1200s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: laguna_huggingface_cache
+
+networks:
+  default:
+    name: laguna-network
