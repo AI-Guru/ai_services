@@ -1,0 +1,138 @@
+# Qwen3.6-27B FP8 (W8A8, block-wise 128x128) — NO speculative decoding
+# Hardware: NVIDIA H100 NVL 94 GB (GH100, Hopper, SM_90)
+#
+# BASELINE of the H100 A/B matrix. Pairs with:
+#   docker-compose.vllm-27b-fp8-mtp-h100.yml    (same config + MTP N=1)
+#   docker-compose.vllm-27b-int4-h100.yml       (INT4 AutoRound, no spec)
+#   docker-compose.vllm-27b-int4-mtp-h100.yml   (INT4 AutoRound + MTP N=1)
+# All four are byte-identical except for the checkpoint and --speculative-config,
+# so the four numbers isolate (quant) x (MTP) cleanly.
+#
+# Checkpoint: Qwen/Qwen3.6-27B-FP8 — FIRST-PARTY Qwen quant, 30.9 GB safetensors.
+#   quantization_config: fp8 / e4m3 / activation_scheme=dynamic /
+#   weight_block_size=[128,128]. This is the DeepSeek-style block-wise FP8 layout,
+#   which is the single best-optimised W8A8 path on Hopper — H100 has native FP8
+#   tensor cores (unlike the INT4 configs, which are weight-only W4A16 and do the
+#   actual matmul in BF16).
+#
+# Why NOT NVFP4 on this host: every NVFP4 checkpoint in this directory
+# (nvidia/, unsloth/, sakamakismile/, mmangkad/) requires Blackwell SM_100+
+# hardware FP4 tensor cores. The H100 is Hopper SM_90 and has NO FP4 support —
+# FP8 is the lowest hardware-accelerated precision available here. Those compose
+# files will not run on this machine.
+#
+# H100-specific notes vs the -rtx siblings:
+#   - Image bumped to v0.26.0-cu129. cu129 (CUDA 12.9) rather than cu130 for
+#     wider driver compatibility; Hopper is fully supported by both.
+#     Repo-proven fallback for this model if v0.26.0 regresses: v0.24.0-cu129.
+#   - --max-num-seqs 256 is REQUIRED since vLLM v0.23.0, which hard-fails
+#     ("max_num_seqs exceeds available Mamba cache blocks") instead of silently
+#     clamping. Qwen3.6's hybrid Gated DeltaNet needs a Mamba-style state cache.
+#   - VLLM_ATTENTION_BACKEND=FLASH_ATTN resolves to FlashAttention-3 on SM_90.
+#
+# KV cache stays BF16/auto — --kv-cache-dtype fp8_e4m3 is deliberately OMITTED:
+# DeltaNet linear-attention state silently corrupts with FP8 KV quantization
+# (vllm-project/vllm#26646). This applies on Hopper exactly as on Blackwell.
+#
+# VISION: ENABLED (multimodal — text + image + video).
+# vLLM loads the checkpoint's vision tower by default; `--language-model-only`
+# would suppress it. That flag is deliberately ABSENT here.
+#   - The Unsloth chat template already carries the vision markers
+#     (vision_start / image_pad / vision_end / image_url), so multimodal messages
+#     render correctly. Do NOT drop --chat-template for vision — the checkpoint's
+#     native template has the known issues this repo's template exists to fix.
+#   - Cost is ~1.5 GB VRAM for the encoder, taken out of the KV pool. The README
+#     measured vision as negligible overhead for pure-text throughput.
+#   - Add `--language-model-only` back for a text-only A/B.
+# NOTE: the published H100 benchmark numbers were measured TEXT-ONLY, before this
+# flag was removed; decode throughput should be unchanged, KV pool ~1.5 GB smaller.
+#
+# VRAM budget: 30.9 GB weights + ~53 GB KV pool at util 0.90 on 94 GB.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-fp8-h100.yml up -d
+# API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b
+# No HF_TOKEN needed — this checkpoint is public and ungated.
+
+services:
+  qwen36-27b-fp8-h100:
+    image: vllm/vllm-openai:v0.26.0-cu129
+    container_name: qwen36-27b-fp8-h100
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.6-27B-FP8
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
