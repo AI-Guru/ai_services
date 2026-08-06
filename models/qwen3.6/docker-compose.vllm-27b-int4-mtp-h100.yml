@@ -1,0 +1,143 @@
+# Qwen3.6-27B INT4 AutoRound (W4A16, group_size=128) + MTP speculative decoding
+# Hardware: NVIDIA H100 NVL 94 GB (GH100, Hopper, SM_90)
+#
+# ★ EXPECTED THROUGHPUT CHAMPION for single-stream decode on this host.
+#   (FP8+MTP remains the recommended default — see the quality/concurrency
+#   caveats below and in docker-compose.vllm-27b-int4-h100.yml.)
+#
+# Identical to docker-compose.vllm-27b-int4-h100.yml except for the added
+# --speculative-config, so the delta isolates MTP on the INT4 checkpoint.
+#
+# Checkpoint: Lorbus/Qwen3.6-27B-int4-AutoRound — COMMUNITY quant, 19.0 GB.
+# The MTP draft heads survive the AutoRound quantization: verified 29 `mtp.*`
+# tensors in model.safetensors.index.json, including mtp.fc.weight and
+# mtp.layers.0.* with qweight/qzeros/scales triplets (the head is quantised
+# alongside the body, not dropped). This matters — several community quants in
+# this directory strip the MTP layer, and without baked-in head weights
+# --speculative-config cannot resolve a drafter.
+#
+# Why the two speedups stack rather than cancel:
+#   INT4 cuts bytes-moved-per-step (19.0 GB vs 30.9 GB FP8); MTP cuts the NUMBER
+#   of steps by verifying a drafted token in the same forward pass. They attack
+#   different terms. On RTX PRO 6000 the stack measured 80.7 -> 102.8 tok/s
+#   (+27% from MTP on top of INT4), vs 47.0 -> 66.2 (+41%) on FP8. Note the MTP
+#   percentage is SMALLER on the faster baseline — the cheaper each decode step
+#   already is, the less headroom draft+verify has to amortise. Same reason MTP
+#   does nothing for the 35B-A3B MoE.
+#
+# num_speculative_tokens=1: Gated DeltaNet's recurrent state cannot be restored on
+# a partial accept, so gains saturate at N=1 on this architecture. N=2 untested.
+#
+# Method name is "qwen3_next_mtp", NOT the generic "mtp".
+#
+# Not included here, but the obvious next step if you want more: the z-lab DFlash
+# block-diffusion drafter (z-lab/Qwen3.6-27B-DFlash) replaces MTP and reached
+# 146 tok/s steady-state on RTX PRO 6000, the fastest config in this directory.
+# It needs a vLLM nightly (the `dflash` method is not in stable releases) and the
+# repo is gated, so it is deliberately out of scope for this first H100 bring-up.
+# See docker-compose.vllm-27b-int4-dflash-rtx.yml for the shape of that config.
+#
+# KV cache stays BF16/auto (--kv-cache-dtype fp8_e4m3 omitted; DeltaNet #26646).
+#
+# VISION: ENABLED (multimodal — text + image + video).
+# vLLM loads the checkpoint's vision tower by default; `--language-model-only`
+# would suppress it. That flag is deliberately ABSENT here.
+#   - The Unsloth chat template already carries the vision markers
+#     (vision_start / image_pad / vision_end / image_url), so multimodal messages
+#     render correctly. Do NOT drop --chat-template for vision — the checkpoint's
+#     native template has the known issues this repo's template exists to fix.
+#   - Cost is ~1.5 GB VRAM for the encoder, taken out of the KV pool. The README
+#     measured vision as negligible overhead for pure-text throughput.
+#   - Add `--language-model-only` back for a text-only A/B.
+# NOTE: the published H100 benchmark numbers were measured TEXT-ONLY, before this
+# flag was removed; decode throughput should be unchanged, KV pool ~1.5 GB smaller.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-int4-mtp-h100.yml up -d
+# API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b
+# No HF_TOKEN needed — this checkpoint is public and ungated.
+
+services:
+  qwen36-27b-int4-mtp-h100:
+    image: vllm/vllm-openai:v0.26.0-cu129
+    container_name: qwen36-27b-int4-mtp-h100
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Lorbus/Qwen3.6-27B-int4-AutoRound
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

@@ -1,0 +1,145 @@
+# Qwen3.6-27B INT4 AutoRound (W4A16, group_size=128, sym) — NO speculative decoding
+# Hardware: NVIDIA H100 NVL 94 GB (GH100, Hopper, SM_90)
+#
+# Quant-only reference of the H100 A/B matrix. Pairs with:
+#   docker-compose.vllm-27b-int4-mtp-h100.yml   (same config + MTP N=1)
+#   docker-compose.vllm-27b-fp8-h100.yml        (FP8 W8A8, no spec)
+#   docker-compose.vllm-27b-fp8-mtp-h100.yml    (FP8 W8A8 + MTP N=1)
+#
+# Checkpoint: Lorbus/Qwen3.6-27B-int4-AutoRound — COMMUNITY quant (not first-party;
+# flagged per repo convention). 19.0 GB safetensors. quantization_config:
+# auto-round / bits=4 / group_size=128 / sym=true / data_type=int /
+# packing_format=auto_round:auto_gptq / autoround_version 0.13.0.
+# vLLM auto-detects the GPTQ-compatible packing and dispatches to Marlin —
+# do NOT pass "--quantization auto_round", that is not a valid vLLM value.
+#
+# Why this is a serious contender on Hopper, not just a memory saver:
+#   Dense 27B decode is memory-bandwidth-bound. INT4 weights are 19.0 GB vs FP8's
+#   30.9 GB — a 1.63x reduction in bytes moved per decode step. On the RTX PRO 6000
+#   that translated almost perfectly: INT4 baseline 80.7 tok/s vs FP8 baseline
+#   47.0 tok/s (1.72x). The same bandwidth argument applies on H100 NVL.
+#
+# The counter-argument, which is why this is an A/B and not a foregone conclusion:
+#   INT4 AutoRound is WEIGHT-ONLY (W4A16) — weights are stored 4-bit but the matmul
+#   runs in BF16 after dequant. FP8 on Hopper is W8A8: the multiply itself executes
+#   on native FP8 tensor cores. So INT4 wins the bandwidth-bound regime (single
+#   stream, long generation) while FP8 wins the compute-bound regime (prefill, long
+#   prompts, high concurrency), where the dequant tax is pure overhead. This is the
+#   same crossover the README documents for NVFP4-vs-FP8 on Blackwell, and Hopper's
+#   FP8 tensor cores are relatively stronger than that card's, so expect the
+#   crossover to favour FP8 somewhat earlier here.
+#   => single-user chat/agent: expect INT4 ahead. Multi-user or long-prompt: FP8.
+#
+# Quality: AutoRound 4-bit is a lossy quant and IS measurably below FP8, which is
+# essentially lossless vs BF16. If output quality matters more than tok/s, this is
+# the wrong file — use the FP8 pair.
+#
+# H100-specific notes: see the header of docker-compose.vllm-27b-fp8-h100.yml.
+# In short: v0.26.0-cu129 image, --max-num-seqs 256 mandatory since v0.23.0,
+# FLASH_ATTN resolves to FA3 on SM_90, NVFP4 configs in this dir cannot run here.
+#
+# KV cache stays BF16/auto (--kv-cache-dtype fp8_e4m3 omitted; DeltaNet #26646).
+#
+# VRAM budget: 19.0 GB weights + ~65 GB KV pool at util 0.90 on 94 GB
+# (~12 GB more KV headroom than the FP8 pair).
+#
+# VISION: ENABLED (multimodal — text + image + video).
+# vLLM loads the checkpoint's vision tower by default; `--language-model-only`
+# would suppress it. That flag is deliberately ABSENT here.
+#   - The Unsloth chat template already carries the vision markers
+#     (vision_start / image_pad / vision_end / image_url), so multimodal messages
+#     render correctly. Do NOT drop --chat-template for vision — the checkpoint's
+#     native template has the known issues this repo's template exists to fix.
+#   - Cost is ~1.5 GB VRAM for the encoder, taken out of the KV pool. The README
+#     measured vision as negligible overhead for pure-text throughput.
+#   - Add `--language-model-only` back for a text-only A/B.
+# NOTE: the published H100 benchmark numbers were measured TEXT-ONLY, before this
+# flag was removed; decode throughput should be unchanged, KV pool ~1.5 GB smaller.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-int4-h100.yml up -d
+# API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b
+# No HF_TOKEN needed — this checkpoint is public and ungated.
+
+services:
+  qwen36-27b-int4-h100:
+    image: vllm/vllm-openai:v0.26.0-cu129
+    container_name: qwen36-27b-int4-h100
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:11436"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_ATTENTION_BACKEND=FLASH_ATTN
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Lorbus/Qwen3.6-27B-int4-AutoRound
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11436"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "16384"
+      - --chat-template
+      - /chat_template.jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11436/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
