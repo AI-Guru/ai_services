@@ -1,0 +1,149 @@
+# Ling-3.0-flash INT4 + MTP speculative decoding — 124B hybrid MoE, one RTX PRO 6000
+#
+# FIRST-PARTY checkpoint: inclusionAI/Ling-3.0-flash-int4 is published by the
+# model authors themselves, not a community quant.
+#
+# Size note: this model is ~124B total parameters (the bf16 baseline is
+# 248.9 GB). Active params are far lower — top-8 of 512 routed experts plus
+# 1 shared expert.
+#
+# Architecture (config.json), same as every Ling-3.0-flash build:
+#   model_type: bailing_hybrid  ·  BailingMoeV3ForCausalLM  ·  --trust-remote-code
+#   42 layers, layer_group_size 6: every 6th (5, 11, ... 41) is MLA
+#     (kv_lora_rank 512 + qk_rope_head_dim 64 = head size 576), the other 35
+#     are KDA linear attention, served through vLLM's mamba/GDN state cache
+#   512 routed experts + 1 shared, top-8 over 8 groups (noaux_tc, sigmoid)
+#   hidden 2560 · 32 heads · vocab 157184 · rope_theta 6e6
+#   max_position_embeddings 262144 · num_nextn_predict_layers 1 (MTP)
+#
+# Quantization (compressed-tensors, pack-quantized INT4 group-32, symmetric):
+#   ONLY the routed experts are quantized. The ignore list keeps lm_head, ALL
+#   attention, and every mlp/shared_experts gate|up|gate_up|down|eh_proj in
+#   bf16 — including the two dense FFN layers at the front
+#   (first_k_dense_replace: 2). Group-wise symmetric INT4 carries no
+#   per-tensor global scale, so nothing here depends on vLLM being able to
+#   represent one across a fused MergedColumnParallelLinear.
+#
+# NO --hf-overrides needed: this checkpoint keeps "model_type": "bailing_hybrid",
+# which is what vLLM's is_deepseek_mla() matches to derive the MLA head size
+# (kv_lora_rank 512 + qk_rope_head_dim 64 = 576). A checkpoint missing that
+# key falls through to head_dim = 128 and aborts during CUDA-graph profiling.
+#
+# vLLM support: PR #51045 ("Add Ling 3.0 Flash BF16, MTP, and parser support")
+# merged to main 2026-08-05. The docker-hub vllm/vllm-openai:nightly IMAGE
+# still ships vLLM 0.20.2, which has BailingMoe V2/V2_5 but NOT V3, so the
+# entrypoint pip-upgrades to the wheels.vllm.ai nightly. Same workaround as
+# models/soofi-s/. NOTE: that upgrade is unpinned, so two launches minutes
+# apart picked up dev407 and dev408 — pin VLLM_WHEEL if you need to reproduce
+# a specific number.
+#
+# MTP: the head is layer 42 of this same checkpoint (num_nextn_predict_layers
+# 1), not a separate drafter, so --speculative-config points `model` at the
+# target itself. num_speculative_tokens is 1 because there is exactly one
+# nextn layer. vLLM logs "Draft acceptance rate" — check it, not just tok/s.
+# Note that enabling MTP costs full CUDA graphs: vLLM downgrades
+# FULL_AND_PIECEWISE to PIECEWISE because the MLA backend does not support
+# full graphs with spec-decode. Whether MTP nets out ahead is empirical.
+#
+# Parsers: PR #51045 registers BOTH the reasoning and tool-call parser as
+# `ling3`. The chat template defaults thinking ON; flip with ENABLE_THINKING.
+#
+# GPU: needs the whole card. Stop any other resident model first.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-124b-int4-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11481/v1  ·  model: ling-3.0-flash
+
+services:
+  ling-3.0-flash-124b-int4-mtp:
+    image: vllm/vllm-openai:nightly
+    container_name: ling-3.0-flash-124b-int4-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      # 11441 is taken by models/nemotron (llama-nano-omni-30b maps 11441:11441).
+      - "11481:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_120a
+      - MAX_JOBS=4
+      - GPU_MEM_UTIL=${GPU_MEM_UTIL:-0.90}
+      # Default context is the quant's full 262144. Lower it if KV headroom is
+      # tight — the MLA KV is only ~8 KB/token, but the 35 KDA layers hold a
+      # fixed recurrent state per sequence, so MAX_NUM_SEQS matters more.
+      - MAX_MODEL_LEN=${MAX_MODEL_LEN:-262144}
+      - MAX_NUM_SEQS=${MAX_NUM_SEQS:-8}
+      - SPEC_TOKENS=${SPEC_TOKENS:-1}
+      - ENABLE_THINKING=${ENABLE_THINKING:-true}
+
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        echo '=== upgrading vLLM (docker-hub :nightly ships 0.20.2; BailingMoeV3 + MTP need the 2026-08-05 merge of PR #51045) ==='
+        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
+        pip install -U flashinfer-python flashinfer-cubin --quiet
+        pip install -U quack-kernels --quiet
+        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
+        pip list 2>/dev/null | grep -iE '^vllm |flashinfer-python|flashinfer-cubin|quack-kernels|nvidia-cutlass-dsl '
+        python3 -c "from vllm.model_executor.models.registry import ModelRegistry; archs = ModelRegistry.get_supported_archs(); assert 'BailingMoeV3ForCausalLM' in archs, 'BailingMoeV3 missing'; assert 'BailingMoeV3MTPModel' in archs, 'BailingMoeV3MTPModel missing — MTP unavailable in this build'; print('BailingMoeV3ForCausalLM + BailingMoeV3MTPModel: present')"
+        echo '=== launching vllm serve (Ling-3.0-flash INT4, MTP k='"$${SPEC_TOKENS}"') ==='
+        exec vllm serve inclusionAI/Ling-3.0-flash-int4 \
+          --served-model-name ling-3.0-flash \
+          --port 8000 \
+          --tensor-parallel-size 1 \
+          --trust-remote-code \
+          --max-model-len $${MAX_MODEL_LEN} \
+          --gpu-memory-utilization $${GPU_MEM_UTIL} \
+          --max-num-seqs $${MAX_NUM_SEQS} \
+          --enable-prefix-caching \
+          --speculative-config "{\"method\": \"mtp\", \"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"num_speculative_tokens\": $${SPEC_TOKENS}}" \
+          --reasoning-parser ling3 \
+          --enable-auto-tool-choice \
+          --tool-call-parser ling3 \
+          --default-chat-template-kwargs "{\"enable_thinking\": $${ENABLE_THINKING}}"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 2400s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: ling3_huggingface_cache
+
+networks:
+  default:
+    name: ling3-network
