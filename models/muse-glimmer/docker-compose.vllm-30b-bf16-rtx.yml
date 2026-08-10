@@ -1,0 +1,132 @@
+# Muse Glimmer-30B (BF16, first-party Meta checkpoint) — baseline, no speculation
+#
+# meta-models/Muse-Glimmer-30B: dense 29.6B causal transformer + ~1.8B ViT-G/14
+# perception encoder, 52 layers, [local,local,local,global] attention with a 2048
+# sliding window, GQA 32/2, 131072 context, Apache 2.0.
+#
+# IMAGE — must be the arch-specific `muse-glimmer` tag, NOT `:nightly`.
+# vLLM support is PR #51655, which is still open on main; the vLLM team published
+# a purpose-built image the same day Meta released the weights (2026-08-10).
+# `vllm/vllm-openai:nightly` is 0.20.2 here and does not know `muse_glimmer` at
+# all (`ValueError: model_type muse_glimmer not supported`). Same pattern as the
+# gemma4 arch-specific images documented in the repo CLAUDE.md.
+#
+# PARSERS — `muse_glimmer` for BOTH, and they must be used together.
+# The model does not wrap reasoning in <think> tags and does not emit JSON tool
+# calls. Every turn is a sequence of channel-scoped messages framed with
+# <|start|>assistant to=<recipient><|message|> ... <|eom|>/<|eot|>, where
+# `to=self` is the reasoning channel and `to=<tool.fn>` is a tool call whose body
+# is an ATEM XML block (<atem:function_calls>). Both parsers key off that framing.
+# The reasoning parser forces skip_special_tokens=False internally — without it
+# the channel markers are stripped before parsing and reasoning collapses into
+# content.
+#
+# Note vLLM sets supports_required_and_named=False for this tool parser, so
+# tool_choice="required" and named tool_choice do NOT get JSON guided decoding
+# (that path assumes JSON tool calls). tool_choice="auto" is the supported mode.
+#
+# CHAT TEMPLATE — we deliberately use the checkpoint's own chat_template.jinja
+# (no --chat-template). vLLM ships examples/tool_chat_template_muse_glimmer.jinja
+# but it renders images as <|image|> whereas the checkpoint's template and
+# config.json (image_token_id 200092) use <|patch|>.
+#
+# REASONING STRENGTH replaces the usual thinking on/off switch. The template
+# always emits `Reasoning strength: <low|medium|high|xhigh>.` into the system
+# message, defaulting to `high`. There is no enable_thinking flag, so
+# `test_chat.py --no-think` is a NO-OP against this model. To lower it, send
+# chat_template_kwargs: {"reasoning_strength": "low"}.
+#
+# Sampling defaults recommended by Meta: temperature 1.0, top_p 0.95, top_k 64.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-30b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11441/v1  ·  model: muse-glimmer-30b  (text + image)
+
+services:
+  muse-glimmer-30b-bf16:
+    image: vllm/vllm-openai:muse-glimmer-x86_64-cu130
+    container_name: muse-glimmer-30b-bf16
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11441:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    command:
+      - --model=meta-models/Muse-Glimmer-30B
+      - --served-model-name=muse-glimmer-30b
+      - --port=8000
+      - --tensor-parallel-size=1
+      - --dtype=bfloat16
+      # MANDATORY on this host — do NOT drop back to the default loader.
+      # This box has 30 GB RAM + 8 GB swap, and shard 1 is a single 50 GB file.
+      # safetensors' safe_open maps it MAP_PRIVATE *writable* (copy-on-write), which
+      # the kernel accounts under vm.overcommit_memory=0's heuristic; a 50 GB
+      # accountable mapping on a 38 GB box is refused outright:
+      #   RuntimeError: unable to mmap 49950112952 bytes ...: Cannot allocate memory (12)
+      # A read-only mmap of the same file succeeds, so this is purely the COW
+      # accounting, not a real shortage. runai_streamer preads the tensors into
+      # pinned buffers instead of mapping the file, sidestepping it entirely.
+      # Host-side alternatives (NOT applied here, both need root):
+      # `sysctl -w vm.overcommit_memory=1`, or adding >=20 GB of swap.
+      - --load-format=runai_streamer
+      # ...but runai_streamer defaults to an UNBOUNDED host-RAM buffer, which on a
+      # 30 GB box just trades the mmap error for the OOM killer — the engine core
+      # reached ~28.8 GB anon-rss at ~18% of 1436 tensors and was SIGKILLed, which
+      # vLLM reports only as the misleading
+      #   RuntimeError: Engine core initialization failed. ... Failed core proc(s): {}
+      # (no traceback — confirm it in `journalctl -k`, not the container log).
+      # memory_limit is in BYTES and is the flag that actually makes this host work.
+      - --model-loader-extra-config={"concurrency":8,"memory_limit":6442450944}
+      - --gpu-memory-utilization=0.92
+      - --max-model-len=131072
+      - --max-num-seqs=8
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --async-scheduling
+      - --reasoning-parser=muse_glimmer
+      - --enable-auto-tool-choice
+      - --tool-call-parser=muse_glimmer
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: museglimmer_huggingface_cache
+
+networks:
+  default:
+    name: muse-glimmer-network

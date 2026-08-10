@@ -1,0 +1,108 @@
+# Muse Glimmer-30B (BF16) on SGLang — baseline, no speculation
+#
+# Flags are taken verbatim from the SGLang cookbook's rtx6000 / bf16 / standard
+# cell (sgl-project/sglang PR #34271, docs/cookbook/autoregressive/Meta/
+# MuseGlimmer.mdx), which is marked `verified: true` for this exact card.
+#
+# IMAGE — `lmsysorg/sglang:dev-muse-glimmer`, the tag the cookbook names for
+# rtx6000. SGLang's model-support PR (#34262) is still open, same as vLLM's, so
+# a released tag will not serve this arch. Note SGLang also publishes
+# `dev-patch-34262` (a build of that PR alone); `dev-muse-glimmer` is the one
+# the vendor docs point at.
+#
+# PARSERS — SGLang names these `muse`, NOT `muse_glimmer` (that is vLLM's
+# spelling). The cookbook notes both are enabled by default for this model;
+# they are passed explicitly here so the compose is self-describing.
+#
+# Reasoning strength works the same as on vLLM: it is a dial in the system
+# prompt (low/medium/high/xhigh, default high), not an on/off flag. See
+# README.md — `test_chat.py --no-think` is a no-op against this model.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.sglang-30b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11443/v1  ·  model: meta-models/Muse-Glimmer-30B
+
+services:
+  muse-glimmer-30b-sglang:
+    image: lmsysorg/sglang:dev-muse-glimmer
+    container_name: muse-glimmer-30b-sglang
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11443:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      # Bound the runai streamer's host-RAM buffer. Set as env vars (not only
+      # via --model-loader-extra-config) because these are the variables the
+      # streamer actually reads; the CLI flag just sets them. Without a cap the
+      # loader is OOM-killed on this 30 GB host. See README.md.
+      - RUNAI_STREAMER_MEMORY_LIMIT=6442450944
+      - RUNAI_STREAMER_CONCURRENCY=8
+
+    entrypoint:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path=meta-models/Muse-Glimmer-30B
+      # SGLang hits the SAME wall as vLLM on this host — the default loader
+      # mmaps the 50 GB shard writable-COW and overcommit refuses it:
+      #   RuntimeError: unable to mmap 49950112952 bytes ...: Cannot allocate memory (12)
+      # This is a property of the host (30 GB RAM) and the checkpoint's shard
+      # size, not of the engine. Same fix.
+      - --load-format=runai_streamer
+      # SGLang's default cuda_ipc transport for multimodal features calls
+      # pidfd_getfd, which Docker's default seccomp profile gates behind
+      # CAP_SYS_PTRACE. Without it the SCHEDULER dies on the first forward pass:
+      #   RuntimeError: pidfd_getfd: Operation not permitted
+      # ...surfacing 10 minutes later as a warmup ReadTimeoutError, long after
+      # the weights loaded fine. `cpu` transport sidesteps the syscall entirely
+      # and needs no extra container capability (vision still works, via a CPU
+      # copy). Granting cap_add: [SYS_PTRACE] is the alternative; this is less
+      # privilege for the same result.
+      - --mm-feature-transport=cpu
+      - --reasoning-parser=muse
+      - --tool-call-parser=muse
+      - --mem-fraction-static=0.85
+      - --host=0.0.0.0
+      - --port=8000
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: museglimmer_huggingface_cache
+
+networks:
+  default:
+    name: muse-glimmer-network

@@ -1,0 +1,66 @@
+# llama.cpp with Muse Glimmer + DFlash — x86 / RTX PRO 6000 (SM_120) build
+#
+# WHY A SOURCE BUILD instead of ggml-org/llama.cpp:server-cuda:
+# Muse Glimmer support is PR #26841, merged 2026-08-10 at 11:07 UTC. The most
+# recent tagged release at that moment, b10338, was cut at 10:51 UTC — i.e.
+# BEFORE the merge — so no published release or prebuilt image carries the
+# arch yet. Building from master is the only way to get it today. Once a
+# release > b10338 exists, this can be replaced with the stock image.
+#
+# master also carries DFlash speculative decoding (PR #22105, merged
+# 2026-06-28), which is what makes `--spec-type draft-dflash` below work with
+# Meta's first-party dflash-kquant.gguf drafter.
+#
+# Derived from models/qwen3.6/Dockerfile.llama-mtp (same card, same SM_120).
+# Adds llama-mtmd-cli so the perception encoder (mmproj-kquant.gguf) is usable.
+#
+# Build:
+#   docker build -t llama.cpp-muse-glimmer:latest \
+#     -f models/muse-glimmer/Dockerfile.llama-muse-glimmer models/muse-glimmer/
+
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ninja-build curl ca-certificates \
+      libcurl4-openssl-dev libssl-dev libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+# Full clone (not --depth 1): we need master's tip, and a shallow clone of a
+# fast-moving branch races with force-pushes during long builds.
+RUN git clone https://github.com/ggml-org/llama.cpp.git
+
+WORKDIR /src/llama.cpp
+# Record exactly which commit this image is, so a later "did it have Muse
+# Glimmer?" question is answerable from the image itself.
+RUN git log -1 --format='%H %cI %s' > /src/llama.cpp/BUILD_COMMIT.txt \
+    && cat /src/llama.cpp/BUILD_COMMIT.txt
+
+RUN cmake -B build -G Ninja \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="120" \
+      -DGGML_CUDA_FA_ALL_QUANTS=ON \
+      -DLLAMA_CURL=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --config Release -j \
+         --target llama-server llama-cli llama-mtmd-cli
+
+
+FROM nvidia/cuda:13.0.0-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libcurl4 libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /src/llama.cpp/build/bin/llama-server   /app/llama-server
+COPY --from=builder /src/llama.cpp/build/bin/llama-cli      /app/llama-cli
+COPY --from=builder /src/llama.cpp/build/bin/llama-mtmd-cli /app/llama-mtmd-cli
+COPY --from=builder /src/llama.cpp/BUILD_COMMIT.txt         /app/BUILD_COMMIT.txt
+
+ENV PATH="/app:${PATH}"
+EXPOSE 11443
+ENTRYPOINT ["/app/llama-server"]

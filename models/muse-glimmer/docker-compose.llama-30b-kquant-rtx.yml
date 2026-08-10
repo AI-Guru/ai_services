@@ -1,0 +1,104 @@
+# Muse Glimmer-30B (K-Quant-17GB GGUF) on llama.cpp — baseline, no speculation
+#
+# FIRST-PARTY checkpoint: meta-models/Muse-Glimmer-30B-GGUF, Meta's own GGUF
+# export — not a community requant.
+#
+# Uses muse-glimmer-30B-kquant-17gb.gguf (16.76 GB), NOT the larger
+# kquant-dynamic (19.65 GB). Measured: 80.3 vs 68.7 tok/s baseline — a 1.17x
+# gain that tracks the byte ratio exactly, because this model is purely
+# memory-bandwidth-bound. Meta rates 17gb at ~1.0% degradation across 15
+# benchmarks vs 0.2% for dynamic; that 0.8-point accuracy delta buys 17%
+# throughput. It is also the build Meta benchmarks, so our numbers are
+# directly comparable to theirs.
+#
+# IMAGE — built locally from llama.cpp master, see Dockerfile.llama-muse-glimmer.
+# No published release carries this model yet: Muse Glimmer is PR #26841, merged
+# 2026-08-10 11:07 UTC, and the newest release b10338 was cut at 10:51 UTC.
+#
+# Build the image first:
+#   docker build -t llama.cpp-muse-glimmer:latest \
+#     -f Dockerfile.llama-muse-glimmer .
+#
+# Sampling is Meta's recommendation (temperature 1.0, top_p 0.95, top_k 64),
+# matching the vLLM runs so the engines are compared on equal terms.
+#
+# Usage: docker compose -f docker-compose.llama-30b-kquant-rtx.yml up -d
+# API endpoint: http://localhost:11445/v1  ·  model alias: muse-glimmer-30b
+
+services:
+  muse-glimmer-30b-llama:
+    image: llama.cpp-muse-glimmer:latest
+    container_name: muse-glimmer-30b-llama
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+
+    ports:
+      - "11445:8000"
+
+    volumes:
+      - gguf:/models:ro
+
+    # NOTE: llama.cpp's arg parser does NOT accept `--flag=value`; every flag and
+    # its value must be separate list items, or it dies with
+    # `error: invalid argument: --model=/models/...`.
+    command:
+      - --model
+      - /models/muse-glimmer-30B-kquant-17gb.gguf
+      # The perception encoder is a SEPARATE file; without it the server is
+      # text-only and rejects image parts.
+      - --mmproj
+      - /models/mmproj-kquant.gguf
+      - --alias
+      - muse-glimmer-30b
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - -ngl
+      - "99"
+      - -fa
+      - "on"
+      - -c
+      - "131072"
+      - -np
+      - "1"
+      # --jinja is required: it uses the GGUF's embedded chat template, which is
+      # what emits the <|start|>assistant to=<recipient><|message|> channel
+      # framing this model needs for reasoning and ATEM tool calls.
+      - --jinja
+      - --temp
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "64"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  gguf:
+    name: museglimmer_gguf
+
+networks:
+  default:
+    name: muse-glimmer-network

@@ -1,0 +1,179 @@
+# Muse Glimmer-30B (BF16) + DFlash block-diffusion speculative decoding
+#
+# ############################################################################
+# ## DOES NOT WORK — BLOCKED UPSTREAM. Kept as a record of how far it gets.  ##
+# ## Do not put this into service. Use docker-compose.vllm-30b-bf16-rtx.yml. ##
+# ############################################################################
+#
+# DFlash speculative decoding is NOT a shipping vLLM configuration as of
+# 2026-08-10. Meta/HF's own launch blog serves vLLM with `--model-impl
+# transformers` and states that speculative decoding is documented for the
+# transformers and llama.cpp backends, NOT for vLLM. vLLM PR #51655 is open.
+# SGLang has day-0 DFlash support (`--speculative-algorithm DFLASH`).
+#
+# Four defects had to be worked around to get this far; the fifth is fatal:
+#   1. drafter arch registered unreachably (fixed below, entrypoint)
+#   2. drafter config ships no vocab_size (fixed below, entrypoint)
+#   3. ValueError: DFlash sliding attention requires a window size configured
+#      in dflash_config.swa_window_size or the top-level sliding_window.
+#   4. ...and behind that, the whole dflash_config schema is absent.
+#
+# Root cause of 3/4: vLLM maps this drafter onto its existing qwen3_dflash
+# implementation, which reads a `dflash_config` dict (use_swa, swa_window_size,
+# causal, mask_token_id, add_swa_attention_sink_bias, use_aux_hidden_state).
+# Meta's checkpoint uses a DIFFERENT schema (layer_types, sliding_window,
+# target_layer_ids, block_size). The PR never wired up a translation between
+# them. Hand-authoring that dict would be guessing at model internals —
+# `causal` and the sink-bias change OUTPUT CORRECTNESS, not just startup, so a
+# server that boots would prove nothing. Deliberately not done.
+#
+# Revisit when PR #51655 merges with a real config translation, or serve DFlash
+# via SGLang instead.
+#
+# Identical to docker-compose.vllm-30b-bf16-rtx.yml except for the port,
+# container name, and the --speculative-config below. See that file for the
+# image / parser / chat-template / reasoning-strength notes.
+#
+# DFlash is Meta's block-diffusion drafter, shipped as a SEPARATE checkpoint:
+# meta-models/Muse-Glimmer-30B-assistant (MuseGlimmerAssistantModel, 5 layers,
+# 4.8 GiB BF16). It reads the target's residual stream at layers
+# [1, 13, 25, 37, 49] and proposes a whole 16-token block per forward pass,
+# which the target then verifies in parallel.
+#
+# vLLM reuses its existing qwen3_dflash implementation for this head (same
+# architecture, same tensors) and auto-detects method="dflash" from the draft
+# model's `architectures` field, so no explicit "method" key is needed.
+# num_speculative_tokens must match the drafter's config block_size = 16.
+#
+# Memory: 55.4 GiB target + 4.8 GiB drafter. gpu-memory-utilization is raised to
+# 0.95 to keep a usable KV cache after the drafter's weights.
+#
+# Meta reports 3.1x over no-speculation for the K-Quant-17GB build + quantized
+# drafter on an RTX 5090 via llama.cpp. This compose is the BF16/vLLM analogue —
+# see README.md for what it actually measured on the RTX PRO 6000.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-30b-bf16-dflash-rtx.yml up -d
+# API endpoint: http://localhost:11442/v1  ·  model: muse-glimmer-30b
+
+services:
+  muse-glimmer-30b-bf16-dflash:
+    image: vllm/vllm-openai:muse-glimmer-x86_64-cu130
+    container_name: muse-glimmer-30b-bf16-dflash
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11442:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    # ENTRYPOINT WORKAROUND for a bug in the vLLM Muse Glimmer PR (#51655).
+    #
+    # registry.py registers the drafter UNPREFIXED:
+    #   "MuseGlimmerAssistantModel": ("qwen3_dflash", "DFlashQwen3ForCausalLM")
+    # but EAGLEConfig(method="dflash") unconditionally rewrites the draft arch to
+    # f"DFlash{arch}" unless it already starts with "DFlash". So the checkpoint's
+    # own "MuseGlimmerAssistantModel" becomes "DFlashMuseGlimmerAssistantModel",
+    # which is NOT in the registry, and startup dies with:
+    #   ValidationError: Model architectures ['DFlashMuseGlimmerAssistantModel']
+    #   are not supported for now.
+    # The registered name is therefore unreachable — no flag can select it.
+    #
+    # Fix: materialise a drafter dir whose config.json says "DFlashDraftModel",
+    # which IS registered, maps to the same ("qwen3_dflash", "DFlashQwen3ForCausalLM")
+    # target, and survives the prefix check via its startswith("DFlash") guard.
+    # Weights are symlinked, not copied — this costs no extra disk.
+    # Remove this block once the PR registers the prefixed name upstream.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -e
+        SNAP=$$(ls -d /root/.cache/huggingface/hub/models--meta-models--Muse-Glimmer-30B-assistant/snapshots/*/ | head -1)
+        echo "=== patching drafter arch: $${SNAP} -> /drafter ==="
+        mkdir -p /drafter
+        ln -sf "$${SNAP}"model.safetensors /drafter/model.safetensors
+        python3 -c "
+        import json, sys
+        c = json.load(open(sys.argv[1] + 'config.json'))
+        print('checkpoint arch:', c['architectures'])
+        c['architectures'] = ['DFlashDraftModel']
+        # The drafter checkpoint ships NO vocab_size, so borrowing the Qwen3
+        # DFlash implementation also borrows its default of 151936, and vLLM
+        # aborts with 'Target and draft model should have the same vocabulary
+        # size. Target=202048, Draft=151936'. The drafter genuinely shares the
+        # target's 202048-token vocabulary; state it explicitly.
+        c['vocab_size'] = 202048
+        json.dump(c, open('/drafter/config.json', 'w'), indent=2)
+        print('patched arch  :', c['architectures'], 'vocab_size:', c['vocab_size'])
+        " "$${SNAP}"
+        echo '=== launching vllm serve (DFlash, block=16) ==='
+        exec vllm serve "$$@"
+      - --
+    command:
+      - --model=meta-models/Muse-Glimmer-30B
+      - --served-model-name=muse-glimmer-30b
+      - --port=8000
+      - --tensor-parallel-size=1
+      - --dtype=bfloat16
+      # Both flags are MANDATORY on this 30 GB-RAM host — see the baseline compose
+      # for the full write-up. Short version: the default loader mmaps the 50 GB
+      # shard writable-COW and overcommit refuses it; runai_streamer fixes that but
+      # buffers unbounded and gets OOM-killed, which vLLM reports only as
+      # "Engine core initialization failed ... Failed core proc(s): {}".
+      - --load-format=runai_streamer
+      - --model-loader-extra-config={"concurrency":8,"memory_limit":6442450944}
+      - --gpu-memory-utilization=0.95
+      - --max-model-len=131072
+      - --max-num-seqs=8
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --reasoning-parser=muse_glimmer
+      - --enable-auto-tool-choice
+      - --tool-call-parser=muse_glimmer
+      # /drafter is the arch-patched copy built by the entrypoint above.
+      # num_speculative_tokens must equal the drafter's config block_size = 16.
+      # "method" is omitted deliberately — vLLM auto-detects dflash from the arch.
+      - --speculative-config={"model":"/drafter","num_speculative_tokens":16}
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: museglimmer_huggingface_cache
+
+networks:
+  default:
+    name: muse-glimmer-network
