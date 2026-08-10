@@ -1,0 +1,135 @@
+# DeepSeek-V4-Flash-0731 — 284B-total / 13B-active MoE, full 1M context
+#
+# Checkpoint: deepseek-ai/DeepSeek-V4-Flash-0731 (MIT). First-party weights,
+# natively mixed precision — MoE expert weights are stored FP4 (MXFP4), while
+# attention / norms / router stay FP8 block-wise (128x128, ue8m0 scales).
+# 166.9 GB / 155.4 GiB on disk. No community quant involved.
+#
+# Architecture: 43 layers, 256 routed experts (6 routed + 1 shared per token),
+# hybrid CSA + HCA sparse attention with a Lightning Indexer, manifold-constrained
+# hyper-connections (mHC). KV cache is ~10% of V3.2's at 1M context.
+#
+# REQUIRES 2x RTX PRO 6000 (2x96 GB). Weights alone are 77.7 GiB per GPU at TP=2 —
+# this model cannot run on a single card. GPUs are PCIe-linked (no NVLink).
+#
+# Two deliberate deviations from the family conventions, both load-bearing:
+#   1. Custom image (Dockerfile.vllm-sm120) — stock v0.25.0 ships a FlashInfer
+#      too old for the DeepSeek-V4 sparse-MLA decode path on SM120.
+#   2. Bind-mounts the HOST HuggingFace cache instead of a named volume — the
+#      checkpoint is 167 GB and is already present at ~/.cache/huggingface.
+#      A named volume would re-download it.
+#
+# Usage: docker compose -f docker-compose.vllm-284b-mxfp4-1m-rtx.yml up -d
+# API endpoint: http://localhost:11437/v1
+# Model name served as: deepseek-v4-flash
+
+services:
+  deepseek-v4-flash-1m:
+    build:
+      context: .
+      dockerfile: Dockerfile.vllm-sm120
+    image: vllm-dsv4-sm120:0.25.0
+    container_name: deepseek-v4-flash-1m
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11437:11437"
+
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      # Host has 62 GB RAM vs a 155 GiB checkpoint, so vLLM disables weight
+      # auto-prefetch and streams shards via mmap. Load takes ~40s; that is normal.
+      - VLLM_ENGINE_READY_TIMEOUT_S=3600
+      # NOTE: PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True is deliberately NOT
+      # set. The rest of the family uses it, but the config below was verified
+      # without it and expandable_segments interacts with CUDA graph capture.
+      # Do not add it without re-verifying startup at this utilization.
+
+    command:
+      - deepseek-ai/DeepSeek-V4-Flash-0731
+      - --served-model-name
+      - deepseek-v4-flash
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11437"
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "2"
+      - --enable-expert-parallel
+      - --max-model-len
+      - "1048576"
+      # 0.94 is the verified ceiling. 0.97 allocates KV fine (13.2 GiB ->
+      # 2,023,388 tokens) but then OOMs during CUDA graph capture with 142 MiB
+      # free while asking for 228 MiB. Do not raise this without re-testing.
+      - --gpu-memory-utilization
+      - "0.94"
+      # Mandatory: DSv4's fp8_ds_mla attention asserts an FP8 KV layout.
+      - --kv-cache-dtype
+      - fp8
+      - --block-size
+      - "256"
+      # Scheduler limits. max-num-batched-tokens is pinned LOW here by necessity:
+      # 0.94 utilization leaves only ~794 MiB free per card, with no room for a
+      # larger prefill activation buffer. The 256K variant runs 16384, so when
+      # comparing sweeps be aware the two configs differ in prefill batch budget
+      # as well as context length. max-num-seqs is held equal at 256.
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "8192"
+      - --tokenizer-mode
+      - deepseek_v4
+      - --reasoning-parser
+      - deepseek_v4
+      - --tool-call-parser
+      - deepseek_v4
+      - --enable-auto-tool-choice
+      # NOTE: no --speculative-config. The checkpoint ships DSpark
+      # (dspark_block_size=5), but speculative decoding is unavailable on SM120 in
+      # stock vLLM: MTP and DSpark both abort in warmup with
+      # `Check failed: num_tokens > 64` from sparse_mla_sm120_paged_attention —
+      # the SM120 sparse MLA kernel needs >64 tokens per batch and draft
+      # verification submits only the draft length. Needs vllm PR #41834.
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11437/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Cold start is ~4 min: ~40s weight load, TileLang mHC kernel compile,
+      # SM120 sparse-MLA autotune, then ~60s CUDA graph capture.
+      start_period: 420s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: deepseek-v4-flash-network
