@@ -674,7 +674,43 @@ c16 the draft compute stops paying for itself and it falls behind, sharply on
 codegen (299.6 vs 548.3 at c32) — the classic speculation crossover: drafting
 helps while the GPU is idle-ish, and wastes flops once it is saturated.
 
-**Recommendation, by concurrency per GPU:**
+**Long prompts flip the result.** The numbers above are chat (2K in) and codegen
+(4K in). On prefill-heavy shapes — `rag` 8K in / 256 out and `agentic` 16K in /
+800 out — SGLang's advantage disappears entirely:
+
+| conc | rag vLLM | rag SGLang | agentic vLLM | agentic SGLang |
+|---:|---:|---:|---:|---:|
+| 4 | 117.6 | **121.0** | **142.0** | 135.7 |
+| 8 | **150.5** | 145.6 | **214.1** | 207.2 |
+| 16 | **182.6** | 165.9 | **191.9** | 0.0 † |
+| 32 | **135.0** | 94.6 | 0.0 † | 0.0 † |
+
+† zero *completed* requests inside the 60 s measurement window (`errors=0` —
+nothing failed, nothing finished). Not a throughput of zero; the window is too
+short for that scenario at that concurrency. Re-run with a larger
+`MAX_SECONDS` for real numbers at those points.
+
+Speculative decoding accelerates decode, not prefill, so at 8-16K input there is
+far less for it to speed up — the two runtimes are within noise at c4/c8 and
+vLLM pulls ahead from c16. SGLang also saturates earlier (nothing completed at
+agentic c16 where vLLM managed 191.9), consistent with its 42-request ceiling.
+Note also the absolute scale: long-prompt work tops out around 180-215 tok/s
+versus 550-760 for short prompts. Prefill is where the GPU budget goes on
+RAG-shaped traffic.
+
+**Recommendation, by prompt shape AND concurrency:**
+
+- short prompts, ≤16 concurrent → **SGLang** (+46% codegen at c8, +25% at c16)
+- long prompts (8K+), any concurrency → **vLLM no-MTP**
+- ≥32 concurrent, any shape → **vLLM no-MTP**
+- vLLM MTP → **never** in a multi-tenant context
+
+For a single-runtime fleet, vLLM no-MTP is the pick: it never failed a load
+test, and it wins the regimes a datacenter actually operates in (long prompts,
+high concurrency). SGLang earns a place as a separate low-latency tier, not as
+the default.
+
+**Legacy recommendation, by concurrency per GPU:**
 
 - **≤ 8 concurrent** (interactive chat, agents, latency SLAs) → SGLang NEXTN
   ([docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml](docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml), port 11440)
