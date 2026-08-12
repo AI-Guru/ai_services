@@ -1,0 +1,16 @@
+# vLLM 0.25.0 + FlashInfer 0.6.14 — DeepSeek-V4-Flash on RTX PRO 6000 Blackwell (SM 120)
+#
+# The stock v0.25.0 image pins flashinfer-python 0.6.13, but vLLM's DeepSeek-V4
+# sparse-MLA decode path passes `swa_topk_lens`, which only exists in 0.6.14.
+# Without the bump the engine aborts during warmup.
+#
+# --no-deps is REQUIRED: a plain install resolves a different torch and breaks
+# vLLM's compiled extensions.
+#
+# Build: docker compose -f docker-compose.vllm-284b-mxfp4-rtx.yml build
+FROM vllm/vllm-openai:v0.25.0
+
+RUN /usr/bin/python3.12 -m pip install --no-deps flashinfer-python==0.6.14
+
+# flashinfer-cubin has no matching 0.6.14 release, so the parity check must be off.
+ENV FLASHINFER_DISABLE_VERSION_CHECK=1
