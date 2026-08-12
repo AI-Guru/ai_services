@@ -1,0 +1,185 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) via SGLang — runtime A/B against vLLM
+#
+# Why: on vLLM v0.27.1, MTP speculative decoding has two engine-killing bugs
+# (mixed-modality batches, batched long sequences — see the vllm -mtp-* files).
+# SGLang implements speculation independently (EAGLE / NEXTN rather than vLLM's
+# `mtp` method), so it may deliver MTP-class latency without inheriting them.
+# This config exists to find out.
+#
+# Recipe source: https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.6
+# — the cookbook's NVFP4 variant, adapted with the local knowledge already
+# baked into docker-compose.sglang-27b-fp8.yaml.
+#
+# !! The cookbook labels the NVFP4 variant "B200/B300 only" and pairs it with
+# --attention-backend trtllm_mha. This card is an RTX PRO 6000 Blackwell
+# (SM120, not SM100), where that backend may not be available. If startup fails
+# on the attention backend, fall back to `triton` (what the FP8 config here
+# uses successfully) — see ALTERNATE below.
+#
+# Local knowledge carried over from the FP8 SGLang config, DO NOT DROP:
+#   - --kv-cache-dtype bf16: FP8 KV produces SILENT corrupt output (wrong
+#     answers, no crash) where the DeltaNet linear-attention state meets an
+#     FP8-quantised KV cache. Never set fp8_e4m3/fp8_e5m2 here.
+#   - --mamba-ssm-dtype bfloat16: DeltaNet recurrent-state precision.
+#   - --mamba-scheduler-strategy extra_buffer + SGLANG_ENABLE_SPEC_V2=1:
+#     required or the radix cache conflicts with speculative decoding.
+#   - SGLang has RadixAttention (prefix caching) on by default; only the 16
+#     full-attention layers benefit. HiCache is blocked by DeltaNet and logs a
+#     non-fatal startup warning.
+#
+# Requires SGLang >= 0.5.10 for Qwen3.6. Image lmsysorg/sglang:latest was
+# 0.5.17 at time of writing — pin it once a good version is identified, the
+# `latest` tag is exactly the drift hazard that broke the vLLM configs.
+#
+# ALTERNATE (SM120 fallback): --attention-backend triton --fp8-gemm-backend triton
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml up -d
+# API endpoint: http://localhost:11440/v1  ·  model: qwen3.6-27b
+# Context 32768 + --max-running-requests 64 to match the vLLM parallel config
+# envelope (docker-compose.vllm-27b-nvfp4-nvidia-vision-parallel-rtx.yml) so
+# throughput numbers are comparable.
+
+services:
+  qwen36-27b-sglang-nvfp4:
+    # PINNED, not :latest. `latest` was 0.5.17 when this was validated; leaving
+    # the floating tag here would reproduce exactly the drift that broke the
+    # vLLM configs (a reboot silently loading different software than what was
+    # benchmarked). Digest at validation time:
+    #   sha256:16aba8925507e631e1dc1e23d95d026533602591775f6a8db68b74ee99746155
+    image: lmsysorg/sglang:v0.5.17
+    container_name: qwen36-27b-sglang-nvfp4
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    # REQUIRED for SGLang 0.5.17 in Docker. Its CUDA IPC transport passes GPU
+    # memory-pool handles between the tokenizer-manager and scheduler processes
+    # via pidfd_getfd(2), which Docker's default seccomp profile denies unless
+    # the container holds CAP_SYS_PTRACE. Without these the server starts, loads
+    # weights and captures CUDA graphs successfully, then fails EVERY request
+    # with a 500 and this in the log:
+    #   RuntimeError: pidfd_getfd: Operation not permitted
+    #     in sglang/srt/utils/cuda_ipc_transport_utils.py
+    # It looks like a model/runtime failure but is purely a container privilege.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11440:11440"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+      - SGLANG_ENABLE_SPEC_V2=1
+
+    entrypoint: python3 -m sglang.launch_server
+
+    command:
+      - --model-path
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11440"
+      - --context-length
+      - "32768"
+      # 0.92 not 0.85 — the first pass left 13.75 GB idle on a 96 GB card.
+      # NOTE: 0.92 is only safe WITH speculative decoding enabled; booting the
+      # same value without --speculative-algo OOMs during CUDA graph capture
+      # (the spec path evidently reserves differently). Drop to ~0.85 if you
+      # ever disable speculation here.
+      - --mem-fraction-static
+      - "0.92"
+      - --tp-size
+      - "1"
+      - --quantization
+      - modelopt_fp4
+      # triton, NOT the cookbook's trtllm_mha: that backend is SM100-only and
+      # fails on this SM120 card with
+      #   ValueError: TRTLLM MHA backend for prefill is only supported on
+      #   Blackwell GPUs (SM100). Please use a different prefill backend.
+      - --attention-backend
+      - triton
+      # fp8 KV, VERIFIED SAFE on this checkpoint (2026-08-12). bf16 was the
+      # cautious first choice, carried over from the FP8 SGLang config whose
+      # header warns that fp8 KV silently corrupts output where DeltaNet meets
+      # a quantised KV cache. That warning does NOT reproduce here: fp8 matched
+      # bf16 exactly on factual recall, arithmetic, needle-in-haystack at 4.4K
+      # and 17.4K tokens of context, and the first 12 primes, plus 4/4 on
+      # test_tools.py. It also DOUBLES the KV cache (514,631 -> 1,029,262
+      # tokens), which is worth ~25% at concurrency 16 on codegen.
+      # Caveat: verified to 17.4K context, not to the 32K ceiling. If you push
+      # long-context workloads through this, re-verify recall near the limit.
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --mamba-scheduler-strategy
+      - extra_buffer
+      - --chunked-prefill-size
+      - "16384"
+      # SGLang pins max_running_requests at 42 here regardless of what you ask
+      # for (256 and 1024 both yield 42) — an internal heuristic not yet
+      # identified. That ceiling is the likely reason throughput falls off
+      # above concurrency ~16 on long-output workloads.
+      - --max-running-requests
+      - "256"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-algo
+      - NEXTN
+      - --speculative-num-steps
+      - "3"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "4"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11440/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

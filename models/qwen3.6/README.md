@@ -539,7 +539,30 @@ add `--load-format fastsafetensors`. We keep `--tool-call-parser qwen3_coder`
 rather than the recipe's `qwen3_xml`, since the repo and the LibreChat/OpenCode
 wiring are on `qwen3_coder`.
 
-### ⚠️ MTP + multimodal = engine crash under mixed load (2026-08-12)
+### ⚠️ MTP has TWO independent crash triggers (2026-08-12)
+
+Both kill EngineCore with the same `CUDA error: an illegal memory access was
+encountered`, and both need **concurrency ≥ 2** — a single request in flight is
+always safe:
+
+| Trigger | Config affected | Safe threshold |
+|---|---|---|
+| **Mixed modality batch** (text + image together) | `-mtp-vision-` only | crashes at conc 2 |
+| **Batched long sequences** (~26K in / 1.6K out) | `-mtp-textonly-` **and** `-mtp-vision-` | 1 long req OK; crashes at conc 2 |
+
+The text-only config is immune to the first (it rejects images with HTTP 400 —
+the encoder isn't loaded) but **not** to the second. Controls rule out the
+obvious alternatives: 96 short prompts at 32-way concurrency pass on both, and
+the identical long load passes 12/12 with `--speculative-config` removed, so it
+is MTP rather than long-context inference in general. The second trigger is
+[vllm#40756](https://github.com/vllm-project/vllm/issues/40756) reproducing on
+v0.27.1 + NVFP4, having been filed against v0.19.1 + FP8.
+
+Practical consequence: **MTP is for short-turn traffic.** RAG over long
+documents, long-context summarisation, and agentic runs with big accumulated
+context — much of what a 262K window is for — need the no-MTP configs.
+
+
 
 **Single-stream benchmarks hid this.** Hammering the live endpoint with parallel
 traffic (48 requests, concurrency 16) shows that MTP and mixed multimodal/text
@@ -573,8 +596,8 @@ endpoint. Hence the config matrix — pick by what the endpoint must serve:
 
 | | text-only | vision (text + images) |
 |---|---|---|
-| **MTP** | `...nvidia-mtp-textonly-rtx.yml` — **138.1 tok/s**, stable to 32-way text concurrency | `...nvidia-mtp-vision-rtx.yml` — ⚠️ **138.3 tok/s but single-modality traffic ONLY** |
-| **no MTP** | `...nvidia-rtx.yml` — 71.1 tok/s | `...nvidia-vision-rtx.yml` — **71.1 tok/s, the safe live endpoint** |
+| **MTP** | `...nvidia-mtp-textonly-rtx.yml` — **138.1 tok/s**, ⚠️ short prompts only (32-way OK; batched long sequences crash) | `...nvidia-mtp-vision-rtx.yml` — ⚠️ **138.3 tok/s**, single-modality AND short prompts only |
+| **no MTP** | `...nvidia-rtx.yml` — 71.1 tok/s, no known limits (still carries the old pip entrypoint) | `...nvidia-vision-rtx.yml` — **71.1 tok/s, the safe live endpoint, no known limits** |
 
 The `-mtp-vision-` config is usable, but only where traffic is single-modality
 **by construction** — a dedicated captioning/OCR worker where every request
@@ -592,6 +615,95 @@ alternating text and image reproduces it in seconds.
 every inference request 500'd, and the 500s appear only in `INFO`-level uvicorn
 access lines — `grep ERROR` does not find them. Alert on `" 5[0-9]{2} ` in the
 logs and on `RestartCount`, not on log level.
+
+### Runtime comparison for production serving: vLLM vs SGLang vs TensorRT-LLM (2026-08-12)
+
+Prompted by the question "what do we run in a model-providing datacenter?", where
+traffic is not under our control and every MTP crash trigger will eventually fire.
+All on `nvidia/Qwen3.6-27B-NVFP4`, RTX PRO 6000, same guidellm ladder.
+
+| Runtime | single-stream | mixed modality | long seqs | vision | verdict |
+|---|---:|---|---|---|---|
+| **vLLM 0.27.1, no MTP**, `--max-num-seqs 256` | 71.1 | ✅ 96/96 | ✅ 12/12 | ✅ | throughput king |
+| vLLM 0.27.1, **MTP N=4** | 138.1 | ❌ dies @c2 | ❌ dies @c2 | ✅ | unusable in prod |
+| **SGLang 0.5.17, NEXTN spec** | **123.1** | ✅ 48/48 | ✅ 12/12 | ✅ | latency king |
+| TensorRT-LLM 1.3.0rc8 | — | — | — | — | ❌ cannot load |
+
+Aggregate output tok/s (guidellm, zero errors both runtimes):
+
+| conc | chat vLLM | chat SGLang | codegen vLLM | codegen SGLang |
+|---:|---:|---:|---:|---:|
+| 1 | 73.0 | **112.7** | 81.0 | **106.7** |
+| 4 | 217.7 | **304.3** | 246.0 | **324.4** |
+| 8 | 349.1 | **433.2** | 337.1 | **409.3** |
+| 16 | 503.6 | 514.2 | **608.2** | 505.3 |
+| 32 | **586.2** | 551.5 | **548.3** | 299.6 |
+
+**Those SGLang numbers were a misconfiguration, not a runtime limit.** The first
+pass ran `--kv-cache-dtype bf16` (carried over defensively from the FP8 SGLang
+config's corruption warning) and `--mem-fraction-static 0.85`, giving it 463,586
+KV tokens against vLLM's 1,445,432 — a third of the cache. Switching to fp8 KV
+and 0.92 doubles it to 1,029,262 and changes the picture:
+
+| conc | chat SGLang tuned | codegen SGLang tuned | vs vLLM (codegen) |
+|---:|---:|---:|---|
+| 8 | 454.4 | **492.7** | +46% |
+| 16 | **542.8** | **763.2** | **+25%** |
+| 32 | 568.6 | 362.2 | −34% |
+
+Tuned SGLang beats vLLM at concurrency 8 and 16 on both scenarios; vLLM only
+wins at 32, and only on codegen. **fp8 KV was verified safe on this checkpoint**
+— identical to bf16 on factual recall, arithmetic, needle-in-haystack at 4.4K
+and 17.4K context, and the first 12 primes, plus 4/4 on `test_tools.py`. The FP8
+config's DeltaNet corruption warning does not reproduce here. Verified to 17.4K,
+not to the 32K ceiling.
+
+Two SGLang ceilings worth knowing: `max_running_requests` pins at **42**
+regardless of what you request (256 and 1024 both give 42) — an internal
+heuristic, and the likely cause of the c32 falloff; and
+`--mem-fraction-static 0.92` is only safe **with** speculation enabled (the same
+value OOMs during CUDA-graph capture without it). `--attention-backend
+trtllm_mha`, which the cookbook specifies for NVFP4, is **SM100-only** and
+refuses to start on this SM120 card — `triton` is correct here.
+
+**SGLang runs the speculative decoding that vLLM cannot.** Its NEXTN
+implementation is independent of vLLM's `mtp` method and passes every load that
+kills vLLM MTP — including mixed text+image at concurrency 2 and batched 26K
+sequences. It buys +54% / +40% / +24% over vLLM at concurrency 1 / 4 / 8. Past
+c16 the draft compute stops paying for itself and it falls behind, sharply on
+codegen (299.6 vs 548.3 at c32) — the classic speculation crossover: drafting
+helps while the GPU is idle-ish, and wastes flops once it is saturated.
+
+**Recommendation, by concurrency per GPU:**
+
+- **≤ 8 concurrent** (interactive chat, agents, latency SLAs) → SGLang NEXTN
+  ([docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml](docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml), port 11440)
+- **≥ 16 concurrent** (batch, cost-optimised, high tenancy) → vLLM no-MTP with
+  big batches ([docker-compose.vllm-27b-nvfp4-nvidia-vision-parallel-rtx.yml](docker-compose.vllm-27b-nvfp4-nvidia-vision-parallel-rtx.yml), port 11439)
+- **vLLM MTP: never**, in any multi-tenant context.
+
+Note batching beats speculation by a wide margin in absolute terms: no-MTP vLLM
+goes from 73 tok/s single-stream to 586 aggregate purely by admitting more
+sequences (7-8x), where MTP offers ~1.9x on one stream. Sizing `--max-num-seqs`
+is the higher-leverage knob.
+
+**Two runtime traps found, both documented in the compose headers:**
+
+- **SGLang needs `cap_add: SYS_PTRACE`** in Docker. Its CUDA IPC transport
+  passes memory-pool handles via `pidfd_getfd(2)`, which the default seccomp
+  profile denies. Without it the server boots, loads weights, captures CUDA
+  graphs, reports healthy — and then fails *every* request with a 500 and
+  `RuntimeError: pidfd_getfd: Operation not permitted`. Looks like a broken
+  runtime, is purely a container privilege.
+- **TensorRT-LLM 1.3.0rc8 cannot serve Qwen3.6 at all.** It ships transformers
+  4.57.3; these checkpoints declare `model_type: qwen3_5`, which needs
+  transformers ≥5.2, so it fails before quantization is even considered:
+  `ValueError: ... has model type 'qwen3_5' but Transformers does not recognize
+  this architecture`. Upstream support is an open feature request
+  ([TensorRT-LLM#12321](https://github.com/NVIDIA/TensorRT-LLM/issues/12321)).
+  Also note `trtllm-serve` in 1.3.0rc8 requires the `serve` **subcommand** —
+  the `models/nemotron/docker-compose.trtllm-*.yml` files omit it and would fail
+  to start on this image tag.
 
 **Vision is free.** The same config with the vision encoder enabled
 (`docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml`, i.e. without

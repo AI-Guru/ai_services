@@ -1,0 +1,138 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) + VISION, no MTP, CONCURRENCY-TUNED
+# — the datacenter / multi-tenant serving config
+#
+# Differs from docker-compose.vllm-27b-nvfp4-nvidia-vision-rtx.yml (the safe
+# single-user endpoint) ONLY in the batching envelope:
+#   - --max-num-seqs 256      (vs 4)
+#   - --max-num-batched-tokens 16384 (vs 8192)
+#   - --max-model-len 32768   (vs 262144) — see the KV trade below
+#   - --gpu-memory-utilization 0.90 (vs 0.60)
+#   - port 11439, container suffix -parallel
+#
+# ---------------------------------------------------------------------------
+# Why this exists: throughput per GPU, not latency for one user
+# ---------------------------------------------------------------------------
+# Speculative decoding (MTP) optimises single-stream latency and is what a
+# solo benchmark rewards. It is also, on vLLM v0.27.1, the source of TWO
+# engine-killing bugs (mixed-modality batches, and batched long sequences —
+# see the -mtp-* headers). A model-serving datacenter does not control its
+# traffic, so both WILL fire. This config takes the other road: no speculation,
+# large batches. What you sell is tokens per GPU per second, and batching
+# delivers far more of those than drafting does — the 2026-07-01 parallel study
+# measured 811 tok/s aggregate at c19 versus ~138 tok/s single-stream.
+#
+# NO --speculative-config. Do not add one. That is the entire point of this
+# file. Verified: this config passes the mixed text+image load at concurrency
+# 16 that kills the MTP variants at concurrency 2.
+#
+# --max-model-len 32768 is a deliberate KV trade, not a limitation of the
+# model (the checkpoint does 262144). At 256 concurrent sequences the KV cache,
+# not the weights, is the binding constraint: full 262K context x 256 seqs does
+# not fit on 96 GB, so vLLM would simply admit fewer sequences and the large
+# --max-num-seqs would be decorative. 32K matches the guidellm workload
+# envelope used for the parallel study, so numbers stay comparable. Raise it
+# (and lower --max-num-seqs) if you serve long documents; the two trade off
+# directly.
+#
+# --kv-cache-dtype fp8 is kept here and it EARNS its place, unlike on the 35B
+# where it cost 19% for nothing. This checkpoint auto-selects fp8 KV anyway,
+# and at 256-way concurrency the halved KV footprint converts directly into
+# admitted sequences.
+#
+# Pinned v0.27.1, zero pip at boot — see the -mtp-textonly- header for why the
+# old pip-upgrade entrypoint was removed across this family.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-vision-parallel-rtx.yml up -d
+# API endpoint: http://localhost:11439/v1  ·  model: qwen3.6-27b  (text + image)
+# Benchmark with: ./bench-guidellm-concurrent.sh  (fixed-concurrency ladder)
+
+services:
+  qwen36-27b-nvfp4-nvidia-vision-parallel:
+    image: vllm/vllm-openai:v0.27.1
+    container_name: qwen36-27b-nvfp4-nvidia-vision-parallel
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11439:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    # Image ENTRYPOINT is ["vllm","serve"] — first item below is the model.
+    command:
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "256"
+      - --max-num-batched-tokens
+      - "16384"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

@@ -1,0 +1,105 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) via TensorRT-LLM — runtime A/B, EXPERIMENTAL
+#
+# Third runtime in the vLLM / SGLang / TRT-LLM comparison. NVIDIA's own stack
+# serving NVIDIA's own NVFP4 checkpoint, so on paper the best-supported path.
+#
+# !! There is no upstream Qwen3.6 recipe for TensorRT-LLM as of 2026-08-12.
+# The closest published guide is the Qwen3-Next quick-start
+# (https://nvidia.github.io/TensorRT-LLM/deployment-guide/quick-start-recipe-for-qwen3-next-on-trtllm.html),
+# which is BF16 across 4 GPUs and says nothing about NVFP4 or MTP. This file
+# follows the pattern of the working models/nemotron/docker-compose.trtllm-*
+# configs instead. Treat it as an experiment, not a recipe.
+#
+# Open questions this config exists to answer:
+#   - does trtllm-serve accept a modelopt_mixed NVFP4 checkpoint directly, or
+#     does it demand an offline engine build / checkpoint conversion?
+#   - does it work on SM120 (RTX PRO 6000) rather than the SM100 B200/B300 the
+#     NVFP4 guides target?
+#   - does its MTP implementation avoid the two vLLM bugs (mixed-modality
+#     batches, batched long sequences) that forced speculation off there?
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.trtllm-27b-nvfp4-nvidia-rtx.yml up -d
+# API endpoint: http://localhost:11441/v1  ·  model served under its HF name
+
+services:
+  qwen36-27b-trtllm-nvfp4:
+    image: nvcr.io/nvidia/tensorrt-llm/release:1.3.0rc8
+    container_name: qwen36-27b-trtllm-nvfp4
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11441:11441"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+
+    # NOTE: 1.3.0rc8 requires the `serve` SUBCOMMAND — `trtllm-serve <model>`
+    # (as used by the models/nemotron/docker-compose.trtllm-*.yml files) fails
+    # with "No such command". Verified against `trtllm-serve --help` in this
+    # exact image.
+    command:
+      - trtllm-serve
+      - serve
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --backend
+      - pytorch
+      - --tp_size
+      - "1"
+      - --max_seq_len
+      - "32768"
+      - --trust_remote_code
+      - --max_batch_size
+      - "64"
+      - --max_num_tokens
+      - "16384"
+      - --free_gpu_memory_fraction
+      - "0.80"
+      - --reasoning_parser
+      - qwen3
+      - --tool_parser
+      - qwen3_coder
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11441"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11441/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network

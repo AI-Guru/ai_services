@@ -1,5 +1,49 @@
 # Qwen3.6-27B-NVFP4 (NVIDIA) + MTP — official NVFP4 + speculative decoding
 #
+# ###########################################################################
+# ##  LIMIT: SHORT-PROMPT TRAFFIC ONLY — MTP crashes on batched long        ##
+# ##  sequences (measured 2026-08-12, vLLM v0.27.1)                         ##
+# ###########################################################################
+# This config is immune to the multimodal crash that afflicts
+# ...-mtp-vision-rtx.yml — the vision encoder is not loaded, so an image
+# request is rejected outright (HTTP 400 "At most 0 image(s) may be
+# provided"). Mixed-modality batches cannot form here. Verified.
+#
+# But MTP has a SECOND, independent failure mode that DOES apply here: two or
+# more LONG requests in the same batch kill EngineCore with the same CUDA
+# illegal memory access. Measured on this file:
+#
+#   | traffic                          | requests | conc | result       |
+#   |----------------------------------|---------:|-----:|--------------|
+#   | short prompts (~20 tok in)       |       96 |   16 | 96/96 OK     |
+#   | short prompts                    |       96 |   32 | 96/96 OK     |
+#   | long (~26K in / 1.6K out)        |        2 |    1 | 2/2 OK       |
+#   | long (~26K in / 1.6K out)        |        4 |    2 | 4/4 HTTP 500 |
+#   | long (~26K in / 1.6K out)        |       12 |    4 | 12/12 HTTP 500 |
+#
+# Control, same long load with --speculative-config REMOVED (docker-compose
+# .vllm-27b-nvfp4-nvidia-rtx.yml): 12/12 OK at conc 4, zero restarts. So it is
+# MTP, not long-context inference in general.
+#
+# Shape of the bug: ONE long request is fine, 32 concurrent SHORT ones are
+# fine — it needs long sequences AND batching together. Concurrency 2 is the
+# threshold, same as the multimodal variant. Suspicion (unverified in code):
+# a drafter buffer sized against --max-num-batched-tokens 8192 overflowing
+# once two ~26K-token sequences share a scheduler step.
+#
+# This is vllm#40756 reproducing on v0.27.1 + NVFP4; that issue was filed
+# against v0.19.1 + FP8 with num_spec_tokens=5 and is still open.
+#
+# SAFE FOR:   short-turn chat / code completion at real concurrency (verified
+#             to 32-way).
+# NOT SAFE FOR: RAG over long documents, long-context summarisation, agentic
+#             runs with big accumulated context — i.e. much of what a 262K
+#             context window exists for. Use the no-MTP config there.
+#
+# Reproduce in ~1 min: 4 requests, concurrency 2, ~26K-token prompt each.
+# Re-test after any vLLM upgrade before widening the workload.
+# ###########################################################################
+#
 # Differs from docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml ONLY in:
 #   - container_name suffix -mtp
 #   - --speculative-config enabled (mtp, num_speculative_tokens=4)
