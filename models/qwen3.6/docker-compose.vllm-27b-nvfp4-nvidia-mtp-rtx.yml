@@ -2,32 +2,83 @@
 #
 # Differs from docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml ONLY in:
 #   - container_name suffix -mtp
-#   - --speculative-config enabled (qwen3_next_mtp, num_speculative_tokens=1)
-# Everything else (pip-upgrade entrypoint, sampling, language-model-only,
-# tool/reasoning parsers) is identical to keep the A/B comparison clean.
+#   - --speculative-config enabled (mtp, num_speculative_tokens=4)
+# Everything else (image, sampling, language-model-only, tool/reasoning
+# parsers) is identical to keep the A/B comparison clean.
 #
-# The NVIDIA checkpoint ships the native Multi-Token-Prediction head
-# (config.json mtp_num_hidden_layers=1). vLLM's qwen3_next_mtp speculative
-# method reuses that head as a 1-token drafter — the same method the
-# official Qwen3.6-27B-FP8 config uses. num_speculative_tokens is kept at 1
-# (matching the FP8 config; the 27B hybrid has a single MTP layer, so >1 is
-# not supported).
+# ---------------------------------------------------------------------------
+# 2026-08-12 rewrite: stable release + official vLLM recipe. 95.9 -> 138.1 tok/s
+# ---------------------------------------------------------------------------
+# This file used to run `vllm/vllm-openai:nightly` behind an entrypoint that
+# pip-installed vLLM nightly + flashinfer 0.6.12 on every container start
+# (~60s, and a moving target — the container's vLLM version depended on the
+# day you booted it). That is no longer necessary:
+#
+#   - v0.27.1 stable ships vllm 0.27.1 + flashinfer-python/cubin/jit-cache
+#     0.6.16.post3 (cu130) + torch 2.13.0. The modelopt NVFP4 loader and the
+#     jit-cache path the hack was chasing are both in the release image.
+#   - FLASHINFER_DISABLE_VERSION_CHECK=1 and VLLM_USE_FLASHINFER_SAMPLER=0 were
+#     workarounds for the nightly/flashinfer version skew. Both removed —
+#     verified to boot and serve clean without them.
+#   - Boot time 5-7 min -> ~2.5 min (no pip step, plus fastsafetensors).
+#
+# Measured on the RTX PRO 6000 (test_chat.py, 3 runs, --warmup --no-think):
+#
+#   | config                                          | tok/s | vs old |
+#   |-------------------------------------------------|------:|-------:|
+#   | OLD: nightly+pip hack, qwen3_next_mtp N=1        |  95.9 |      — |
+#   | v0.27.1 stable, same flags (qwen3_next_mtp N=1)  | 100.2 |   +4.5%|
+#   | v0.27.1 stable, mtp N=2                          | 117.5 |    +22%|
+#   | v0.27.1 stable, mtp N=3 (the official recipe)    | 127.6 |    +33%|
+#   | v0.27.1 stable, mtp N=4 (this file)              | 138.1 |    +44%|
+#   | v0.27.1 stable, mtp N=5                          | 138.3 |    +44%|
+#
+# MTP: the checkpoint ships the native Multi-Token-Prediction head
+# (config.json mtp_num_hidden_layers=1). The old comment here claimed
+# num_speculative_tokens > 1 "is not supported" because the 27B has a single
+# MTP layer — that is WRONG. vLLM's `mtp` method applies the single head
+# recursively. The official vLLM recipe for this checkpoint
+# (https://recipes.vllm.ai/Qwen/Qwen3.6-27B) specifies N=3; the sweep above
+# says N=4 is worth another 8% on top of that. Use method `mtp`, NOT
+# `qwen3_next_mtp` — same head, but qwen3_next_mtp only ever drafts 1 token.
+#
+# Why N=4 and not N=5: they tie within noise (138.1 vs 138.3) even though mean
+# acceptance length keeps climbing (N=3 2.78 -> N=4 2.90 -> N=5 3.01) — the
+# extra draft step costs about what it returns. N=4 keeps the cheaper drafter
+# and degrades less under concurrency, where every speculated token multiplies
+# across the batch. Per-position acceptance at N=3 was 0.74 / 0.51 / 0.37, so
+# the tail positions are already marginal.
+#
+# CAVEAT on N: test_chat.py's default prompt is close to the worst case for
+# speculative decoding (see the DFlash draft-length finding in the README) —
+# on codegen-shaped workloads the optimum may sit higher than 4.
+#
+# Quantization is AUTO-DETECTED from the checkpoint's hf_quant_config
+# (modelopt_mixed: FFN linears W4A16_NVFP4 group=16, attention FP8, lm_head
+# 4-bit). Do NOT pass `--quantization modelopt` — the recipe omits it, and on
+# 0.27.x the correct explicit spelling would be `modelopt_fp4` anyway.
+#
+# KV cache: --kv-cache-dtype fp8 is now explicit (it was previously
+# auto-selected from the checkpoint's kv_cache_quant_algo=fp8, which made it
+# easy to miss). Output stays coherent on 0.27.1; if quality ever regresses,
+# this is the first thing to drop.
 #
 # Note: the 35B MoE NVFP4 uses NVIDIA's MoE-specific {"method":"mtp",
-# "moe_backend":"triton"} recipe; the 27B is dense, so it uses the
-# qwen3_next_mtp method instead.
+# "moe_backend":"triton"} recipe; the 27B is dense, so no moe_backend key.
 #
-# Loader / KV-cache caveats: see docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml.
+# Deviation from the official recipe, on purpose:
+#   --tool-call-parser qwen3_coder (recipe says qwen3_xml). Kept because the
+#   whole repo + the LibreChat/OpenCode wiring is on qwen3_coder and it tests
+#   clean here. Revisit with scripts/test_tools.py before switching.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11436/v1
 # Model name served as: qwen3.6-27b
-# First boot: ~5-7 min (pip upgrade + model load + cudagraph + warmup + MTP
-# draft head warmup).
+# First boot: ~2.5 min (model load + cudagraph + warmup + MTP draft warmup).
 
 services:
   qwen36-27b-nvfp4-nvidia-mtp:
-    image: vllm/vllm-openai:nightly
+    image: vllm/vllm-openai:v0.27.1
     container_name: qwen36-27b-nvfp4-nvidia-mtp
     restart: unless-stopped
 
@@ -59,48 +110,53 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
-      - VLLM_USE_FLASHINFER_SAMPLER=0
 
-    entrypoint:
-      - bash
-      - -c
-      - |
-        set -e
-        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
-        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
-        pip install -U flashinfer-python flashinfer-cubin --quiet
-        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
-        echo '=== versions ==='
-        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
-        echo '=== launching vllm serve (with MTP qwen3_next_mtp num=1) ==='
-        exec vllm serve nvidia/Qwen3.6-27B-NVFP4 \
-          --served-model-name qwen3.6-27b \
-          --port 8000 \
-          --tensor-parallel-size 1 \
-          --trust-remote-code \
-          --dtype auto \
-          --quantization modelopt \
-          --language-model-only \
-          --gpu-memory-utilization 0.60 \
-          --max-model-len 262144 \
-          --max-num-seqs 4 \
-          --max-num-batched-tokens 8192 \
-          --enable-chunked-prefill \
-          --async-scheduling \
-          --enable-prefix-caching \
-          --reasoning-parser qwen3 \
-          --enable-auto-tool-choice \
-          --tool-call-parser qwen3_coder \
-          --chat-template /chat_template.jinja \
-          --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+    # Image ENTRYPOINT is ["vllm","serve"] — first item below is the model.
+    # List form (not a folded scalar) so the --speculative-config JSON keeps
+    # its quotes; `command: >` mangles them into invalid JSON.
+    command:
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --language-model-only
+      - --gpu-memory-utilization
+      - "0.60"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":4}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 420s
+      start_period: 240s
 
     logging:
       driver: "json-file"

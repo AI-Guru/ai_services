@@ -344,7 +344,8 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.vllm-27b-nvfp4-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | `sakamakismile` NVFP4-MTP, group=16 |
 | `docker-compose.vllm-27b-nvfp4-baseline-rtx.yml` | vLLM | NVFP4 (no spec) | RTX PRO 6000 | Quant-only reference |
 | `docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | **Official NVIDIA NVFP4** (`nvidia/Qwen3.6-27B-NVFP4`, modelopt v0.45). 71.1 tok/s — fastest no-MTP NVFP4, +58% over community mmangkad. Entrypoint pip-upgrades vLLM nightly + flashinfer on boot (same recipe as 35B NVIDIA) |
-| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | NVIDIA NVFP4 + `qwen3_next_mtp` N=1 → 95.9 tok/s (+35%). Same loader recipe, port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Fastest NVFP4 — 138.1 tok/s.** NVIDIA NVFP4 + `mtp` N=4 on pinned `v0.27.1` (no pip at boot, ~150 s cold start). Text-only (`--language-model-only`), port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Live endpoint** — same config with the vision encoder enabled: 138.3 tok/s text + image/video input, 58.6 GB VRAM, boot 220 s. Port 11436 |
 | `docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | Concurrency-tuned (`--max-num-seqs 256`) NVIDIA NVFP4+MTP for the parallelization study; wins long-output workloads at scale |
 | `docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml` | vLLM | FP8 + MTP | RTX PRO 6000 | Concurrency-tuned FP8+MTP A/B partner; wins high-concurrency short-reply serving |
 
@@ -359,7 +360,8 @@ Tested 2026-04-22 with `test_chat.py` (default MoE prompt).
 | **vLLM INT4 + DFlash N=8** | **140.2 / 146 steady** | **13.2s** | — | vLLM cu130-nightly, `Lorbus/Qwen3.6-27B-int4-AutoRound` + `z-lab/Qwen3.6-27B-DFlash` ★ champion |
 | **vLLM INT4 + MTP** | **102.8** | — | — | vLLM cu130-nightly, AutoRound INT4 + `qwen3_next_mtp` N=1 |
 | **vLLM FP8 + DFlash** | 103.0 | 19.2s | — | vLLM cu130-nightly, `z-lab/Qwen3.6-27B-DFlash` drafter |
-| **vLLM NVFP4 + MTP (NVIDIA official)** | **95.9** | — | — | vLLM 0.24.0, `nvidia/Qwen3.6-27B-NVFP4` (modelopt v0.45) + `qwen3_next_mtp` N=1 — fastest NVFP4 (2026-06-30) |
+| **vLLM NVFP4 + MTP (NVIDIA official, `mtp` N=4)** | **138.1 / 138.3 vision** | 11.3s | — | vLLM **0.27.1 stable**, `nvidia/Qwen3.6-27B-NVFP4` + `mtp` N=4 — fastest NVFP4, 2nd overall behind INT4+DFlash (2026-08-12) |
+| **vLLM NVFP4 + MTP (NVIDIA official, old)** | 95.9 | — | — | vLLM 0.24.0 nightly + pip hack, same checkpoint + `qwen3_next_mtp` N=1 — superseded by the row above (2026-06-30) |
 | **llama.cpp UD-Q4_K_XL + MTP** | **85.7** | **18.9s** | 18.7s | `unsloth/Qwen3.6-27B-MTP-GGUF` + `--spec-type mtp` (am17an PR #22673 build) |
 | **vLLM NVFP4 + MTP (sakamakismile)** | **83.5** | — | — | vLLM cu130-nightly, `sakamakismile/Qwen3.6-27B-Text-NVFP4-MTP` (group_size=16) + `qwen3_next_mtp` N=1 |
 | **vLLM INT4 baseline** | 80.7 | 21.7s | — | INT4 weights alone, no spec — quant-only gain |
@@ -449,6 +451,67 @@ Raw runs in [benchmarks/nvfp4-nvidia-27b.txt](benchmarks/nvfp4-nvidia-27b.txt).
 For a no-MTP NVFP4 checkpoint to match 83.5, you'd need to pair it with an
 external drafter (e.g. z-lab DFlash) — see the experimental DFlash section
 below.
+
+### Stable-release rebuild + MTP depth sweep: 95.9 → 138.1 tok/s (2026-08-12)
+
+Two independent changes, both on `nvidia/Qwen3.6-27B-NVFP4`, measured with
+`test_chat.py --runs 3 --warmup --no-think`:
+
+**1. Drop the pip-upgrade entrypoint, pin `vllm/vllm-openai:v0.27.1`.** The
+old config ran `:nightly` and pip-installed vLLM nightly + flashinfer 0.6.12 +
+jit-cache on every container start. The release image now ships everything the
+hack was chasing — vllm 0.27.1, flashinfer-python/cubin/jit-cache 0.6.16.post3
+(cu130), torch 2.13.0 — so the entrypoint is gone, along with the
+`FLASHINFER_DISABLE_VERSION_CHECK=1` / `VLLM_USE_FLASHINFER_SAMPLER=0` skew
+workarounds. Same flags otherwise: **95.9 → 100.2 tok/s** (+4.5%), and cold
+start **5-7 min → 150 s**.
+
+**2. Use `mtp` with N=4, not `qwen3_next_mtp` with N=1.** The old comment in the
+compose file claimed `num_speculative_tokens > 1` was unsupported because the
+27B has a single MTP layer. That is wrong — vLLM's `mtp` method applies the one
+head recursively. The [official vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.6-27B)
+for this checkpoint specifies N=3; the sweep says N=4:
+
+| `--speculative-config` | tok/s | mean accept len |
+|---|---:|---:|
+| `qwen3_next_mtp` N=1 | 100.2 | 1.79 |
+| `mtp` N=2 | 117.5 | — |
+| `mtp` N=3 (official recipe) | 127.6 | 2.78 |
+| **`mtp` N=4** ★ | **138.1** | 2.90 |
+| `mtp` N=5 | 138.3 | 3.01 |
+
+N=4 and N=5 tie within noise while acceptance length keeps climbing — the extra
+draft step costs about what it returns. N=4 is the pick: cheaper drafter, and it
+degrades less under concurrency where every speculated token multiplies across
+the batch. Per-position acceptance at N=3 was 0.74 / 0.51 / 0.37, so the tail
+positions are already marginal. Caveat: `test_chat.py`'s default prompt is close
+to the worst case for speculative decoding (see the DFlash draft-length finding
+below), so on codegen-shaped workloads the optimum may sit higher than 4.
+
+Two further recipe corrections adopted from the official page: **drop
+`--quantization modelopt`** (vLLM auto-detects `modelopt_mixed` from the
+checkpoint; the explicit spelling on 0.27.x would be `modelopt_fp4` anyway), and
+add `--load-format fastsafetensors`. We keep `--tool-call-parser qwen3_coder`
+rather than the recipe's `qwen3_xml`, since the repo and the LibreChat/OpenCode
+wiring are on `qwen3_coder`.
+
+**Vision is free.** The same config with the vision encoder enabled
+(`docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml`, i.e. without
+`--language-model-only`) measured **138.3 tok/s** — identical within noise —
+at 58.6 GB VRAM, boot 220 s. Note vLLM 0.27.1 logs a misleading
+`no registered multimodal processor; running in text-only mode` warning at
+startup even though images are ingested normally; verify with a prompt-token
+diff (508 tokens with an attached image vs 22 without), not by keyword-matching
+the model's description.
+
+**Why this matters beyond speed:** a `pip install -U` inside an entrypoint means
+the container re-resolves its dependencies on *every* boot, so a reboot months
+later silently loads different software than what was benchmarked — which is
+exactly how this endpoint broke once a newer flashinfer landed. Note that
+`flashinfer-cubin 0.6.16.post3` ships *inside* the image and is not published on
+PyPI or flashinfer.ai (both top out at 0.6.13), so an entrypoint that pins cubin
+to the image's installed version can never resolve it. ~12 other compose files
+in this repo still carry the same unpinned pattern.
 
 The Blackwell flag bundle (`--async-scheduling`, `--cuda-graph-capture-size`,
 `--compilation-config '{"level":3}'`) suggested by community blogs is

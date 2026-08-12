@@ -1,14 +1,28 @@
 # Qwen3.6-27B-NVFP4 (NVIDIA) + MTP + VISION — multimodal serving
 #
 # Differs from docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml (the text-only
-# live config) ONLY in:
+# benchmark config) ONLY in:
 #   - container_name suffix -vision
+#   - restart: always (see below)
 #   - --language-model-only REMOVED → the checkpoint's vision encoder
 #     (qwen3_5_vision, ~1.5 GB VRAM) loads, enabling image/video input.
 #
 # The nvidia/Qwen3.6-27B-NVFP4 checkpoint DOES ship the vision weights (they
 # are only suppressed by --language-model-only). Verified 2026-07-01 with
 # scripts/test_vision.sh: the model correctly described the reference image.
+# Re-verified 2026-08-12 on v0.27.1 (see below).
+#
+# IGNORE these two startup log lines — they are misleading, vision works:
+#   WARNING [registry.py:117] ... is treated as multimodal but has no
+#           registered multimodal processor; running in text-only mode.
+#   INFO    [model.py:842] Disabled mm_prefix attention mode because
+#           multimodal inputs are configuration-disabled.
+# Measured against the running server on 2026-08-12: the same request with and
+# without an attached image reports prompt_tokens 508 vs 22 — i.e. the image is
+# tokenized into 486 vision tokens and really is consumed — and test_vision.sh
+# returns "yes" with a correct description of the reference image. Don't
+# keyword-match a description to prove vision (a text-only model can guess);
+# diff the prompt_tokens.
 #
 # Chat template: we KEEP the Unsloth template (qwen3.6_unsloth_chat_template
 # .jinja) — it already contains the vision markers (vision_start / image_pad /
@@ -17,20 +31,59 @@
 # --chat-template for vision — the native Qwen template has known issues (the
 # reason the Unsloth template exists in this repo).
 #
-# MTP (qwen3_next_mtp N=1) and the pip-upgrade loader are unchanged; see
-# docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml for those + KV-cache caveats.
-# Runs at --gpu-memory-utilization 0.60: ~60 GB used incl. the vision encoder,
-# ~36 GB free on the shared card.
+# ---------------------------------------------------------------------------
+# 2026-08-12 rewrite: stable release + official vLLM recipe
+# ---------------------------------------------------------------------------
+# This file used to run `vllm/vllm-openai:nightly` behind an entrypoint that
+# pip-installed vLLM nightly + flashinfer on every container start. That is
+# both unnecessary and actively dangerous for a config with `restart: always`:
+# the container re-resolved its own dependencies on EVERY boot, so a reboot
+# months later silently loaded different software than what was benchmarked.
+# That is exactly how this endpoint broke (`pip install -U flashinfer-python`
+# pulled a newer flashinfer than the pinned cubin/jit-cache could satisfy).
+#
+# Now: pinned release image, zero pip at boot. v0.27.1 already ships
+# vllm 0.27.1 + flashinfer-python/cubin/jit-cache 0.6.16.post3 (cu130) +
+# torch 2.13.0 — the modelopt NVFP4 loader and jit-cache the hack was chasing
+# are both in the image. FLASHINFER_DISABLE_VERSION_CHECK=1 and
+# VLLM_USE_FLASHINFER_SAMPLER=0 were skew workarounds and are gone.
+#
+# Note: flashinfer-cubin 0.6.16.post3 is baked into the image and is NOT
+# published on PyPI or flashinfer.ai (both top out at 0.6.13) — so any
+# entrypoint that pins cubin to the image's installed version can never
+# resolve it. Don't reintroduce a pip step here.
+#
+# MTP: `mtp` N=4, not `qwen3_next_mtp` N=1. The single MTP head is applied
+# recursively; the old "N>1 is not supported" comment was wrong. See the
+# text-only config for the full N sweep (N=1 100.2 → N=4 138.1 tok/s) and the
+# KV-cache / quantization-autodetect notes.
+#
+# Measured 2026-08-12 on the RTX PRO 6000 (test_chat.py, 3 runs, --warmup
+# --no-think), this file as it stands:
+#
+#   138.3 tok/s  |  TTFT 11.3 s  |  boot to healthy 220 s  |  58.6 GB VRAM
+#
+# vs 95.9 tok/s on the old nightly+pip-hack + qwen3_next_mtp N=1 config: +44%.
+# The vision encoder is free for text inference — the text-only twin measured
+# 138.1 tok/s, identical within noise. Boot is 220 s here vs 150 s text-only
+# (the encoder is the difference), both far below the old 5-7 min.
+#
+# Runs at --gpu-memory-utilization 0.60: 58.6 GB used incl. the vision encoder,
+# ~39 GB free on the shared card.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml up -d
 # API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b  (text + image/video)
-# First boot: ~5-7 min (pip upgrade + model load + vision encoder + cudagraph + warmup).
+# First boot: ~3.5 min (model load + vision encoder + cudagraph + warmup).
 
 services:
   qwen36-27b-nvfp4-nvidia-mtp:
-    image: vllm/vllm-openai:nightly
+    image: vllm/vllm-openai:v0.27.1
     container_name: qwen36-27b-nvfp4-nvidia-mtp-vision
-    restart: unless-stopped
+    # `always` (not `unless-stopped`) so the container is restarted when the
+    # Docker daemon comes back on boot even though safe-shutdown.sh `docker
+    # stop`s it at shutdown. With `unless-stopped`, an explicitly-stopped
+    # container stays down across a reboot.
+    restart: always
 
     deploy:
       resources:
@@ -60,47 +113,52 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
-      - VLLM_USE_FLASHINFER_SAMPLER=0
 
-    entrypoint:
-      - bash
-      - -c
-      - |
-        set -e
-        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
-        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
-        pip install -U flashinfer-python flashinfer-cubin --quiet
-        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
-        echo '=== versions ==='
-        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
-        echo '=== launching vllm serve (with MTP qwen3_next_mtp num=1) ==='
-        exec vllm serve nvidia/Qwen3.6-27B-NVFP4 \
-          --served-model-name qwen3.6-27b \
-          --port 8000 \
-          --tensor-parallel-size 1 \
-          --trust-remote-code \
-          --dtype auto \
-          --quantization modelopt \
-          --gpu-memory-utilization 0.60 \
-          --max-model-len 262144 \
-          --max-num-seqs 4 \
-          --max-num-batched-tokens 8192 \
-          --enable-chunked-prefill \
-          --async-scheduling \
-          --enable-prefix-caching \
-          --reasoning-parser qwen3 \
-          --enable-auto-tool-choice \
-          --tool-call-parser qwen3_coder \
-          --chat-template /chat_template.jinja \
-          --speculative-config '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+    # Image ENTRYPOINT is ["vllm","serve"] — first item below is the model.
+    # List form (not a folded scalar) so the --speculative-config JSON keeps
+    # its quotes; `command: >` mangles them into invalid JSON.
+    command:
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --gpu-memory-utilization
+      - "0.60"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":4}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 420s
+      start_period: 240s
 
     logging:
       driver: "json-file"
