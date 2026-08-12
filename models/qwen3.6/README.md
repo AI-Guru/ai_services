@@ -68,7 +68,7 @@ Think time dominates TTFT — the model reasons extensively before answering. De
 | `docker-compose.vllm-35b-fp8-textonly-rtx.yml` | vLLM | FP8 | RTX PRO 6000 | FP8 + vision disabled, fastest vLLM variant |
 | `docker-compose.vllm-35b-nvfp4-unsloth-rtx.yml` | vLLM | NVFP4 | RTX PRO 6000 | Unsloth NVFP4 (group_size=8); pre-fused experts, pure NVFP4 |
 | `docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | Official NVIDIA NVFP4 without MTP, +40% over Unsloth. Entrypoint pip-upgrades vLLM nightly + flashinfer 0.6.12 (jit-cache from `flashinfer.ai/whl/nightly/cu130`) on container start; ~60s overhead, no custom image |
-| `docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Recommended default for 35B Qwen3.6 — 367.7 tok/s, +55% over no-MTP, +116% over Unsloth.** Same loader recipe + `--speculative-config method=mtp num=3 triton-drafter`. Port 11438 |
+| `docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Recommended default for 35B Qwen3.6 — 393.8 tok/s** (test_scenarios overall), +55% over no-MTP, +116% over Unsloth. Pinned `v0.27.1`, no pip at boot, `--speculative-config method=mtp num=3 triton-drafter`. Port 11438 |
 | `docker-compose.vllm-35b-text-only.yaml` | vLLM | BF16 | Any | Vision disabled, saves ~2-3 GB |
 | `docker-compose.vllm-35b-1m.yaml` | vLLM | BF16 | Any | ~1M context via YaRN, util 0.95 |
 | `docker-compose.sglang-35b-fp8.yaml` | SGLang | FP8 | Any | MTP speculative decoding |
@@ -131,6 +131,45 @@ Raw outputs in [benchmarks/nvfp4-ab/](benchmarks/nvfp4-ab/) (`unsloth.txt`, `nvi
 **Why MTP wins (overturns 2026-04-23):** The earlier "MTP gives no speedup" finding was on the FP8 checkpoint with vLLM v0.19.x — its MTP integration was incomplete. With vLLM 0.22.1+, the NVIDIA NVFP4 checkpoint's MTP head, shared `lm_head` weights with the target model, and a triton drafter backend, MTP num=3 delivers a +55% on top of the already-fast no-MTP baseline. The "draft+verify overhead eats the gain on cheap-decode MoE" hypothesis was wrong for this combination.
 
 **Recommendation:** use [docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml](docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml) (port 11438) as the default 35B endpoint.
+
+### Stable-release rebuild: 367.7 → 393.8 tok/s (2026-08-12)
+
+Same treatment as the 27B — drop the pip-upgrade entrypoint, pin
+`vllm/vllm-openai:v0.27.1`, adopt the [official recipe](https://recipes.vllm.ai/Qwen/Qwen3.6-35B-A3B).
+`test_scenarios.py`, 5 scenarios × 3 runs, same conditions as the 2026-06-01 row above:
+
+| Scenario | old (0.22.1 nightly + pip hack) | new (v0.27.1 pinned) | Δ |
+|----------|--------------:|--------------:|------:|
+| Chat | 325.9 | **367.1** | +13% |
+| RAG | 397.8 | **423.0** | +6% |
+| Codegen | 352.3 | **403.4** | +15% |
+| Summarization | 380.3 | **390.0** | +3% |
+| Agentic | 382.2 | **385.7** | +1% |
+| **Overall** | **367.7** | **393.8** | **+7.1%** |
+
+Boot drops from 5-7 min to ~230 s, and the endpoint can no longer re-resolve its
+own dependencies on a reboot.
+
+**The trap: do NOT add `--kv-cache-dtype fp8`, even though the official recipe
+lists it.** It was the first thing tried here and it cost 19% of decode
+throughput — 318.0 vs 393.8 tok/s overall, everything else identical. The flag
+buys KV memory and therefore concurrency headroom, which is worth nothing on a
+config serving `--max-num-seqs 4` at 65K context on a 96 GB card. Note the
+asymmetry with the 27B: that checkpoint auto-selects fp8 KV from its own
+`kv_cache_quant_algo`, so the flag there is a no-op made explicit, while here it
+genuinely switches the cache away from bf16.
+
+**MTP depth does not transfer between the two models.** On this MoE, N=3 is
+correct; on the dense 27B, N=4 wins (138.1 vs 127.6). A 3B-active MoE decodes so
+cheaply that draft+verify overhead outgrows the speculation win much sooner —
+the dense 27B stays bandwidth-bound and keeps paying off. Also worth noting: with
+fp8 KV enabled, N=3 looked like a sharp peak (284.8 vs 257.8 at N=4 on
+`test_chat`); with it disabled, N=3 and N=4 tie (332.0 vs 328.9). The flag
+changes the shape of the N curve, not only its height, so sweep N *after* fixing
+the rest of the config.
+
+`VLLM_USE_FLASHINFER_MOE_FP4=1` measured +1.4% (288.8 vs 284.8 on `test_chat`)
+— consistent across runs but inside the ~9 tok/s spread. Left at `0` (marlin).
 
 **Loader caveat — read before deploying:** vLLM's docker-hub `:nightly` tag lags the actual wheel CDN by ~2 weeks, and the bundled flashinfer 0.6.8 is missing `bmm_fp8_get_algos`. vLLM 0.22.0 stable separately has an `lm_head.input_scale` loader bug. None of the suggested CLI flags / env vars / MoE backend choices (`marlin`, `cutlass`, `triton`, `flashinfer_*`) work around either bug. Both NVIDIA compose files fix it by pip-upgrading at container start; first boot adds ~60 s for the upgrade.
 

@@ -1,20 +1,19 @@
-# Qwen3.6-35B-A3B-NVFP4 (NVIDIA) + MTP — retest of NVIDIA's documented
-# speculative-decoding recipe on this MoE with the working loader recipe.
+# Qwen3.6-35B-A3B-NVFP4 (NVIDIA) + MTP — NVIDIA's documented speculative-
+# decoding recipe on this MoE, on the pinned stable release image.
 #
 # Differs from docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml ONLY in:
 #   - Port 11438 (vs 11437)
 #   - --speculative-config enabled (MTP num=3 with triton drafter backend)
 #   - container_name suffix -mtp
-# Everything else (pip-upgrade entrypoint, marlin MoE, sampling, etc.) is
-# identical to keep the A/B comparison clean.
+# Everything else (image, marlin MoE, sampling, etc.) is identical to keep the
+# A/B comparison clean.
 #
 # !! BIG WIN on 2026-06-01: MTP gives +55% throughput on the NVIDIA NVFP4
-# checkpoint with vLLM 0.22.1rc1.dev31+ (367.7 vs 238.0 tok/s overall on
-# test_scenarios, RTX PRO 6000 Blackwell). TTFT drops ~34% across the
-# board. This OVERTURNS the 2026-04-23 finding that MTP gave no speedup
-# on Qwen3.6-35B-A3B — that test was on the FP8 checkpoint with an older
-# vLLM whose MTP integration was incomplete. Different checkpoint + new
-# vLLM = night-and-day.
+# checkpoint (367.7 vs 238.0 tok/s overall on test_scenarios, RTX PRO 6000
+# Blackwell). TTFT drops ~34% across the board. This OVERTURNS the 2026-04-23
+# finding that MTP gave no speedup on Qwen3.6-35B-A3B — that test was on the
+# FP8 checkpoint with an older vLLM whose MTP integration was incomplete.
+# Different checkpoint + new vLLM = night-and-day.
 #
 # Per-scenario gains (no-MTP -> MTP, both NVIDIA NVFP4):
 #   Chat            230.0 -> 325.9  (+42%)
@@ -27,22 +26,93 @@
 # Versus the Unsloth NVFP4 baseline (170.4 tok/s) this is +116% — more
 # than 2x faster. Recommended default for the 35B Qwen3.6 deployment.
 #
-# Sample recipe from NVIDIA card:
-#   --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+# ---------------------------------------------------------------------------
+# 2026-08-12: pinned to the stable release, pip-upgrade entrypoint removed
+# ---------------------------------------------------------------------------
+# This file used to run `vllm/vllm-openai:nightly` behind an entrypoint that
+# pip-installed vLLM nightly + flashinfer + jit-cache on every container start.
+# v0.27.1 ships all of it (vllm 0.27.1, flashinfer-python/cubin/jit-cache
+# 0.6.16.post3 cu130, torch 2.13.0), so the hack is gone — as is
+# FLASHINFER_DISABLE_VERSION_CHECK=1, which only existed to paper over the
+# nightly/flashinfer skew the hack itself created. Boot: 5-7 min -> ~200 s.
 #
-# Loader recipe: see docker-compose.vllm-35b-nvfp4-nvidia-rtx.yml header.
-# Container entrypoint pip-upgrades vLLM + flashinfer past the docker-hub
-# :nightly bundle.
+# This matters beyond speed: `pip install -U` in an entrypoint re-resolves
+# dependencies on EVERY boot, so a reboot months later silently loads different
+# software than what was benchmarked. Note flashinfer-cubin 0.6.16.post3 ships
+# inside the image and is NOT published on PyPI or flashinfer.ai (both stop at
+# 0.6.13) — an entrypoint pinning cubin to the installed version can never
+# resolve it. Do not reintroduce a pip step here.
+#
+# Recipe corrections adopted from https://recipes.vllm.ai/Qwen/Qwen3.6-35B-A3B:
+#   - dropped `--quantization modelopt` — vLLM auto-detects modelopt_mixed from
+#     the checkpoint (and the explicit 0.27.x spelling would be modelopt_fp4)
+#   - added `--load-format fastsafetensors`
+#
+# !! DO NOT add `--kv-cache-dtype fp8` here, even though the official recipe
+# lists it. Measured 2026-08-12 on test_scenarios, everything else identical:
+#
+#   with    --kv-cache-dtype fp8 : 318.0 tok/s overall
+#   without --kv-cache-dtype fp8 : 393.8 tok/s overall   (+24%)
+#
+# It costs ~19% of decode throughput at --max-num-seqs 4. It buys KV memory
+# (and therefore concurrency headroom), which is worth nothing on a config that
+# serves 4 sequences with 65K context on a 96 GB card. Unlike the 27B, this
+# checkpoint does NOT auto-select fp8 KV, so leaving the flag off really does
+# mean a bf16 KV cache here. Revisit only if this endpoint is ever retuned for
+# high concurrency.
+#
+# Result: 367.7 -> 393.8 tok/s overall on test_scenarios (+7.1%) vs the old
+# nightly+pip-hack config, on a pinned image that cannot drift.
+#
+#   Scenario         old (0.22.1)   new (0.27.1)
+#   Chat                    325.9          367.1
+#   RAG                     397.8          423.0
+#   Codegen                 352.3          403.4
+#   Summarization           380.3          390.0
+#   Agentic                 382.2          385.7
+#   OVERALL                 367.7          393.8
+#
+# MTP depth: N=3 (the recipe's value). Measured 2026-08-12, test_chat.py,
+# 3 runs, --warmup --no-think, v0.27.1. Read the two columns separately — the
+# sweep was first run with --kv-cache-dtype fp8 still in place, and that flag
+# changes the SHAPE of the curve, not just its height:
+#
+#   | num_speculative_tokens | with kv fp8 | without kv fp8 |
+#   |------------------------|------------:|---------------:|
+#   | 2                      |       260.8 |              — |
+#   | 3  ★ (this file)       |       284.8 |          332.0 |
+#   | 4                      |       257.8 |          328.9 |
+#   | 5                      |       259.9 |              — |
+#
+# With fp8 KV, N=3 looks like a sharp peak (+10% over N=4). Without it, N=3 and
+# N=4 are tied within noise (332.0 vs 328.9, ~1%). The fp8 KV dequant cost
+# apparently falls on the verify path and punishes deeper drafts. N=3 is kept
+# because it matches the official recipe and is the config validated end-to-end
+# on test_scenarios; N=4 is not worth a re-validation for ~0%.
+#
+# Contrast with the dense 27B, where deeper speculation clearly wins
+# (N=4 = 138.1 vs N=3 = 127.6 there): a 3B-active MoE decodes cheaply, so draft
+# and verify overhead outgrows the win much sooner. Do not copy N across the
+# two models. Per-position acceptance here at N=3: 0.70 / 0.47 / 0.31
+# (mean accept len ~2.5).
+#
+# VLLM_USE_FLASHINFER_MOE_FP4: kept at 0 (marlin MoE). Measured with =1 at
+# N=3: 288.8 tok/s vs 284.8 — a consistent but tiny +1.4%, inside the ~9 tok/s
+# run-to-run spread. Not worth moving onto a less-exercised MoE kernel path for
+# that; flip it if you want to re-test on a future vLLM.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-35b-nvfp4-nvidia-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11438/v1
-# Model name served as: nvidia/Qwen3.6-35B-A3B-NVFP4
-# First boot: ~5-7 min (pip upgrade + model load + cudagraph + warmup + MTP
-# draft head warmup).
+# Model name served as: qwen3.6-35b
+# First boot: ~3.5 min (model load + cudagraph + warmup + MTP draft warmup).
+#
+# Gap vs the 27B config: this one serves NO tool-calling parser (the 27B uses
+# qwen3_coder; the official recipe suggests qwen3_xml). Left as-is rather than
+# changed blind — needs a test_tools.py run before enabling.
 
 services:
   qwen36-35b-nvfp4-nvidia-mtp:
-    image: vllm/vllm-openai:nightly
+    image: vllm/vllm-openai:v0.27.1
     container_name: qwen36-35b-nvfp4-nvidia-mtp
     restart: unless-stopped
 
@@ -73,45 +143,48 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
       - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
       - VLLM_USE_FLASHINFER_MOE_FP4=0
 
-    entrypoint:
-      - bash
-      - -c
-      - |
-        set -e
-        echo '=== upgrading vLLM + flashinfer (one-time per container start) ==='
-        pip install -U --pre vllm --extra-index-url https://wheels.vllm.ai/nightly --quiet
-        pip install -U flashinfer-python flashinfer-cubin --quiet
-        pip install -U flashinfer-jit-cache --index-url https://flashinfer.ai/whl/nightly/cu130 --quiet
-        echo '=== versions ==='
-        pip show vllm flashinfer-python flashinfer-jit-cache flashinfer-cubin 2>/dev/null | grep -E 'Name|Version'
-        echo '=== launching vllm serve (with MTP num=3, triton drafter) ==='
-        exec vllm serve nvidia/Qwen3.6-35B-A3B-NVFP4 \
-          --served-model-name qwen3.6-35b \
-          --port 8000 \
-          --tensor-parallel-size 1 \
-          --trust-remote-code \
-          --dtype auto \
-          --quantization modelopt \
-          --moe-backend marlin \
-          --gpu-memory-utilization 0.85 \
-          --max-model-len 65536 \
-          --max-num-seqs 4 \
-          --max-num-batched-tokens 8192 \
-          --enable-chunked-prefill \
-          --async-scheduling \
-          --enable-prefix-caching \
-          --reasoning-parser qwen3 \
-          --speculative-config '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+    # Image ENTRYPOINT is ["vllm","serve"] — first item below is the model.
+    # List form (not a folded scalar) so the --speculative-config JSON keeps
+    # its quotes; `command: >` mangles them into invalid JSON.
+    command:
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
+      - --served-model-name
+      - qwen3.6-35b
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --load-format
+      - fastsafetensors
+      - --moe-backend
+      - marlin
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-model-len
+      - "65536"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
 
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 420s
+      start_period: 300s
 
     logging:
       driver: "json-file"
