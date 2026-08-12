@@ -157,7 +157,11 @@ buys KV memory and therefore concurrency headroom, which is worth nothing on a
 config serving `--max-num-seqs 4` at 65K context on a 96 GB card. Note the
 asymmetry with the 27B: that checkpoint auto-selects fp8 KV from its own
 `kv_cache_quant_algo`, so the flag there is a no-op made explicit, while here it
-genuinely switches the cache away from bf16.
+genuinely switches the cache away from bf16. There is also an older, independent
+reason on record from when this config was first built — fp8 KV was reported to
+cause silent output corruption on the Qwen3.6 hybrid DeltaNet path
+([vllm#26646](https://github.com/vllm-project/vllm/issues/26646)), a correctness
+argument not re-tested on 0.27.1 because the throughput result settled it.
 
 **MTP depth does not transfer between the two models.** On this MoE, N=3 is
 correct; on the dense 27B, N=4 wins (138.1 vs 127.6). A 3B-active MoE decodes so

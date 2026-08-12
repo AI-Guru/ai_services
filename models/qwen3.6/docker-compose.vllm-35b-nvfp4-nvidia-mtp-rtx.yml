@@ -58,8 +58,15 @@
 # (and therefore concurrency headroom), which is worth nothing on a config that
 # serves 4 sequences with 65K context on a 96 GB card. Unlike the 27B, this
 # checkpoint does NOT auto-select fp8 KV, so leaving the flag off really does
-# mean a bf16 KV cache here. Revisit only if this endpoint is ever retuned for
-# high concurrency.
+# mean a bf16 KV cache here.
+#
+# There is also a SECOND, older reason to keep it off, recorded when this file
+# was first built: fp8 KV was reported to cause silent output corruption on the
+# Qwen3.6 hybrid DeltaNet path (vllm#26646). That is a correctness argument, not
+# a speed one, and it was not re-tested on 0.27.1 — the throughput result above
+# made the question moot. So: two independent reasons, don't re-add the flag
+# casually. If a future high-concurrency retune needs the KV headroom, verify
+# output quality explicitly before trusting it.
 #
 # Result: 367.7 -> 393.8 tok/s overall on test_scenarios (+7.1%) vs the old
 # nightly+pip-hack config, on a pinned image that cannot drift.
