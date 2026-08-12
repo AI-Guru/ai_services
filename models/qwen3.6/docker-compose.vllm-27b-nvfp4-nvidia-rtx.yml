@@ -32,7 +32,7 @@
 # and 35B NVFP4 configs here.
 #
 # Speculative decoding (MTP) is in the sibling
-# docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml — this file is the
+# docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml — this file is the
 # no-MTP baseline for a clean A/B.
 #
 # Requires Hopper (SM_90) or Blackwell (SM_120) for hardware NVFP4 tensor

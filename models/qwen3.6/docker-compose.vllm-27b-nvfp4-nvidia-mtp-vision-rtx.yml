@@ -1,6 +1,58 @@
 # Qwen3.6-27B-NVFP4 (NVIDIA) + MTP + VISION — multimodal serving
 #
-# Differs from docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml (the text-only
+# ###########################################################################
+# ##  DANGEROUS — SINGLE-MODALITY TRAFFIC ONLY (measured 2026-08-12)       ##
+# ###########################################################################
+# This config is FAST (138.3 tok/s, +95% over the safe no-MTP vision config)
+# and it is STABLE — but only if every batch it ever forms contains one kind
+# of request. Mix a text-only request with an image request in the same batch
+# and MTP triggers a CUDA illegal memory access that kills EngineCore.
+#
+# What was measured on vLLM v0.27.1 (RTX PRO 6000, this exact file):
+#
+#   | traffic                       | requests | concurrency | result        |
+#   |-------------------------------|---------:|------------:|---------------|
+#   | images only                   |       96 |          16 | 96/96 OK      |
+#   | images only                   |       96 |          24 | 96/96 OK      |
+#   | text only                     |       96 |          16 | 96/96 OK      |
+#   | text only                     |       96 |          32 | 96/96 OK      |
+#   | text + images MIXED           |       48 |          16 | 27x HTTP 500  |
+#   | text + images MIXED           |       24 |         ***2*** | 15x HTTP 500 |
+#
+# 384 single-modality requests at up to 32-way concurrency: zero failures.
+# TWO overlapping requests of different modality: dead engine.
+#
+# CONCURRENCY 2 IS THE THRESHOLD. This is not "unsafe under heavy load" — it
+# is unsafe the moment two users with different content types overlap by a
+# fraction of a second. Do not reach for this config just because an endpoint
+# is "lightly used".
+#
+# Safe uses (traffic is single-modality BY CONSTRUCTION, not by habit):
+#   - a dedicated image/video captioning or OCR worker: every request carries
+#     an image, nothing else is routed here
+#   - a dedicated text-only assistant — but then prefer
+#     docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml, which is the
+#     same speed with the vision encoder not even loaded
+#
+# NOT safe: any general chat endpoint (LibreChat etc). OpenAI-style clients
+# resend full history, so a conversation containing an image stays multimodal
+# on every turn — fine on its own. The killer is CONCURRENT CONVERSATIONS of
+# different types: user A discussing an image while user B types text is
+# exactly the fatal batch. On a shared endpoint that is near-inevitable.
+#
+# Depth does not help: N=1 was WORSE than N=4 (48/48 failures). Each crash is
+# a ~4 minute outage (engine dies -> container exits -> restart: always
+# reloads). The GPU itself survives (no Xid, no wedge). Matches open upstream
+# bugs vllm#36613 and vllm#40756, whose stated workaround is "disable MTP".
+#
+# If in ANY doubt, use docker-compose.vllm-27b-nvfp4-nvidia-vision-rtx.yml —
+# 71.1 tok/s, verified clean on the exact load that kills this one.
+#
+# Re-test after any vLLM upgrade before widening its use: 24 requests at
+# concurrency 2 alternating text and image is enough to reproduce in seconds.
+# ###########################################################################
+#
+# Differs from docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml (the text-only
 # benchmark config) ONLY in:
 #   - container_name suffix -vision
 #   - restart: always (see below)

@@ -387,8 +387,9 @@ API endpoint: `http://localhost:11436/v1`, model name: `qwen3.6-27b`
 | `docker-compose.vllm-27b-nvfp4-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | `sakamakismile` NVFP4-MTP, group=16 |
 | `docker-compose.vllm-27b-nvfp4-baseline-rtx.yml` | vLLM | NVFP4 (no spec) | RTX PRO 6000 | Quant-only reference |
 | `docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml` | vLLM | NVFP4 (modelopt_mixed) | RTX PRO 6000 | **Official NVIDIA NVFP4** (`nvidia/Qwen3.6-27B-NVFP4`, modelopt v0.45). 71.1 tok/s — fastest no-MTP NVFP4, +58% over community mmangkad. Entrypoint pip-upgrades vLLM nightly + flashinfer on boot (same recipe as 35B NVIDIA) |
-| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Fastest NVFP4 — 138.1 tok/s.** NVIDIA NVFP4 + `mtp` N=4 on pinned `v0.27.1` (no pip at boot, ~150 s cold start). Text-only (`--language-model-only`), port 11436 |
-| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Live endpoint** — same config with the vision encoder enabled: 138.3 tok/s text + image/video input, 58.6 GB VRAM, boot 220 s. Port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | **Fastest NVFP4 — 138.1 tok/s.** NVIDIA NVFP4 + `mtp` N=4 on pinned `v0.27.1` (no pip at boot, ~150 s cold start). Text-only (`--language-model-only`), port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-vision-rtx.yml` | vLLM | NVFP4 (no MTP) | RTX PRO 6000 | **Live endpoint** — vision encoder enabled, no speculative decoding: 71.1 tok/s, safe under mixed text+image concurrency. Port 11436 |
+| `docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | ⚠️ **CRASHES on mixed text+image load** (CUDA illegal memory access, engine dies). Benchmark artifact only: 138.3 tok/s single-stream, 58.6 GB VRAM. Do not put in front of users |
 | `docker-compose.vllm-27b-nvfp4-nvidia-mtp-parallel-rtx.yml` | vLLM | NVFP4 + MTP | RTX PRO 6000 | Concurrency-tuned (`--max-num-seqs 256`) NVIDIA NVFP4+MTP for the parallelization study; wins long-output workloads at scale |
 | `docker-compose.vllm-27b-fp8-mtp-parallel-rtx.yml` | vLLM | FP8 + MTP | RTX PRO 6000 | Concurrency-tuned FP8+MTP A/B partner; wins high-concurrency short-reply serving |
 
@@ -537,6 +538,60 @@ checkpoint; the explicit spelling on 0.27.x would be `modelopt_fp4` anyway), and
 add `--load-format fastsafetensors`. We keep `--tool-call-parser qwen3_coder`
 rather than the recipe's `qwen3_xml`, since the repo and the LibreChat/OpenCode
 wiring are on `qwen3_coder`.
+
+### ⚠️ MTP + multimodal = engine crash under mixed load (2026-08-12)
+
+**Single-stream benchmarks hid this.** Hammering the live endpoint with parallel
+traffic (48 requests, concurrency 16) shows that MTP and mixed multimodal/text
+batching cannot coexist on vLLM v0.27.1:
+
+| Load | requests | concurrency | MTP N=4 | no MTP |
+|------|---------:|------------:|---------|--------|
+| images only | 96 | 16 | 96/96 OK | OK |
+| images only | 96 | 24 | 96/96 OK | OK |
+| text only | 96 | 16 | 96/96 OK | OK |
+| text only | 96 | 32 | 96/96 OK | OK |
+| **text + images mixed** | 48 | 16 | **27 × HTTP 500** | 48/48 OK |
+| **text + images mixed** | 24 | **2** | **15 × HTTP 500** | 48/48 OK |
+
+384 single-modality requests at up to 32-way concurrency pass without a single
+failure. **Two** overlapping requests of different modality kill the engine —
+concurrency 2 is the threshold, so this is not merely a high-load problem.
+Neither modality alone triggers it. The failure is not graceful — EngineCore
+dies with `CUDA error: an illegal memory access was encountered`
+(`EngineDeadError` / `c10::AcceleratorError`), every in-flight request 500s, the
+container exits, and `restart: always` reloads it: **~4 minutes of downtime per
+occurrence**. The GPU itself is unharmed (no Xid, no wedge). Lowering the draft
+depth does not help — N=1 was *worse* than N=4 (48/48 failures, container went
+unhealthy). Matches open upstream bugs
+[vllm#36613](https://github.com/vllm-project/vllm/issues/36613) and
+[vllm#40756](https://github.com/vllm-project/vllm/issues/40756), where the
+documented workaround is likewise to disable speculative decoding.
+
+**Cost of the fix:** 138.3 → 71.1 tok/s single-stream (−48%) on the multimodal
+endpoint. Hence the config matrix — pick by what the endpoint must serve:
+
+| | text-only | vision (text + images) |
+|---|---|---|
+| **MTP** | `...nvidia-mtp-textonly-rtx.yml` — **138.1 tok/s**, stable to 32-way text concurrency | `...nvidia-mtp-vision-rtx.yml` — ⚠️ **138.3 tok/s but single-modality traffic ONLY** |
+| **no MTP** | `...nvidia-rtx.yml` — 71.1 tok/s | `...nvidia-vision-rtx.yml` — **71.1 tok/s, the safe live endpoint** |
+
+The `-mtp-vision-` config is usable, but only where traffic is single-modality
+**by construction** — a dedicated captioning/OCR worker where every request
+carries an image, for instance. It is *not* safe for a general chat endpoint:
+OpenAI-style clients resend full history, so an image conversation stays
+multimodal on every turn (fine), but two *concurrent conversations* of
+different types produce the fatal batch, and two is all it takes.
+
+If you want MTP speed *and* general image support on one endpoint, run two
+endpoints (text with MTP, vision without) rather than one with both. Re-test
+the `-mtp-vision-` config after any vLLM upgrade — 24 requests at concurrency 2
+alternating text and image reproduces it in seconds.
+
+**Operational note:** during the crash window `/health` kept returning 200 while
+every inference request 500'd, and the 500s appear only in `INFO`-level uvicorn
+access lines — `grep ERROR` does not find them. Alert on `" 5[0-9]{2} ` in the
+logs and on `RestartCount`, not on log level.
 
 **Vision is free.** The same config with the vision encoder enabled
 (`docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml`, i.e. without

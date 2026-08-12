@@ -71,7 +71,7 @@
 #   whole repo + the LibreChat/OpenCode wiring is on qwen3_coder and it tests
 #   clean here. Revisit with scripts/test_tools.py before switching.
 #
-# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-rtx.yml up -d
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml up -d
 # API endpoint: http://localhost:11436/v1
 # Model name served as: qwen3.6-27b
 # First boot: ~2.5 min (model load + cudagraph + warmup + MTP draft warmup).

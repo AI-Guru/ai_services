@@ -1,0 +1,157 @@
+# Qwen3.6-27B-NVFP4 (NVIDIA) + VISION, no MTP — the SAFE multimodal endpoint
+#
+# This is the config to run when one endpoint must serve BOTH text and image
+# requests. It is the same as docker-compose.vllm-27b-nvfp4-nvidia-mtp-vision-rtx.yml
+# with `--speculative-config` removed, and it exists because that file crashes:
+#
+# ---------------------------------------------------------------------------
+# Why no MTP here (measured 2026-08-12, vLLM v0.27.1)
+# ---------------------------------------------------------------------------
+# MTP + mixed multimodal/text batching = CUDA illegal memory access that kills
+# EngineCore. 48 requests at concurrency 16 against the live endpoint:
+#
+#   | load                          | MTP N=4        | no MTP (this file) |
+#   |-------------------------------|----------------|--------------------|
+#   | text only                     | 48/48 OK       | 48/48 OK           |
+#   | images only                   | 48/48 OK       | 48/48 OK           |
+#   | text + images mixed           | 24-25/48 HTTP 500 | 48/48 OK        |
+#
+# Neither modality alone triggers it; the mix does. Depth does not help —
+# N=1 was worse than N=4 (48/48 failures, container went unhealthy). The crash
+# signature:
+#
+#   vllm.v1.engine.exceptions.EngineDeadError: EngineCore encountered an issue.
+#   terminate called after throwing an instance of 'c10::AcceleratorError'
+#     what():  CUDA error: an illegal memory access was encountered
+#
+# EngineCore dies, every in-flight request 500s, the container exits and
+# restart: always reloads it — a ~4 minute outage per occurrence. The GPU
+# itself survives (no Xid, no wedge). This matches known open vLLM bugs
+# vllm#36613 (CUDA ILM with MTP under concurrency) and vllm#40756 (MTP illegal
+# memory access on Qwen3.6-27B); the documented workaround upstream is likewise
+# "disable speculative decoding".
+#
+# Cost of the mitigation: 138.3 -> 71.1 tok/s single-stream (-48%). If you need
+# the MTP speed, serve text from
+# docker-compose.vllm-27b-nvfp4-nvidia-mtp-textonly-rtx.yml (stable at 16-way
+# text concurrency) and point only multimodal traffic here — do not put MTP and
+# image traffic on one endpoint.
+#
+# Re-test MTP+vision after any vLLM upgrade; if a release fixes it, switch back
+# to the -mtp-vision- file and rerun the mixed-load check before trusting it.
+#
+# ---------------------------------------------------------------------------
+# Everything else matches the rest of the NVFP4 family (see the -mtp-textonly-
+# file for the full rationale):
+#   - pinned vllm/vllm-openai:v0.27.1, ZERO pip at boot (the old pip-upgrade
+#     entrypoint re-resolved deps on every restart and drifted into breakage)
+#   - quantization auto-detected (modelopt_mixed) — do NOT pass --quantization
+#   - --load-format fastsafetensors
+#   - vision encoder loads because --language-model-only is absent
+#
+# Ignore these two startup log lines — misleading, vision works:
+#   WARNING [registry.py:117] ... no registered multimodal processor;
+#           running in text-only mode.
+#   INFO    [model.py:842] Disabled mm_prefix attention mode ...
+# Verified by prompt-token diff: 508 tokens with an attached image vs 22
+# without, i.e. the image really is consumed. Don't keyword-match a description
+# to prove vision — a text-only model can guess.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-vision-rtx.yml up -d
+# API endpoint: http://localhost:11436/v1  ·  model: qwen3.6-27b  (text + image/video)
+# First boot: ~3.5 min.  Single-stream: 71.1 tok/s.  VRAM ~58 GB at 0.60.
+
+services:
+  qwen36-27b-nvfp4-nvidia-vision:
+    image: vllm/vllm-openai:v0.27.1
+    container_name: qwen36-27b-nvfp4-nvidia-vision
+    # `always` (not `unless-stopped`) so the container is restarted when the
+    # Docker daemon comes back on boot even though safe-shutdown.sh `docker
+    # stop`s it at shutdown. With `unless-stopped`, an explicitly-stopped
+    # container stays down across a reboot.
+    restart: always
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11436:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+      - ./qwen3.6_unsloth_chat_template.jinja:/chat_template.jinja:ro
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    # Image ENTRYPOINT is ["vllm","serve"] — first item below is the model.
+    command:
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --served-model-name
+      - qwen3.6-27b
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --gpu-memory-utilization
+      - "0.60"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --chat-template
+      - /chat_template.jinja
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen36_huggingface_cache
+
+networks:
+  default:
+    name: qwen36-network
