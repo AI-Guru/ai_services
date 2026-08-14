@@ -1,0 +1,160 @@
+# Qwen3.8-27B-NVFP4 (Unsloth) + MTP speculative decoding
+#
+# ===================== UNVERIFIED (not yet booted) ======================
+# This file is docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml — which IS
+# verified (58.7 tok/s, tools 4/4, vision OK, needle-exact to ~51.7K) — plus
+# --speculative-config, and NOTHING else. Keep it that way: the two are a
+# controlled A/B and the only valid reading of a delta between them is
+# "MTP did that". If you tune one, tune both.
+# ========================================================================
+#
+# The MTP head is REAL here, not just a config claim: this checkpoint's
+# model.safetensors.index.json maps 15 `mtp.*` tensors (mtp.fc.weight +
+# mtp.layers.0.*) into a dedicated model_mtp.safetensors (0.85 GB). Because the
+# file IS referenced from the index, vLLM already loads those weights during
+# normal startup even with speculation off — enabling MTP therefore costs no
+# extra download and no extra weight VRAM, only the draft/verify compute.
+#
+# !! THE REASON TO BE SKEPTICAL OF THIS PARTICULAR COMBINATION:
+# Unsloth's quantization config excludes the head (`re:^mtp.*` in `ignore`), so
+# the drafter stays BF16 while the target it drafts for is 4-bit NVFP4. That is
+# the WIDEST drafter/target precision mismatch of any checkpoint in this
+# directory. On Qwen3.6 exactly this kind of divergence broke speculation:
+# DFlash was stable on FP8 targets and unstable on INT4, because the drafter had
+# been trained against BF16 targets. A BF16 drafter proposing tokens for a 4-bit
+# model may simply have a poor acceptance rate — in which case MTP costs
+# throughput rather than adding it, since every rejected draft is wasted verify
+# compute.
+#
+# By contrast Qwen's own FP8 checkpoint quantizes its head too (22 mtp tensors
+# incl. weight_scale_inv), giving matched drafter/target precision. If you are
+# choosing ONE MTP experiment to run, run
+# docker-compose.vllm-27b-fp8-mtp-rtx.yml first — it is the better-conditioned
+# one, even though NVFP4 is the faster non-MTP baseline.
+#
+# So the interesting question this file answers is not "is MTP faster" but
+# "does a mismatched-precision drafter still pay for itself". A NEGATIVE result
+# here is a real finding worth writing down, not a failed experiment.
+#
+# !! Do NOT copy an MTP depth from ../qwen3.6/. Measured there: the optimum did
+# not transfer between the 27B (dense, N=4) and 35B (MoE, N=3) of the SAME
+# generation, and it flips between prose and code workloads (~2x spread).
+# test_chat.py's default prompt is close to spec-decode's worst case. Sweep
+# num_speculative_tokens 2 -> 5 on the workload you actually serve.
+#
+# !! vLLM VERSION: MTP needs vLLM 0.27.2+ for the gated-delta-net speculative
+# fix (plain serving is fine on 0.27.1). The qwen38 image reports
+# 0.1.dev19754+g3a0914114 / transformers 5.15.0, which satisfies it. Do NOT
+# "downgrade to stable" for this file.
+#
+# !! VISION IS ENABLED (no --language-model-only, matching the verified
+# baseline). On 3.6, MTP crashed the engine on mixed-modality batches and on
+# batched long sequences. Both may or may not be fixed in this build — assume
+# nothing. If the engine dies on an image request, that is the first suspect:
+# add --language-model-only to confirm, and report the result as text-only-MTP
+# rather than quietly serving a degraded endpoint.
+#
+# Community quant — see the baseline file's header for the full scheme
+# (compressed-tensors mixed-precision, 4-bit FFNs only, NOT modelopt, so no
+# --quantization flag). The official vLLM recipe prefers
+# Inferact/Qwen3.8-27B-NVFP4; this tracks the Unsloth checkpoint that is
+# actually verified working here.
+#
+# PORT 11484 and --served-model-name qwen3.8-27b, same as every other vLLM
+# config here, so this is a drop-in swap for existing harnesses. Only one can
+# run at a time on this card — stop the other first, and confirm before
+# stopping anything being served live.
+#
+# Baseline to beat, same checkpoint without MTP: 58.7 tok/s (test_chat.py
+# --runs 3 --warmup, 58.4/58.6/59.0 across runs), tools 4/4,
+# KV pool 1,899,790 tokens, weights 21.18 GiB.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-unsloth-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-nvfp4-unsloth-mtp:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-nvfp4-unsloth-mtp
+    # "no", not unless-stopped: unproven combination (community quant +
+    # speculation), and a config the engine rejects would otherwise crash-loop
+    # forever. Switch to unless-stopped once verified.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # --- identical to docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml ---
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # --- the only addition ---
+      # Method and depth from the official vLLM recipe. Sweep the depth
+      # (2 -> 5) before settling — see header.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

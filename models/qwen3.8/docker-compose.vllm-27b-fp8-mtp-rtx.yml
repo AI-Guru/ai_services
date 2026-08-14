@@ -1,12 +1,21 @@
 # Qwen3.8-27B-FP8 + MTP speculative decoding
 #
-# ============================ UNVERIFIED ============================
-# Written 2026-08-14, BEFORE Qwen/Qwen3.8-27B was public. Never run.
-# Assumptions on top of docker-compose.vllm-27b-fp8-rtx.yml:
-#   1. The MTP head exists on the 27B. The public flagship
-#      (Qwen/Qwen3.8-2.4T-A95B) has `mtp_num_hidden_layers: 1`, and 3.6 shipped
-#      MTP on both its 27B and 35B, so this is likely — but confirm the key is
-#      present in the 27B's own config.json.
+# ===================== UNVERIFIED (not yet booted) ======================
+# This file is docker-compose.vllm-27b-fp8-rtx.yml — which IS verified — plus
+# --speculative-config, and NOTHING else. Keep it that way: the two are a
+# controlled A/B and the only valid reading of a throughput delta between them
+# is "MTP did that". If you tune one, tune both.
+#
+#   1. (RESOLVED 2026-08-14) The MTP head is REAL in this checkpoint, not just
+#      a config claim. model.safetensors.index.json maps 22 `mtp.*` tensors
+#      (mtp.fc.weight + mtp.layers.0.*) into a dedicated mtp.safetensors.
+#      Qwen quantized the head too — those 22 include weight_scale_inv entries,
+#      where the base BF16 repo has only 15 plain tensors. So on THIS checkpoint
+#      drafter and target are both FP8, i.e. matched precision.
+#      That matters: on 3.6, speculation degraded when drafter and target
+#      precision diverged (FP8 fine, INT4 not). Of the checkpoints here, this
+#      is the best-conditioned MTP experiment. Unsloth's NVFP4 leaves its head
+#      in BF16 against a 4-bit target — the widest mismatch.
 #   2. (RESOLVED 2026-08-14) The method name is `mtp`, per the official vLLM
 #      recipe at https://recipes.vllm.ai/Qwen/Qwen3.8-27B — NOT `qwen3_next_mtp`,
 #      which is Qwen3-*Next*'s head and a different model. Our image registers
@@ -38,13 +47,20 @@
 #
 # Known 3.6-era MTP engine bugs to watch for (vLLM v0.27.1). Both may or may not
 # be fixed in the qwen38 build — assume nothing:
-#   - mixed-modality batches crash the engine (hence text-only serving here)
+#   - mixed-modality batches crash the engine
 #   - batched LONG sequences crash the engine
-# If either reproduces, the SGLang config is the escape hatch: it implements
+# !! VISION IS ENABLED HERE (no --language-model-only, matching the verified
+# baseline), so the mixed-modality bug is REACHABLE if it still exists. If the
+# engine dies on an image request, that is the first suspect — add
+# --language-model-only to confirm, and report it as text-only-MTP rather than
+# quietly serving a degraded endpoint.
+# If either bug reproduces, the SGLang config is the escape hatch: it implements
 # speculation independently (NEXTN/EAGLE, not vLLM's `mtp`) and did not inherit
 # these bugs on 3.6.
 #
 # A/B partner: docker-compose.vllm-27b-fp8-rtx.yml (identical, no MTP).
+# Measured baseline to beat, FP8 without MTP: 45.6 tok/s (test_chat.py
+# --runs 3 --warmup), tools 4/4, KV pool 1,672,297 tokens.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-fp8-mtp-rtx.yml up -d
 # API endpoint: http://localhost:11484/v1
@@ -93,27 +109,19 @@ services:
       - "0.0.0.0"
       - --port
       - "8000"
+      # --- identical to docker-compose.vllm-27b-fp8-rtx.yml from here ---
       - --tensor-parallel-size
       - "1"
-      - --dtype
-      - auto
-      # Drop this flag if config.json turns out to have no vision_config.
-      # Keep text-only regardless while MTP is on — mixed-modality batches
-      # crashed the engine on 3.6.
-      - --language-model-only
       - --max-model-len
       - "262144"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --enable-chunked-prefill
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
+      - --kv-cache-dtype
+      - fp8
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      # --- the only addition ---
       # Method and depth are the official vLLM recipe's values. Sweep the depth
       # (2 -> 5) on YOUR workload before settling — see header.
       - --speculative-config

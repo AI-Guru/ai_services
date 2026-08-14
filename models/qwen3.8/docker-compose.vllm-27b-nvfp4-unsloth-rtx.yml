@@ -106,8 +106,12 @@ services:
       memlock: -1
       stack: 67108864
 
+    # 11484 — the SAME port the FP8 compose uses, deliberately: this is a
+    # drop-in swap for existing harnesses (same port, same --served-model-name
+    # `qwen3.8-27b`, same vision support). Only one of the two can run at a
+    # time; stop the other first.
     ports:
-      - "11487:8000"
+      - "11484:8000"
 
     volumes:
       - huggingface_cache:/root/.cache/huggingface
@@ -128,26 +132,21 @@ services:
       - "0.0.0.0"
       - --port
       - "8000"
-      - --tensor-parallel-size
-      - "1"
-      - --dtype
-      - auto
+      # Flags below are byte-identical to docker-compose.vllm-27b-fp8-rtx.yml
+      # (the official recipe's shape) so the two are a controlled A/B: the
+      # ONLY difference is the checkpoint. Do not tune one without the other.
+      #
       # NO --quantization: vLLM reads compressed-tensors off the checkpoint.
       # See "NOTE ON --quantization" in the header.
-      #
-      # Valid: config.json has a vision_config. Remove to serve images/video.
-      - --language-model-only
+      # NO --language-model-only: keeps the vision tower, matching the FP8
+      # endpoint so this is a drop-in swap for harnesses that send images.
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
       # Recipe's choice, and matches the checkpoint's own kv_cache_scheme.
       - --kv-cache-dtype
       - fp8
-      - --max-model-len
-      - "262144"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --enable-chunked-prefill
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
