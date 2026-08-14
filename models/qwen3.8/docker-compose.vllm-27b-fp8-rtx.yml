@@ -1,0 +1,123 @@
+# Qwen3.8-27B-FP8 — official Qwen pre-quantized FP8, no speculative decoding
+#
+# Checkpoint CONFIRMED public 2026-08-14: Qwen/Qwen3.8-27B-FP8 is first-party
+# (66 safetensors shards). Quant config read off the repo:
+#   quant_method=fp8, fmt=e4m3, activation_scheme=dynamic
+# i.e. dynamic-activation W8A8 FP8 over the language model, with the VISION
+# tower excluded via a long `modules_to_not_convert` list (visual.blocks.*
+# attn/mlp stay BF16). The RTX PRO 6000 Blackwell (SM 120) runs this natively.
+#
+# NOTE this differs from Qwen3.6-27B-FP8, which was fine-grained BLOCK-WISE FP8
+# (block=128). 3.8 is dynamic per-tensor/per-channel instead, so do not assume
+# 3.6's accuracy or throughput results carry over.
+#
+# ~27 GB of weights vs ~54 GB BF16 -> roughly 60 GB free for KV at 0.90 util.
+# Decode is bandwidth-bound on a dense 27B (~27 GB active against 1.6 TB/s),
+# so FP8 buys throughput mainly by halving the weight traffic.
+#
+# Config facts verified against Qwen/Qwen3.8-27B/config.json (2026-08-14):
+#   architectures = Qwen3_5ForConditionalGeneration, model_type = qwen3_5
+#   vision_config IS present -> --language-model-only is valid for text-only
+#   64 layers, full_attention_interval=4 (48 DeltaNet + 16 full attention)
+#   hidden_size 5120, head_dim 256, 24 heads / 4 KV heads
+#   max_position_embeddings = 262144, mtp_num_hidden_layers = 1
+#   vocab_size 248320, rope_theta 1e7, partial_rotary_factor 0.25
+#   rope_parameters.mrope_interleaved = true, mrope_section = [11, 11, 10]
+#
+# The RTX PRO 6000 Blackwell (SM 120) runs block-wise FP8 as W8A8 natively.
+#
+# KV-cache caveat, DO NOT DROP: no --kv-cache-dtype fp8_e4m3 under vLLM on this
+# hybrid DeltaNet arch (vllm-project/vllm#26646 — silent corruption, no crash).
+#
+# This is the no-MTP baseline. Its A/B partner is
+# docker-compose.vllm-27b-fp8-mtp-rtx.yml — same everything, plus the MTP head.
+# Run both before concluding anything about speculation on this model.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-fp8-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-fp8:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-fp8
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.8-27B-FP8
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      # Valid: config.json HAS a vision_config (27-layer SigLIP-style tower).
+      # Remove this flag to serve images/video instead of text-only.
+      - --language-model-only
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 480s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network
