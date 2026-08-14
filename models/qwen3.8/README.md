@@ -300,7 +300,6 @@ back-to-back without editing configs, matching the
 | `docker-compose.vllm-27b-bf16-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified. ~54 GB. Only worth it as a quality reference vs FP8. |
 | `docker-compose.vllm-27b-fp8-mtp-rtx.yml` | `Qwen/Qwen3.8-27B-FP8` (first-party) | Unverified. A/B partner for the FP8 baseline; sweep the depth. |
 | `docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml` | `unsloth/Qwen3.8-27B-NVFP4` (**community**) | Unverified, config-checked. Port 11487. Ships an unquantized MTP head. See KV-cache trap below. |
-| `docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml` | `nvidia/Qwen3.8-27B-NVFP4` — **does not exist yet** | Placeholder. NVIDIA shipped 3.6 NVFP4 weeks after release; prefer it over Unsloth's if it appears. |
 | `docker-compose.sglang-27b-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified. Runtime A/B, NEXTN speculation. |
 | `docker-compose.llama-27b-q4-rtx.yml` | `unsloth/Qwen3.8-27B-GGUF` (**community**) | Unverified. GGUF conversion confirmed to exist (`Qwen3.8-27B-UD-Q4_K_XL.gguf`). |
 
@@ -348,6 +347,16 @@ Three places where following the recipe overrides what this repo learned on 3.6:
    is fine on 0.27.1.
 2. **`--kv-cache-dtype fp8` is the recipe default** — see the verification above.
 3. **NVFP4: the recipe uses `Inferact/Qwen3.8-27B-NVFP4`**, not Unsloth's.
+
+There is **no `nvidia/Qwen3.8-*` checkpoint** (the API 404/401s, while
+`nvidia/Qwen3.6-27B-NVFP4` and `nvidia/Qwen3.6-35B-A3B-NVFP4` both resolve).
+NVIDIA shipped 3.6 NVFP4 some weeks after that base release, so one may still
+appear; re-check with
+`curl -s "https://huggingface.co/api/models?author=nvidia&search=Qwen3.8"`.
+If it lands, do **not** assume it drops into the Unsloth compose — theirs is
+compressed-tensors/mixed-precision needing no `--quantization`, whereas NVIDIA's
+3.6 checkpoints were modelopt and needed `--quantization modelopt`. Read the new
+`config.json`'s `quant_method` first.
 
 ### Sampling parameters (from the model card)
 
