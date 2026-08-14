@@ -24,14 +24,60 @@
 #   vocab_size 248320, rope_theta 1e7, partial_rotary_factor 0.25
 #   rope_parameters.mrope_interleaved = true, mrope_section = [11, 11, 10]
 #
-# The RTX PRO 6000 Blackwell (SM 120) runs block-wise FP8 as W8A8 natively.
+# ---------------------------------------------------------------------------
+# THIS FILE TRACKS THE OFFICIAL vLLM RECIPE. Keep it that way.
+#   https://recipes.vllm.ai/Qwen/Qwen3.8-27B
+#   https://huggingface.co/Qwen/Qwen3.8-27B  (model card)
 #
-# KV-cache caveat, DO NOT DROP: no --kv-cache-dtype fp8_e4m3 under vLLM on this
-# hybrid DeltaNet arch (vllm-project/vllm#26646 — silent corruption, no crash).
+# The recipe's FP8 command, verbatim (it shows TP4 for a GB300 tray; we run TP1
+# on a single RTX PRO 6000):
+#
+#   vllm serve Qwen/Qwen3.8-27B-FP8 \
+#     --tensor-parallel-size 4 \
+#     --max-model-len 262144 \
+#     --kv-cache-dtype fp8 \
+#     --reasoning-parser qwen3
+#
+# Everything below the served-name/host/port deployment flags matches it. Local
+# tuning flags that were here before (--gpu-memory-utilization 0.90,
+# --enable-chunked-prefill, --enable-prefix-caching, --max-num-batched-tokens,
+# --dtype auto) have been REMOVED: vLLM's defaults already are 0.9 util with
+# prefix caching and chunked prefill on (confirmed in the startup log), so they
+# were noise that made the file drift from the recipe for no gain.
+#
+# --enable-auto-tool-choice / --tool-call-parser qwen3_coder come from the
+# recipe's other launch example and are verified working here (4/4 on
+# test_tools.py, including parallel calls).
+#
+# !! --kv-cache-dtype fp8 IS THE RECIPE'S CHOICE, and it reverses the standing
+# rule inherited from ../qwen3.6/. On Qwen3.6's hybrid DeltaNet, fp8 KV under
+# vLLM caused SILENT output corruption (vllm-project/vllm#26646) and every
+# compose in that directory forbids it. For 3.8 both Qwen and the vLLM recipe
+# ship it as the default, and it roughly doubles KV capacity. Adopted here
+# deliberately. Because the failure mode is wrong answers rather than a crash,
+# VERIFY OUTPUT QUALITY after any change to this flag — factual recall,
+# arithmetic, and needle-in-haystack at length — do not assume.
+#
+# !! NO --language-model-only, also per the recipe. This is a native
+# vision-language model and the flag would disable the vision tower. Text-only
+# serving costs less VRAM; add the flag back if you never send images/video and
+# want the headroom. Note the 49.0 tok/s baseline in README.md was measured
+# text-only WITH that flag and without fp8 KV, so it is not directly comparable
+# to this configuration — re-benchmark.
+# ---------------------------------------------------------------------------
 #
 # This is the no-MTP baseline. Its A/B partner is
-# docker-compose.vllm-27b-fp8-mtp-rtx.yml — same everything, plus the MTP head.
+# docker-compose.vllm-27b-fp8-mtp-rtx.yml — same everything, plus
+# --speculative-config '{"method":"mtp","num_speculative_tokens":3}'.
 # Run both before concluding anything about speculation on this model.
+#
+# Sampling (model card): the server applies generation_config.json, which ships
+# temperature=1.0, top_p=0.95, top_k=20 — exactly the card's THINKING-mode
+# recommendation, so thinking-mode clients need send nothing. Non-thinking mode
+# wants different values the server cannot infer; the client must send them:
+#   temperature=0.7, top_p=0.80, top_k=20, presence_penalty=1.5
+# The card notes presence_penalty may be raised 0->2 to curb endless repetition,
+# at some risk of language mixing.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-fp8-rtx.yml up -d
 # API endpoint: http://localhost:11484/v1
@@ -80,21 +126,15 @@ services:
       - "0.0.0.0"
       - --port
       - "8000"
+      # TP1: the recipe shows TP4 for a 4-GPU GB300 tray; this is one card.
       - --tensor-parallel-size
       - "1"
-      - --dtype
-      - auto
-      # Valid: config.json HAS a vision_config (27-layer SigLIP-style tower).
-      # Remove this flag to serve images/video instead of text-only.
-      - --language-model-only
       - --max-model-len
       - "262144"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --enable-chunked-prefill
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
+      # Recipe's choice. Reverses the ../qwen3.6/ rule — see header before
+      # changing, and re-verify output quality if you do.
+      - --kv-cache-dtype
+      - fp8
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
