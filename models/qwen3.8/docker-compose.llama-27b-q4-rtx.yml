@@ -1,0 +1,119 @@
+# Qwen3.8-27B GGUF Q4 via llama.cpp — low-VRAM / portable fallback
+#
+# ======= COMMUNITY QUANT — checkpoint CONFIRMED, serving UNVERIFIED =======
+# `unsloth/Qwen3.8-27B-GGUF` exists as of 2026-08-14 and carries a full ladder
+# (UD-IQ2_XXS through Q8_0 and BF16), so llama.cpp DOES handle this
+# architecture and its new 248320-token tokenizer upstream. The filename below
+# is verified present in the repo listing.
+#
+# Still unverified here, and worth checking in this order:
+#   1. That the image tag you use is new enough. `server-cuda` floats; if the
+#      model fails to load, that is the first thing to pin/refresh.
+#   2. OUTPUT QUALITY, not just a clean boot. The hybrid Gated DeltaNet layers
+#      are the risk — a converter that mishandles the recurrent state produces
+#      fluent nonsense rather than an error. Test factual recall, arithmetic
+#      and long-context needle retrieval before trusting it.
+#
+# Community quant, per repo policy flagged here and in the README row. Other
+# `*/Qwen3.8-27B-GGUF` repos (barozp, prithivMLmods, vcruz305, aj9o9) exist but
+# were empty placeholders at time of writing — prefer the Unsloth one.
+# ==========================================================================
+#
+# No MTP in this file, unlike ../qwen3.6/docker-compose.llama-27b-q4-mtp-rtx.yml.
+# That config needs a custom image (Dockerfile.llama-mtp) built from mainline
+# with the qwen3_next_mtp head, plus `--spec-type draft-mtp` and a matching
+# -MTP-GGUF checkpoint. None of that is known to exist for 3.8 yet. Add it once
+# both the upstream head and an MTP GGUF land — the 3.6 limitations were
+# `-np 1` only (no parallel slots) and no --mmproj alongside MTP.
+#
+# On the RTX PRO 6000 this is strictly worse than the vLLM configs; its reason
+# to exist is hosts that cannot run vLLM (24 GB cards, Vulkan/ROCm, Apple).
+# Port a Vulkan/Spark variant from ../qwen3.6/ once this one is proven.
+#
+# Q8_0 KV cache: quantizing KV in llama.cpp is a different code path from the
+# vLLM fp8 KV bug (vllm-project/vllm#26646) and was used successfully on 3.6.
+# Still re-check recall at long context before trusting it here.
+#
+# Usage: docker compose -f docker-compose.llama-27b-q4-rtx.yml up -d
+# API endpoint: http://localhost:11486/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-q4:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: qwen38-27b-q4
+    # "no", not unless-stopped: an unsupported architecture fails at load, and
+    # restart:unless-stopped would crash-loop on it forever.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11486:11486"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+
+    command:
+      # VERIFY both of these against the real repo listing — see header.
+      - --hf-repo
+      - unsloth/Qwen3.8-27B-GGUF
+      - --hf-file
+      - Qwen3.8-27B-UD-Q4_K_XL.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "65536"
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      # --jinja uses the template baked into the GGUF. Thinking cannot be
+      # disabled on this family; pass reasoning_effort (low|medium|xhigh) via
+      # chat_template_kwargs instead. See README.md.
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11486"
+      - -a
+      - qwen3.8-27b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11486/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen38_llama_cache
+
+networks:
+  default:
+    name: qwen38-network

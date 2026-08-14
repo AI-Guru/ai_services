@@ -1,0 +1,187 @@
+# Qwen3.8-27B via SGLang — runtime A/B against vLLM
+#
+# ============================ UNVERIFIED ============================
+# Written 2026-08-14, BEFORE Qwen/Qwen3.8-27B was public. Never run.
+# Assumptions: the repo id; that SGLang's qwen38 image really covers the 27B
+# (the tag was cut 2026-08-12 when only the 2.4T flagship was public, so it may
+# have been built for the MoE only); that NEXTN speculation applies here.
+# Everything below the "local knowledge" line is carried over from
+# ../qwen3.6/docker-compose.sglang-27b-nvfp4-nvidia-rtx.yml, which WAS
+# validated — but on a different model generation.
+# ====================================================================
+#
+# Why this file exists: on 3.6 / vLLM v0.27.1, MTP speculative decoding had two
+# engine-killing bugs (mixed-modality batches, batched long sequences). SGLang
+# implements speculation independently — EAGLE / NEXTN rather than vLLM's `mtp`
+# method — and did not inherit them. It is the escape hatch if the vLLM MTP file
+# reproduces either bug on 3.8.
+#
+# Serving BF16 here (not a quant) so this file has no dependency on a quantized
+# checkpoint existing. To A/B against the vLLM NVFP4 config once NVIDIA publish
+# one, swap --model-path and add: --quantization modelopt_fp4
+#
+# ---- LOCAL KNOWLEDGE from the validated 3.6 SGLang configs, DO NOT DROP ----
+#
+#   - cap_add SYS_PTRACE + seccomp:unconfined are REQUIRED, not optional.
+#     SGLang's CUDA IPC transport passes GPU memory-pool handles between the
+#     tokenizer-manager and scheduler processes via pidfd_getfd(2), which
+#     Docker's default seccomp profile denies. Without these the server starts,
+#     loads weights and captures CUDA graphs perfectly, then fails EVERY request
+#     with a 500 and:
+#       RuntimeError: pidfd_getfd: Operation not permitted
+#         in sglang/srt/utils/cuda_ipc_transport_utils.py
+#     It reads like a model failure and is purely a container privilege.
+#
+#   - --mamba-ssm-dtype bfloat16: DeltaNet recurrent-state precision.
+#
+#   - --mamba-scheduler-strategy extra_buffer + SGLANG_ENABLE_SPEC_V2=1:
+#     required, or the radix cache conflicts with speculative decoding.
+#
+#   - --kv-cache-dtype: bf16 here, deliberately conservative. On the 3.6 NVFP4
+#     checkpoint fp8_e4m3 was VERIFIED safe under SGLang (matched bf16 on
+#     factual recall, arithmetic and needle-in-haystack to 17.4K) and doubled
+#     the KV cache, worth ~25% at concurrency 16 on codegen. That verification
+#     is checkpoint-specific and does NOT transfer to 3.8. Re-verify before
+#     switching — the failure mode is silent wrong answers, not a crash.
+#
+#   - RadixAttention (prefix caching) is on by default; only the 16
+#     full-attention layers benefit. HiCache is blocked by DeltaNet and logs a
+#     non-fatal startup warning.
+#
+#   - SGLang pinned max_running_requests at 42 on 3.6 regardless of the
+#     requested value (256 and 1024 both yielded 42) — an internal heuristic.
+#     That ceiling is the likely reason throughput fell off above concurrency
+#     ~16 on long-output workloads. Check the startup log for the real number.
+#
+#   - --mem-fraction-static 0.92 is only safe WITH speculation enabled; the
+#     same value without --speculative-algo OOMed during CUDA graph capture on
+#     3.6. Drop to ~0.85 if you disable speculation here.
+#     BF16 weights (~54 GB) are twice the NVFP4 footprint that 0.92 was tuned
+#     against, so context is 32768 rather than 262144 — raise it only after
+#     confirming the KV pool size in the startup log.
+#
+# Context 32768 + --max-running-requests 256 to keep the throughput envelope
+# comparable with the vLLM parallel configs.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.sglang-27b-rtx.yml up -d
+# API endpoint: http://localhost:11485/v1  ·  model: qwen3.8-27b
+
+services:
+  qwen38-27b-sglang:
+    # PINNED. `latest`/`dev` is exactly the drift that broke the 3.6 configs —
+    # a reboot silently loading different software than what was benchmarked.
+    image: lmsysorg/sglang:qwen38
+    container_name: qwen38-27b-sglang
+    # "no", not unless-stopped: this is a benchmark/A-B config, not a served
+    # endpoint, and a failing SGLang start would otherwise crash-loop forever.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    # See "LOCAL KNOWLEDGE" in the header — required, not optional.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11485:11485"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+      - SGLANG_ENABLE_SPEC_V2=1
+
+    entrypoint: python3 -m sglang.launch_server
+
+    command:
+      - --model-path
+      - Qwen/Qwen3.8-27B
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11485"
+      - --context-length
+      - "32768"
+      # 0.85, not the 0.92 the 3.6 NVFP4 config used: BF16 weights are ~2x that
+      # footprint, so start conservative. Raise toward 0.92 only after a clean
+      # boot leaves obvious headroom AND speculation stays enabled (0.92
+      # OOMed during CUDA graph capture without it on 3.6).
+      - --mem-fraction-static
+      - "0.85"
+      - --tp-size
+      - "1"
+      # triton, NOT trtllm_mha: that backend is SM100-only (B200/B300) and fails
+      # on this SM120 card with
+      #   ValueError: TRTLLM MHA backend for prefill is only supported on
+      #   Blackwell GPUs (SM100).
+      - --attention-backend
+      - triton
+      # bf16, deliberately. fp8_e4m3 was verified safe on the 3.6 NVFP4
+      # checkpoint but that does not transfer — see header.
+      - --kv-cache-dtype
+      - bf16
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --mamba-scheduler-strategy
+      - extra_buffer
+      - --chunked-prefill-size
+      - "16384"
+      - --max-running-requests
+      - "256"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # NEXTN drives the checkpoint's own MTP head. Depths copied from the 3.6
+      # config as a STARTING POINT only — sweep them on this model.
+      - --speculative-algo
+      - NEXTN
+      - --speculative-num-steps
+      - "3"
+      - --speculative-eagle-topk
+      - "1"
+      - --speculative-num-draft-tokens
+      - "4"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11485/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

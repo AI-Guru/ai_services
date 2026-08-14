@@ -1,0 +1,176 @@
+# Qwen3.8-27B-NVFP4 (Unsloth) — 4-bit FFNs, mixed-precision compressed-tensors
+#
+# ==================== COMMUNITY QUANT — NOT FIRST-PARTY ====================
+# Checkpoint: unsloth/Qwen3.8-27B-NVFP4 (published 2026-08-14, same day as the
+# base model). NVIDIA have NOT published an `nvidia/Qwen3.8-27B-NVFP4` — they
+# did for Qwen3.6 but only weeks after that release, so re-check periodically:
+#   curl -s "https://huggingface.co/api/models?author=nvidia&search=Qwen3.8"
+#
+# !! THE OFFICIAL vLLM RECIPE USES A DIFFERENT NVFP4 CHECKPOINT:
+#      https://recipes.vllm.ai/Qwen/Qwen3.8-27B
+#    vllm serve Inferact/Qwen3.8-27B-NVFP4 \
+#      --tensor-parallel-size 1 --max-model-len 262144 --kv-cache-dtype fp8 \
+#      --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
+#    The recipe quotes it at 24.6 GiB with 6.6M KV tokens at 1M context. Prefer
+#    the recipe's checkpoint unless you have a reason not to — it is the one
+#    upstream actually validated. Verify Inferact's quant_method before booting
+#    it; do NOT assume it matches Unsloth's scheme described below.
+#
+# Per repo policy this is flagged as a community quant here and in the README
+# row. Community quants are unvetted and have failed to load before (extra or
+# renamed weight keys the vLLM build did not expect).
+# NOT YET RUN — scaffolded and config-verified only. Boot it before trusting it.
+# ===========================================================================
+#
+# Quantization scheme, read off the checkpoint's config.json (2026-08-14).
+# This is NOT the NVIDIA modelopt scheme used by the 3.6 NVFP4 files:
+#
+#   quant_method = compressed-tensors     (llm-compressor, NOT modelopt)
+#   format       = mixed-precision
+#
+#   group_1  nvfp4-pack-quantized, W4A4, group_size 16, strategy tensor_group
+#            targets: mlp.(gate|up|down)_proj          <- FFNs only
+#   group_0  float-quantized FP8, W8 channel / A8 token, dynamic
+#            targets: self_attn.(q|k|v|o)_proj
+#                     linear_attn.(in_proj_qkv|in_proj_z|out_proj)
+#                     lm_head
+#                     layers.(56..63).mlp.(gate|up|down)_proj   <- see below
+#   ignore   entire vision tower (visual.blocks.0-26 + merger),
+#            every linear_attn norm / in_proj_a / in_proj_b (DeltaNet gates),
+#            and `re:^mtp.*`  -> the MTP head is left UNQUANTIZED
+#
+# Two things worth noticing:
+#   - The last 8 layers' MLPs (56-63) are deliberately held back at FP8 rather
+#     than dropped to 4-bit — the usual accuracy-preservation trick for the
+#     layers nearest the output. Do not "fix" this.
+#   - Because attention, the DeltaNet gates, the final 8 MLPs and the vision
+#     tower all stay at 8/16-bit, this is NOT a uniform 4-bit model. On disk it
+#     is 23.44 GB vs 27.57 GB for the official FP8 — only ~15% smaller. Judge it
+#     on speed, not on footprint; the VRAM win is modest.
+#
+# KV CACHE: fp8, matching the recipe and the FP8 compose. The checkpoint also
+# declares its own fp8 kv_cache_scheme, so this is consistent with the weights.
+#
+# This REVERSES the standing ../qwen3.6/ rule (fp8 KV silently corrupted output
+# on that generation's DeltaNet layers — vllm-project/vllm#26646). On 3.8 both
+# Qwen and the vLLM recipe ship fp8 KV as the default, and it was VERIFIED clean
+# on the FP8 checkpoint here: exact needle retrieval at ~51.7K tokens at both
+# shallow and deep placement, plus 4/4 tool calls. See README.md.
+# That verification is for the FP8 checkpoint, NOT this one. Re-run it here —
+# the failure mode is wrong answers, not a crash.
+#
+# MTP: model_mtp.safetensors (0.85 GB) ships unquantized alongside the weights,
+# so speculative decoding is available on this checkpoint. Left OFF here so this
+# file is a clean baseline against docker-compose.vllm-27b-fp8-rtx.yml. To try
+# it, add (and sweep the depth — 3.6 showed the optimum does not transfer
+# between models OR between prose and code workloads):
+#     - --speculative-config
+#     - '{"method":"qwen3_next_mtp","num_speculative_tokens":1}'
+#
+# NOTE ON --quantization: omitted ON PURPOSE. vLLM reads quant_method from the
+# checkpoint. Do NOT pass `--quantization modelopt` (copied from the 3.6 NVFP4
+# files) — this is compressed-tensors and that flag would mis-dispatch it.
+#
+# PORT 11487, not 11484, so this cannot collide with a running FP8 endpoint.
+# The card holds one of these at a time at 0.90 util: stop the other model
+# first, and confirm before stopping anything that is being served live.
+#
+# Requires Blackwell (SM_120) or Hopper (SM_90) for hardware NVFP4 tensor cores.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml up -d
+# API endpoint: http://localhost:11487/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-nvfp4-unsloth:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-nvfp4-unsloth
+    # "no", not unless-stopped: this is an unproven community quant, and a
+    # checkpoint vLLM cannot load would otherwise crash-loop forever.
+    # Switch to unless-stopped once it is verified.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11487:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      # NO --quantization: vLLM reads compressed-tensors off the checkpoint.
+      # See "NOTE ON --quantization" in the header.
+      #
+      # Valid: config.json has a vision_config. Remove to serve images/video.
+      - --language-model-only
+      # Recipe's choice, and matches the checkpoint's own kv_cache_scheme.
+      - --kv-cache-dtype
+      - fp8
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

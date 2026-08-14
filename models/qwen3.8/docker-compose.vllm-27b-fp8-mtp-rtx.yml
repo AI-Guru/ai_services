@@ -1,0 +1,141 @@
+# Qwen3.8-27B-FP8 + MTP speculative decoding
+#
+# ============================ UNVERIFIED ============================
+# Written 2026-08-14, BEFORE Qwen/Qwen3.8-27B was public. Never run.
+# Assumptions on top of docker-compose.vllm-27b-fp8-rtx.yml:
+#   1. The MTP head exists on the 27B. The public flagship
+#      (Qwen/Qwen3.8-2.4T-A95B) has `mtp_num_hidden_layers: 1`, and 3.6 shipped
+#      MTP on both its 27B and 35B, so this is likely — but confirm the key is
+#      present in the 27B's own config.json.
+#   2. (RESOLVED 2026-08-14) The method name is `mtp`, per the official vLLM
+#      recipe at https://recipes.vllm.ai/Qwen/Qwen3.8-27B — NOT `qwen3_next_mtp`,
+#      which is Qwen3-*Next*'s head and a different model. Our image registers
+#      `mtp`, `qwen3_5_mtp` and `qwen3_next_mtp` as distinct methods, so picking
+#      the wrong one is a silent mis-dispatch rather than an obvious error.
+#      Verify the registered list against the image you actually run:
+#        docker exec <container> python3 -c \
+#          "from vllm.config.speculative import SpeculativeMethod; print(SpeculativeMethod)"
+#   3. (RESOLVED) Depth: the recipe uses num_speculative_tokens=3, not 1.
+#      mtp_num_hidden_layers=1 describes the head's LAYER count, not the number
+#      of tokens it can draft — do not conflate them as this file first did.
+#
+# !! vLLM VERSION: the recipe states MTP needs vLLM 0.27.2 (nightly at time of
+# writing) for the gated-delta-net speculative fix; plain non-MTP serving is
+# code-identical on stable 0.27.1. The qwen38 image here reports
+# 0.1.dev19754+g3a0914114 with transformers 5.15.0, which satisfies this. Do NOT
+# "downgrade to stable" for this file — MTP would break.
+# ====================================================================
+#
+# !! Do NOT copy an MTP depth over from ../qwen3.6/. Measured there: the optimal
+# depth did not even transfer between the 27B (dense, N=4) and the 35B (MoE,
+# N=3) of the SAME generation. Across generations it is worthless as a prior.
+# Sweep N on THIS model: start at 1, try 2/3/4, keep whatever wins.
+#
+# !! Also do not copy a draft length from prose benchmarks to code workloads.
+# Measured on 3.6: the optimum flips between the two, roughly 2x spread, and
+# test_chat.py's default prompt is close to spec-decode's worst case. Benchmark
+# the workload you actually serve.
+#
+# Known 3.6-era MTP engine bugs to watch for (vLLM v0.27.1). Both may or may not
+# be fixed in the qwen38 build — assume nothing:
+#   - mixed-modality batches crash the engine (hence text-only serving here)
+#   - batched LONG sequences crash the engine
+# If either reproduces, the SGLang config is the escape hatch: it implements
+# speculation independently (NEXTN/EAGLE, not vLLM's `mtp`) and did not inherit
+# these bugs on 3.6.
+#
+# A/B partner: docker-compose.vllm-27b-fp8-rtx.yml (identical, no MTP).
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-fp8-mtp-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-fp8-mtp:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-fp8-mtp
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.8-27B-FP8
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      # Drop this flag if config.json turns out to have no vision_config.
+      # Keep text-only regardless while MTP is on — mixed-modality batches
+      # crashed the engine on 3.6.
+      - --language-model-only
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # Method and depth are the official vLLM recipe's values. Sweep the depth
+      # (2 -> 5) on YOUR workload before settling — see header.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

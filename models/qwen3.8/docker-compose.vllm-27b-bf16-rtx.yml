@@ -1,0 +1,126 @@
+# Qwen3.8-27B BF16 — official unquantized checkpoint
+#
+# ============================ UNVERIFIED ============================
+# Written 2026-08-14, BEFORE Qwen/Qwen3.8-27B was public. Never run.
+# Assumptions, in order of how likely they are to be wrong:
+#   1. The repo id is exactly `Qwen/Qwen3.8-27B`.
+#   2. It is a multimodal `Qwen3_5ForConditionalGeneration` checkpoint like
+#      Qwen3.5-27B and Qwen3.6-27B were  -> hence --language-model-only.
+#      If config.json has no vision_config, DROP that flag (it errors on a
+#      text-only model).
+#   3. Reasoning/tool dialects carry over from 3.6: `qwen3` / `qwen3_coder`.
+#      The flagship's template emits <tool_call><function=..><parameter=..>,
+#      which is the qwen3_coder dialect, so (3) is the safest of the three.
+#   4. 256K context, as in the flagship config (max_position_embeddings).
+# See README.md "Release-day checklist" before trusting any of this.
+# ====================================================================
+#
+# This is the file to boot FIRST on release day: BF16 needs no quantized
+# checkpoint to exist, so it depends on nothing but the base repo. ~54 GB of
+# weights on a 96 GB card leaves ~28 GB for KV at 0.90 util — enough for 256K
+# on the 16 full-attention layers, but drop --max-model-len if it OOMs during
+# profiling rather than raising utilization.
+#
+# Image: the qwen38-tagged build (2026-08-12), NOT :nightly and NOT a
+# pip-upgrade entrypoint. Upstream cut this tag specifically for the family;
+# v0.27.1 (latest stable, 2026-08-11) predates it and probably cannot load the
+# checkpoint. Repin to a numbered release once one ships with qwen3.8 support.
+#
+# NO speculative decoding here on purpose — this is the clean baseline that
+# docker-compose.vllm-27b-fp8-mtp-rtx.yml is measured against.
+#
+# KV-cache caveat carried over from 3.6, DO NOT DROP: do not set
+# --kv-cache-dtype fp8_e4m3 on this hybrid DeltaNet architecture under vLLM
+# (vllm-project/vllm#26646 — silent output corruption, no crash). SGLang was
+# separately verified safe with fp8 KV on 3.6; vLLM was not.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-bf16-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-bf16:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-bf16
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.8-27B
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      # Drop this flag if config.json turns out to have no vision_config.
+      - --language-model-only
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      # No --chat-template: use the checkpoint's own. The 3.6 templates in
+      # ../qwen3.6/ are for a DIFFERENT tokenizer (vocab 248320 here vs ~152K
+      # there) and must not be reused.
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

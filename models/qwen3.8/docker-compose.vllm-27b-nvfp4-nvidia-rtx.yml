@@ -1,0 +1,146 @@
+# Qwen3.8-27B-NVFP4 (NVIDIA) — 4-bit float, fastest expected config
+#
+# ================= PLACEHOLDER — CHECKPOINT DOES NOT EXIST =================
+# Checked 2026-08-14 (base-model release day): NVIDIA have published NO
+# `nvidia/Qwen3.8-*` repo at all. This file cannot run as written.
+#
+# It is kept because NVIDIA did ship NVFP4 for both Qwen3.6 27B and 35B, just
+# some weeks after that base release, and theirs is preferable to a community
+# quant when it lands. Re-check with:
+#   curl -s "https://huggingface.co/api/models?author=nvidia&search=Qwen3.8"
+#
+# UNTIL THEN, use one of:
+#   docker-compose.vllm-27b-fp8-rtx.yml            <- verified, first-party
+#   docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml  <- community NVFP4, port 11487
+#
+# !! If NVIDIA's checkpoint appears, do NOT assume it matches the Unsloth one.
+# Unsloth's is compressed-tensors/mixed-precision and needs NO --quantization
+# flag; NVIDIA's 3.6 checkpoints were modelopt and needed --quantization
+# modelopt. Read the new config.json's quant_method before booting either.
+# ===========================================================================
+#
+# Why bother: on Qwen3.6 the NVIDIA NVFP4 checkpoints were the throughput
+# winners on this card (35B 393.8 tok/s, 27B 138.1 tok/s), with NVIDIA-reported
+# accuracy within ~0.5% of FP8 across MMLU-Pro / GPQA-D / HLE / AIME.
+#
+# What NVIDIA's modelopt scheme actually does (as of the 3.6 cards): only the
+# linear operators inside transformer blocks are quantized — FFNs to
+# W4A16_NVFP4 (group_size=16) and lm_head to 4-bit, while attention linears
+# stay FP8 and embeddings / vision encoder / norms stay BF16. It is a mixed
+# scheme on disk, not uniform 4-bit, hence the modest accuracy cost.
+#
+# !! IMAGE POLICY — the single most expensive lesson from ../qwen3.6/:
+# use the PINNED qwen38 tag below. Do NOT use `:nightly`, and do NOT resurrect
+# the pip-upgrade-vLLM-and-flashinfer-at-container-start entrypoint that the
+# older 3.6 NVFP4 files carry. That pattern was a workaround for a window when
+# the docker tag lagged the wheel CDN; it is obsolete, it re-resolves to
+# different software on every restart, and it means a reboot silently serves
+# something other than what was benchmarked.
+#
+# KV-cache caveat, DO NOT DROP: NVIDIA's config.json carries
+# kv_cache_quant_algo=fp8, but leave KV at the vLLM default (auto/BF16) on this
+# hybrid DeltaNet arch — vllm-project/vllm#26646 is silent corruption, not a
+# crash. (SGLang was separately verified safe with fp8 KV on the 3.6 NVFP4
+# checkpoint; that verification does NOT transfer to vLLM or to 3.8.)
+#
+# This is the no-MTP baseline, deliberately, for a clean A/B. Add
+# --speculative-config once the FP8 MTP file has established the method name
+# and a good depth on this model.
+#
+# Requires Hopper (SM_90) or Blackwell (SM_120) for hardware NVFP4 tensor
+# cores. Target here: RTX PRO 6000 Blackwell (SM 120, 96 GB).
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-nvidia-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-nvfp4-nvidia:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-nvfp4-nvidia
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - nvidia/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --quantization
+      - modelopt
+      # Drop this flag if config.json turns out to have no vision_config.
+      - --language-model-only
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network
