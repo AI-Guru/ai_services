@@ -15,24 +15,33 @@
 # See README.md "Release-day checklist" before trusting any of this.
 # ====================================================================
 #
-# This is the file to boot FIRST on release day: BF16 needs no quantized
-# checkpoint to exist, so it depends on nothing but the base repo. ~54 GB of
-# weights on a 96 GB card leaves ~28 GB for KV at 0.90 util — enough for 256K
-# on the 16 full-attention layers, but drop --max-model-len if it OOMs during
-# profiling rather than raising utilization.
+# Its purpose is now QUALITY REFERENCE, not day-one bring-up. FP8 and NVFP4 are
+# both verified working and both much faster, so the only question BF16 answers
+# is "what did quantization cost us in output quality". ~54 GB of weights vs
+# 27.6 GB (FP8) and 21.2 GB (NVFP4) leaves far less room for KV — expect a much
+# smaller pool than their 1.6-1.9M tokens. If it OOMs during profiling, drop
+# --max-model-len rather than raising utilization.
 #
 # Image: the qwen38-tagged build (2026-08-12), NOT :nightly and NOT a
 # pip-upgrade entrypoint. Upstream cut this tag specifically for the family;
 # v0.27.1 (latest stable, 2026-08-11) predates it and probably cannot load the
 # checkpoint. Repin to a numbered release once one ships with qwen3.8 support.
 #
-# NO speculative decoding here on purpose — this is the clean baseline that
-# docker-compose.vllm-27b-fp8-mtp-rtx.yml is measured against.
+# NO speculative decoding here on purpose — clean baseline.
 #
-# KV-cache caveat carried over from 3.6, DO NOT DROP: do not set
-# --kv-cache-dtype fp8_e4m3 on this hybrid DeltaNet architecture under vLLM
-# (vllm-project/vllm#26646 — silent output corruption, no crash). SGLang was
-# separately verified safe with fp8 KV on 3.6; vLLM was not.
+# Flags are identical to docker-compose.vllm-27b-fp8-rtx.yml apart from the
+# checkpoint, so BF16-vs-FP8 is a controlled comparison.
+#
+# --kv-cache-dtype fp8 matches the official recipe and the rest of this
+# directory. NOTE this REVERSES the rule inherited from ../qwen3.6/, where fp8
+# KV silently corrupted output on the hybrid DeltaNet arch
+# (vllm-project/vllm#26646 — wrong answers, no crash). On 3.8 it was verified
+# clean on the FP8 checkpoint: needle retrieval exact at ~51.7K tokens at both
+# shallow and deep placement. That check has NOT been repeated on BF16 — and if
+# you are using this file as an ACCURACY reference, fp8 KV is itself a
+# confounder in the comparison. Re-run the probes first, or set
+# --kv-cache-dtype auto here and accept that it then differs from its A/B
+# partner in two places rather than one.
 #
 # Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-bf16-rtx.yml up -d
 # API endpoint: http://localhost:11484/v1
@@ -81,23 +90,17 @@ services:
       - "0.0.0.0"
       - --port
       - "8000"
-      - --tensor-parallel-size
-      - "1"
-      - --dtype
-      - auto
-      # Drop this flag if config.json turns out to have no vision_config.
-      - --language-model-only
-      - --max-model-len
-      - "262144"
-      - --gpu-memory-utilization
-      - "0.90"
-      - --enable-chunked-prefill
-      - --enable-prefix-caching
-      - --max-num-batched-tokens
-      - "16384"
+      # --- identical to docker-compose.vllm-27b-fp8-rtx.yml except the
+      # --- checkpoint, so BF16-vs-FP8 is a clean quality comparison.
       # No --chat-template: use the checkpoint's own. The 3.6 templates in
       # ../qwen3.6/ are for a DIFFERENT tokenizer (vocab 248320 here vs ~152K
       # there) and must not be reused.
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
