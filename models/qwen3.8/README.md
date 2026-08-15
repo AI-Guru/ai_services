@@ -1,12 +1,18 @@
 # Qwen3.8 Family
 
-**STATUS: released 2026-08-14. FP8 verified in production config —
-text, tools, long-context recall and vision all working.**
+**STATUS: released 2026-08-14. NVFP4 + MTP is the production config —
+97.9 tok/s, tools, long-context recall and vision all verified.**
 `Qwen/Qwen3.8-27B` and `Qwen/Qwen3.8-27B-FP8` are both first-party and public
-(Apache 2.0). `docker-compose.vllm-27b-fp8-rtx.yml` tracks the
-[official vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.8-27B) and is running
-on the RTX PRO 6000 at `localhost:11484`. The other files in this directory are
-still **UNVERIFIED** scaffolds and say so in their headers.
+(Apache 2.0). All composes track the
+[official vLLM recipe](https://recipes.vllm.ai/Qwen/Qwen3.8-27B) except where
+noted, and differ from each other only by checkpoint (+ `--speculative-config`
+on the MTP variants), so every pairwise comparison is single-variable.
+
+**Currently serving on the RTX PRO 6000 at `localhost:11484`:**
+`docker-compose.vllm-27b-nvfp4-unsloth-mtp-rtx.yml` — 97.9 tok/s.
+Verified: `vllm-27b-fp8-rtx`, `vllm-27b-nvfp4-unsloth-rtx`,
+`vllm-27b-nvfp4-unsloth-mtp-rtx`. The rest are **UNVERIFIED** scaffolds and say
+so in their headers.
 
 Two gotchas that will bite you first — details below:
 `enable_thinking: false` **degrades multi-step arithmetic** (use
@@ -123,8 +129,6 @@ transformers docstring lint, not failures:
 
 ---
 
----
-
 ## Measured: FP8 on RTX PRO 6000 (2026-08-14)
 
 `Qwen/Qwen3.8-27B-FP8` via `vllm/vllm-openai:qwen38-x86_64-cu130`.
@@ -225,11 +229,52 @@ budget context accordingly. **Video** is supported by the architecture
 card notes full-frame decoding needs
 `--media-io-kwargs '{"video": {"num_frames": -1}}'`, which no compose sets.
 
-### Throughput
+### Throughput — and MTP, which is the whole ballgame
 
-`test_chat.py --runs 3 --warmup`: **45.6 tok/s** on the recipe config. TTFT here
-is dominated by thinking, not prefill, so it is not comparable to a
-non-reasoning model's TTFT.
+`test_chat.py --runs 3 --warmup`, all on the same card. TTFT is dominated by
+thinking, not prefill, so it is not comparable to a non-reasoning model's TTFT.
+
+| Config | tok/s | vs FP8 |
+|---|---|---|
+| FP8 (recipe) | 45.6 | — |
+| NVFP4 Unsloth | 58.7 | +29% |
+| **NVFP4 + MTP depth 2** | **97.9** | **+115%** |
+
+**MTP depth sweep** on the NVFP4 checkpoint (one full load + benchmark per
+depth). `num_speculative_tokens`:
+
+| Depth | tok/s | vs no-MTP | Mean accept length | Per-position acceptance | Avg draft acceptance |
+|---|---|---|---|---|---|
+| off | 58.7 | — | — | — | — |
+| 1 | 85.5 | +46% | 1.74 | 0.739 | 73.9% |
+| **2** | **97.9** | **+67%** | 2.19 | 0.710 / 0.479 | 59.4% |
+| 3 | 96.1 | +64% | 2.37 | 0.661 / 0.438 / **0.268** | 45.6% |
+
+**The recipe's depth 3 is past the peak — this directory ships depth 2.** The
+per-position column is the mechanism: acceptance decays hard per draft slot, and
+at depth 3 the third token lands only **26.8%** of the time, so it drafts
+130.8 tok/s to accept 59.6 and throws away two thirds of the draft compute.
+Depth 2 drafts 93.2 to accept 55.4 and wins. Note acceptance *rate* falls
+monotonically (73.9 → 59.4 → 45.6%) while mean accepted *length* rises
+(1.74 → 2.19 → 2.37); throughput tracks the product until slot-3 decay dominates.
+
+vLLM warns at startup that `num_speculative_tokens > 1` re-runs the single MTP
+layer and "may result in lower acceptance rate". Correct about the mechanism,
+wrong as a verdict — depth 2 still beats depth 1 by 14%.
+
+**MTP costs no extra weight VRAM** (`model_mtp.safetensors` is referenced from
+the safetensors index, so vLLM loads it even with speculation off) but it does
+cost KV pool: 1,899,790 → 1,619,037 tokens at depth 2, about −15%.
+
+**A prior that did NOT transfer:** Unsloth leaves the MTP head in BF16
+(`re:^mtp.*` in the quant ignore list) against a 4-bit NVFP4 target — the widest
+drafter/target precision mismatch here. On 3.6, that kind of divergence broke
+speculation (DFlash stable on FP8, unstable on INT4). It does not reproduce:
+73.9% acceptance at depth 1. Do not assume the 3.6 finding applies to 3.8.
+
+⚠️ **Prose prompt only.** On 3.6 the optimal draft length flipped ~2x between
+prose and code, and `test_chat.py`'s default prompt is close to spec-decode's
+worst case. Re-sweep for coding workloads before trusting depth 2 there.
 
 Thinking-mode sweep on the same prompt (3 runs each, *lightly loaded* — another
 agent was sharing the card, so treat these as relative not absolute):
@@ -284,7 +329,9 @@ Fresh block — nothing in this repo used 11484+ before.
 | 11484 | vLLM 27B: BF16 / FP8 / FP8+MTP (one at a time) |
 | 11485 | SGLang 27B |
 | 11486 | llama.cpp 27B |
-| 11487 | vLLM 27B NVFP4 (Unsloth) — separate so it cannot collide with a live FP8 endpoint |
+All vLLM variants share **11484** and the served name `qwen3.8-27b`, so any of
+them is a drop-in swap for an existing harness. Only one can run at a time on
+this card — stop the other first.
 
 Distinct ports for the three engines so a 3-way runtime A/B can run
 back-to-back without editing configs, matching the
@@ -297,14 +344,97 @@ back-to-back without editing configs, matching the
 | File | Checkpoint | Status |
 |---|---|---|
 | `docker-compose.vllm-27b-fp8-rtx.yml` | `Qwen/Qwen3.8-27B-FP8` (first-party) | ✅ **VERIFIED** — tracks the official recipe. 45.6 tok/s, tools 4/4, vision working. Use this. |
+| `docker-compose.vllm-27b-nvfp4-unsloth-mtp-rtx.yml` | `unsloth/Qwen3.8-27B-NVFP4` (**community**) | ✅ **VERIFIED — FASTEST. 97.9 tok/s** at MTP depth 2. The current default. |
+| `docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml` | `unsloth/Qwen3.8-27B-NVFP4` (**community**) | ✅ **VERIFIED.** 58.7 tok/s, tools 4/4, vision OK, needle-exact to ~51.7K. |
 | `docker-compose.vllm-27b-bf16-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified. ~54 GB. Only worth it as a quality reference vs FP8. |
 | `docker-compose.vllm-27b-fp8-mtp-rtx.yml` | `Qwen/Qwen3.8-27B-FP8` (first-party) | Unverified. A/B partner for the FP8 baseline; sweep the depth. |
-| `docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml` | `unsloth/Qwen3.8-27B-NVFP4` (**community**) | Unverified, config-checked. Port 11487. Ships an unquantized MTP head. See KV-cache trap below. |
 | `docker-compose.sglang-27b-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified. Runtime A/B, NEXTN speculation. |
 | `docker-compose.llama-27b-q4-rtx.yml` | `unsloth/Qwen3.8-27B-GGUF` (**community**) | Unverified. GGUF conversion confirmed to exist (`Qwen3.8-27B-UD-Q4_K_XL.gguf`). |
 
 Every unverified file carries a header block listing exactly which assumptions
 it makes.
+
+### Updating a checkpoint — and why you may want to pin one
+
+`HF_HUB_OFFLINE=0` in every compose here means the container re-resolves `main`
+to the current upstream SHA on **each start**. Blobs are content-addressed, so
+byte-identical weights are reused and only changed files download — a metadata
+fix on a 23 GB repo updates in seconds.
+
+```bash
+docker compose -f docker-compose.vllm-27b-nvfp4-unsloth-mtp-rtx.yml down
+docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-unsloth-mtp-rtx.yml up -d
+```
+
+Verify it actually moved, rather than assuming:
+
+```bash
+# which revision the cache now points at
+docker run --rm -v qwen38_huggingface_cache:/c alpine \
+  cat /c/hub/models--unsloth--Qwen3.8-27B-NVFP4/refs/main
+
+# and what the RUNNING container actually loaded
+docker exec qwen38-27b-nvfp4-unsloth-mtp sh -c \
+  'head -c 120 $(find /root/.cache/huggingface/hub/models--unsloth--Qwen3.8-27B-NVFP4/snapshots -name tokenizer.json | head -1)'
+```
+
+Old snapshots stay in the cache volume (disk grows by one snapshot per update,
+though shared blobs are not duplicated).
+
+⚠️ **`main` floats.** These composes pin the vLLM image but **not** the model
+revision, so a restart silently loads whatever upstream published since — the
+same drift hazard the image-pinning notes warn about, one layer down. On
+2026-08-15 that worked in our favour; it can equally swap a working checkpoint
+for a broken one during an unattended reboot. To pin, add to the vLLM args:
+
+```yaml
+      - --revision
+      - 16b6615af3548b88e2d8e382457bc705b00479cf
+```
+
+### ⚠️ Community-quant hazard: Unsloth's 2048-token tokenizer truncation
+
+**Fixed upstream 2026-08-15 in revision `16b6615a` — verified fixed here.**
+Worth reading anyway, because it is the archetype of how a community repack
+breaks in a way that does not look like a model bug.
+
+Revisions of `unsloth/Qwen3.8-27B-NVFP4` before `16b6615a` shipped
+`tokenizer.json` with `"truncation": {"max_length": 2048, …}` where official
+Qwen has `"truncation": null`. Two failure modes
+([discussion #10](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4/discussions/10)):
+
+- **Images >~1.4 MP fail loudly** — `ValueError: Mismatch in 'image' token count
+  between text and 'input_ids'. Got ids=[2047] and text=[2280]`. Reads like a
+  vLLM/processor bug; it is a metadata bug.
+- **Text >2048 tokens truncates SILENTLY** — no error, no warning. A server
+  advertising `max_model_len: 262144` simply stops reading past 2048.
+
+The silent one is the dangerous one, and it is invisible to the obvious tests:
+short prompts and small images both pass. Our own first NVFP4 vision check used
+a 110 KB JPEG and a 900×420 PNG — under the threshold, so it would not have
+caught this either way.
+
+Verified on revision `16b6615a` (2026-08-15):
+
+| Probe | Prompt tokens | Result |
+|---|---|---|
+| 1024×1024 image (1.05 MP) | 1,049 | ✅ |
+| 1600×1200 image (1.92 MP) — reporter's regression case | 1,925 | ✅ |
+| 2912×1632 image (4.75 MP) | **4,666** | ✅ |
+| Long text, needle at 92% depth | 3,573 | ✅ recalled |
+| Long text, needle at 92% depth | **10,613** | ✅ recalled |
+
+4,666 tokens from one image and 10,613 from text are both far past 2048 —
+exactly what the old revision could not do.
+
+**Regression test if you ever change checkpoint or revision:** one image
+≥1600×1200, and one text prompt >2048 tokens with the answer past the 2048 mark.
+Check `usage.prompt_tokens` in the response, not just that a reply came back.
+
+Related, same repo: [#11](https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4/discussions/11)
+reports `AttributeError: 'MergedColumnParallelLinear' object has no attribute
+'data'` on vLLM 0.27.1 **and** 0.25.1 — independent confirmation that the
+`qwen38`-tagged image is mandatory, not merely preferred.
 
 ### The NVFP4 checkpoint is not what the 3.6 NVFP4 files assumed
 
@@ -326,8 +456,6 @@ the checkpoint rather than passed on the command line, so vLLM may apply it
 unbidden. The compose asserts `--kv-cache-dtype auto`; **verify it took** with
 `docker logs qwen38-27b-nvfp4-unsloth 2>&1 | grep -i kv.cache.dtype` before
 trusting any output.
-
----
 
 ---
 
@@ -403,16 +531,17 @@ read. What remains:
    tokens, but the 262K ceiling and the 1.67M-token KV pool are not probed near
    their limits. Also untested: YaRN-extended 1M context.
 
-2. **MTP.** `mtp_num_hidden_layers: 1` on the base model, and Unsloth's NVFP4
-   ships an unquantized `model_mtp.safetensors`. Neither has been booted.
-   Confirm vLLM still registers the method as `qwen3_next_mtp` in the qwen38
-   image, then **sweep the depth on this model** — per `../qwen3.6/`, the
-   optimum did not transfer between the 27B and 35B of the *same* generation,
-   and it flips between prose and code workloads (~2x spread). Do not port a
-   number across.
+2. **Correctness under MTP.** Throughput is swept; correctness is not. Tools,
+   vision and needle recall have **not** been re-run with speculation enabled,
+   and on 3.6 MTP crashed the engine on mixed-modality batches — with vision
+   enabled here, that path is reachable. Highest-value gap.
 
-3. **NVFP4 vs FP8.** Only ~15% smaller on disk; the question is whether the
-   4-bit FFNs buy decode speed. Check the KV-cache trap first (above).
+3. **MTP on the FP8 checkpoint.** Never booted, and it is the better-conditioned
+   experiment: Qwen quantizes its MTP head too (22 tensors incl.
+   `weight_scale_inv`), so drafter and target precision match, unlike Unsloth's
+   BF16 head against a 4-bit target.
+
+4. **MTP depth for code workloads** — see the prose-only caveat above.
 
 4. **`reasoning_effort` non-monotonicity** — `medium` beat `low` on TTFT and
    reasoning length. Needs more prompts and runs to tell signal from noise.
