@@ -77,10 +77,17 @@ services:
   qwen38-27b-nvfp4-unsloth-mtp:
     image: vllm/vllm-openai:qwen38-x86_64-cu130
     container_name: qwen38-27b-nvfp4-unsloth-mtp
-    # "no", not unless-stopped: unproven combination (community quant +
-    # speculation), and a config the engine rejects would otherwise crash-loop
-    # forever. Switch to unless-stopped once verified.
-    restart: "no"
+    # unless-stopped since 2026-08-15: this is the PRODUCTION endpoint (97.9
+    # tok/s, the fastest verified config here) and it must survive reboots.
+    # It was "no" while the community-quant + speculation combination was
+    # unproven; it booted clean repeatedly and a reboot on 2026-08-15 took the
+    # endpoint down precisely because of that setting.
+    #
+    # The crash-loop risk this originally guarded against is real — see
+    # CLAUDE.md — so if you edit the command below, watch the first boot with
+    # the crash-loop-aware waiter rather than a naive "wait until healthy" loop,
+    # which hangs until timeout instead of reporting the failure.
+    restart: unless-stopped
 
     deploy:
       resources:
