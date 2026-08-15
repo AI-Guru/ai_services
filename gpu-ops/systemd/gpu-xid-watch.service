@@ -1,0 +1,22 @@
+# /etc/systemd/system/gpu-xid-watch.service
+[Unit]
+Description=Persist the NVIDIA GPU crash dump when a severe Xid is logged
+Documentation=file:/home/despara/Development/gpu-crash-collect.sh
+# Only needs the journal to follow. Deliberately NOT ordered after docker:
+# the point is to be watching as early as possible, and the one docker-dependent
+# collection step degrades gracefully if the daemon is not up yet.
+After=systemd-journald.service
+Wants=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/home/despara/Development/gpu-xid-watch.sh
+# The watcher loops forever; a non-zero exit means something unexpected died.
+Restart=always
+RestartSec=10
+# Must exceed the collector's worst case so a stop request cannot kill it
+# mid-write: 60s safe report + 120s full report + 30s debugdump + 3x15s queries.
+TimeoutStopSec=300
+
+[Install]
+WantedBy=multi-user.target

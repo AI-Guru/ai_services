@@ -12,7 +12,14 @@ services:
   nvidia-gpu-exporter:
     image: utkuozdemir/nvidia_gpu_exporter:1.3.0
     container_name: nvidia-gpu-exporter
-    restart: unless-stopped
+    # `always`, NOT `unless-stopped`: this container requests GPU devices, so
+    # safe-shutdown.sh sweeps it up with the vLLM containers and `docker stop`s
+    # it before every poweroff. `unless-stopped` remembers that manual stop
+    # across the reboot, which would leave the GPU blind from the next boot on —
+    # precisely when you reboot to recover from an Xid and most need the history.
+    # `always` restarts it when the daemon comes back regardless. It only scrapes
+    # nvidia-smi (no CUDA context), so it is never the thing that wedges the card.
+    restart: always
     pid: host
     ports:
       - "9835:9835"
@@ -21,6 +28,36 @@ services:
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
     command:
       - --query-field-names=name,uuid,fan.speed,pstate,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit,clocks.current.graphics,clocks.current.sm,clocks.current.memory,clocks.current.video,pcie.link.gen.current,pcie.link.width.current
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Complements nvidia-gpu-exporter rather than replacing it. That one samples
+  # instantaneous values every 5s; this one exports CUMULATIVE event counters and
+  # PCIe AER counters, which retain transients shorter than the scrape interval.
+  # See the module docstring in gpu-events-exporter.py for why that distinction
+  # matters for the Xid 79 investigation.
+  gpu-events-exporter:
+    image: python:3.12-slim
+    container_name: gpu-events-exporter
+    # `always` for the same reason as nvidia-gpu-exporter — see the note there.
+    restart: always
+    ports:
+      - "9836:9836"
+    volumes:
+      - ./gpu-events-exporter.py:/app/gpu-events-exporter.py:ro
+      - /usr/bin/nvidia-smi:/usr/bin/nvidia-smi:ro
+      - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
+    command: ["python3", "-u", "/app/gpu-events-exporter.py"]
     deploy:
       resources:
         reservations:

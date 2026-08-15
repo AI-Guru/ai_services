@@ -6,6 +6,26 @@ OpenAI-compatible API. Benchmarks live in `models/shared/` (`test_chat.py`,
 `test_tools.py`, `test_scenarios.py`) and results are written up in each family's
 `README.md` (+ `comparison*.html`).
 
+## GPU incidents: read `GPU-INCIDENT-RUNBOOK.md` FIRST
+
+If the GPU is wedged, missing, throwing Xids, or a model won't load, go to
+**[`GPU-INCIDENT-RUNBOOK.md`](GPU-INCIDENT-RUNBOOK.md)** before doing anything
+else. Section 0 is the live-incident procedure; the rest is reference (failure
+modes, what evidence is auto-captured and where, analysis queries, baselines,
+and a list of traps that have already cost real time).
+
+Two rules from it that matter even outside an incident:
+
+- **Never `sudo reboot` / `sudo shutdown now` while a model is loaded.** Use
+  `sudo /home/despara/Development/safe-shutdown.sh [--reboot]`. A plain shutdown
+  gives docker ~10s before SIGKILL, and killing vLLM mid-CUDA-op wedges this card
+  into a state only a **cold power cycle** clears.
+- **Before rebooting to recover a wedged GPU, make sure the crash dump was
+  captured** (`ls -lt /var/log/gpu-crash/`). The dump lives in driver memory and
+  the recovery reboot destroys it. Capture is automatic via
+  `gpu-xid-watch.service`, but verify — losing it is how the 2026-08-14 Xid 79
+  ended up uninvestigable.
+
 ## Git: commit straight to main — do NOT branch
 
 This is a solo research repo. When asked to commit, commit directly on `main`;

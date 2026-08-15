@@ -1,0 +1,26 @@
+[Unit]
+Description=Gracefully release the GPU before shutdown (prevents RTX PRO 6000 Xid 154 wedge)
+Documentation=file:/home/despara/Development/safe-shutdown.sh
+# Order after docker so that, on shutdown, this unit is stopped BEFORE
+# docker.service — i.e. ExecStop runs while the Docker daemon is still alive and
+# can stop the GPU containers gracefully.
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Nothing to do at boot; the real work happens on stop (i.e. at shutdown/reboot).
+ExecStart=/bin/true
+ExecStop=/home/despara/Development/safe-shutdown.sh --release-only
+# Must exceed the script's worst case. Raised from 200 when crash-dump collection
+# was added ahead of the teardown: 165s collector (90s safe bug report + 30s
+# debugdump + 3x15s device queries, all of which can hang on a dead GPU and so
+# run to their timeouts) + docker stop -t 90 + up to 60s GPU drain = ~315s.
+# Note the shutdown path never runs the full report (--full is watcher-only).
+# Undersizing this is not cosmetic: systemd would SIGKILL the script mid-teardown,
+# which is the exact 10s-SIGKILL scenario this unit exists to prevent.
+TimeoutStopSec=360
+
+[Install]
+WantedBy=multi-user.target

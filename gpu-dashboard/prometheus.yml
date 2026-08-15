@@ -5,3 +5,9 @@ scrape_configs:
   - job_name: nvidia_gpu
     static_configs:
       - targets: ["nvidia-gpu-exporter:9835"]
+
+  # Cumulative clock-event counters + PCIe AER counters. Separate exporter
+  # because these are not available via `nvidia-smi --query-gpu=`.
+  - job_name: gpu_events
+    static_configs:
+      - targets: ["gpu-events-exporter:9836"]
