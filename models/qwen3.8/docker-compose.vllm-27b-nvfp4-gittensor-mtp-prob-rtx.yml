@@ -1,0 +1,180 @@
+# Qwen3.8-27B W4A4 NVFP4 + MTP-2 + probabilistic drafting
+#
+# ================= PRODUCTION ENDPOINT (concurrency-tested) ==============
+# This is NOT the fastest single-stream config in this directory — that is
+# docker-compose.vllm-27b-nvfp4-gittensor-dspark-rtx.yml at 111.8 tok/s vs this
+# file's ~104. It is the config that wins where it counts once more than about
+# 4 requests are in flight, and the gap grows with load:
+#
+#   concurrency:        1      4      8     15     30     55
+#   DSpark-7 + prob:  127.2  401.3  584.8  768.6  891.3  867.1   <- collapses
+#   THIS FILE:        111.3  388.9  639.5  913.3 1158.6 1213.6   <- keeps scaling
+#   no speculation:    80.6  245.4  446.2  707.7 1004.8 1136.2
+#                                   (aggregate output tok/s, guidellm chat)
+#
+# WHY DSpark WINS ALONE AND LOSES UNDER LOAD:
+# Decode at concurrency 1 is memory-bound — verifying 7 draft tokens costs the
+# same as verifying 1, so a long draft block is nearly free and DSpark's longer
+# block wins. As the batch fills, the GPU becomes COMPUTE-bound and every
+# drafted-but-rejected token is real stolen work. DSpark-7 burns 7 draft slots
+# per request per step; MTP-2 burns 2. At concurrency 30 that is the whole
+# difference between 891 and 1159 tok/s.
+#
+# TWO MORE REASONS THIS FILE IS THE PRODUCTION ONE:
+#  * KV POOL. 1,557,969 tokens vs DSpark's 967,870 (+61%) — DSpark reserves far
+#    more draft slots, and that pool is what caps concurrent long-context users.
+#  * IMAGES. The DSpark drafter cannot see image embeddings (vLLM logs "Draft
+#    model Qwen3DSparkForCausalLM does not support external multimodal
+#    embeddings ... using text-only draft inputs"), so it drafts blind on every
+#    image turn and wastes the compute. MTP is part of the target model and
+#    reads its hidden states, so it does not. Measured on a 50/50 text+image
+#    mix at concurrency 32, per-stream tok/s:
+#        DSpark-7:  text 31.8 / image 18.4   <- images pay double
+#        THIS FILE: text 38.1 / image 36.1   <- balanced
+#
+# Verified under load: 5 guidellm scenarios (chat/rag/codegen/summ/agentic) to
+# concurrency 64 and mixed text+image to concurrency 32, ZERO errors.
+# ========================================================================
+#
+# Qwen3.8-27B NVFP4 W4A4 (gittensor-model-hub) — no speculation
+#
+# WHY THIS CHECKPOINT EXISTS ALONGSIDE THE UNSLOTH ONE:
+# It is a genuinely different quantization, not a repack. Read
+# hf_quant_config.json on both before assuming they are interchangeable:
+#
+#   unsloth/Qwen3.8-27B-NVFP4     compressed-tensors MIXED_PRECISION.
+#                                 4-bit weights on mlp.{gate,up,down}_proj ONLY,
+#                                 16-bit activations. Attention, DeltaNet gates
+#                                 and layers 56-63's MLPs stay FP8. 23.44 GB.
+#
+#   gittensor .../NVFP4-RTX5090   modelopt NVFP4 W4A4, group_size 16,
+#                                 targets ["Linear"] — 4-bit WEIGHTS *and*
+#                                 4-bit ACTIVATIONS across the whole language
+#                                 model. Only lm_head, embeddings, the DeltaNet
+#                                 conv1d/in_proj_a/in_proj_b, the vision tower
+#                                 and the MTP head are excluded.
+#
+# W4A4 is the point. On sm_120 the FP4 tensor cores only engage when the
+# activations are FP4 too; a W4A16 checkpoint dequantizes to 16-bit and runs the
+# GEMM at 16-bit, so it buys VRAM but not math throughput. That is the most
+# likely explanation for the Unsloth checkpoint's mediocre 58.7 tok/s.
+#
+# ⚠️ COMMUNITY QUANT, and an unusual one — the repo name says RTX5090 because it
+# was calibrated and benchmarked on a 32 GB 5090, not on this card. Nothing in
+# the checkpoint is 5090-specific (sm_120 is sm_120), but their serving advice
+# IS: they mandate --gpu-memory-utilization 0.97 because 0.90 "only holds ~205k
+# KV" on 32 GB. On 96 GB that is irrelevant — do NOT copy that flag, it only
+# raises OOM risk here. This file leaves it at the vLLM default 0.90.
+#
+# ⚠️ TWO QUANT CONFIGS IN ONE REPO. It ships BOTH hf_quant_config.json (modelopt
+# producer) AND a compressed-tensors `quantization_config` inside config.json,
+# describing the same weights via two different vLLM code paths. Their card says
+# `--quantization modelopt`. This file passes NO --quantization flag and lets
+# vLLM auto-detect, because auto-detect reads config.json and picks
+# compressed-tensors. If you change this, change it deliberately and re-measure:
+# it is a kernel-selection change, not a cosmetic one. Verify which path took
+# with:
+#   docker logs qwen38-27b-nvfp4-gittensor-mtp-prob 2>&1 | grep -iE 'quant|kernel'
+#
+# Published numbers on a 5090 32 GB (their card, sglang): 80.6 tok/s no-spec,
+# 136.90 with the built-in MTP head, 147.87 with their DSpark NVFP4 drafter.
+# Baseline to beat here, Unsloth NVFP4 no-spec on this card: 58.7 tok/s.
+#
+# Everything below this line is byte-identical to
+# docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml except the model id and the
+# container name, so the delta against it is attributable to the checkpoint.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.vllm-27b-nvfp4-gittensor-rtx.yml up -d
+# API endpoint: http://localhost:11484/v1   Model name: qwen3.8-27b
+
+services:
+  qwen38-27b-nvfp4-gittensor-mtp-prob:
+    image: vllm/vllm-openai:qwen38-x86_64-cu130
+    container_name: qwen38-27b-nvfp4-gittensor-mtp-prob
+    # PRODUCTION endpoint as of 2026-08-18 (concurrency testing).
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    shm_size: 64gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11484:8000"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
+      # 0.88, not 0.90: at 0.90 the Gated DeltaNet chunk kernel OOMs during
+      # warmup because vLLM's KV-pool profiling does not account for its
+      # workspace. Raising it makes it worse. See README.
+      - --gpu-memory-utilization
+      - "0.88"
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # --- the only addition vs docker-compose.vllm-27b-nvfp4-gittensor-rtx.yml ---
+      - --speculative-config
+      # draft_sample_method: probabilistic — the target samples at temperature
+      # 1.0, so drafting the argmax (vLLM's default "greedy") gets rejected
+      # hard. Worth ~+7% single-stream AND ~+6-9% at concurrency 8-30.
+      #
+      # ⚠️ NO --async-scheduling: it hangs the engine when combined with
+      # probabilistic. See README.
+      - '{"method":"mtp","num_speculative_tokens":2,"draft_sample_method":"probabilistic"}'
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 600s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

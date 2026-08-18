@@ -1,0 +1,423 @@
+### FINAL dspark5-async
+args: --kv-cache-dtype fp8 --gpu-memory-utilization 0.88 --speculative-config {"method":"dspark","model":"/drafters/dspark-block5","num_speculative_tokens":5} --async-scheduling
+env: 
+2026-08-18T16:01:07+02:00
+Endpoint : http://localhost:11484/v1
+Model    : qwen3.8-27b
+Prompt   : Explain the key differences between mixture-of-experts and dense transformer arc…
+Runs     : 7
+Warmup   : sending short request… done (0.2s)
+
+
+Run 1/7
+
+[2m[thinking…][0m [2mWe[0m[2m need answer user's[0m[2m question: "Explain the[0m[2m key differences between mixture-of-exp[0m[2merts and dense transformer architectures,[0m[2m focusing on efficiency trade-offs."[0m[2m Need produce[0m[2m final answer. Need think[0m[2m thoroughly[0m[2m. Need likely[0m[2m explain Mo[0m[2mE[0m[2m vs dense transformers[0m[2m, focus[0m[2m efficiency[0m[2m trade-offs:[0m[2m parameter[0m[2m count[0m[2m vs F[0m[2mLO[0m[2mPs[0m[2m, memory, compute[0m[2m, training[0m[2m, serving[0m[2m, activation[0m[2m routing[0m[2m, load[0m[2m balancing, expert[0m[2m capacity[0m[2m, batch[0m[2m size[0m[2m, communication[0m[2m overhead[0m[2m, GPU[0m[2m utilization[0m[2m, scaling[0m[2m laws[0m[2m, quality[0m[2m, implementation[0m[2m complexity[0m[2m,[0m[2m stability[0m[2m. Need compare[0m[2m.
+
+Let's craft a[0m[2m detailed[0m[2m but concise[0m[2m answer[0m[2m. Need[0m[2m possibly[0m[2m define[0m[2m dense transformer[0m[2m: every[0m[2m token[0m[2m attends[0m[2m to[0m[2m all tokens;[0m[2m in[0m[2m MLP[0m[2m layer[0m[2m, all[0m[2m weights[0m[2m active[0m[2m for each[0m[2m token. Mo[0m[2mE: replace[0m[2m or[0m[2m augment[0m[2m FF[0m[2mN[0m[2m with multiple expert[0m[2m sub[0m[2mnetwork[0m[2ms and[0m[2m a[0m[2m router[0m[2m selects[0m[2m top[0m[2m-k[0m[2m per[0m[2m token; only[0m[2m subset[0m[2m active[0m[2m per[0m[2m token. Differences[0m[2m:
+- Activation[0m[2m parameters[0m[2m: Mo[0m[2mE[0m[2m can[0m[2m have many more[0m[2m total[0m[2m parameters but[0m[2m same[0m[2m/s[0m[2mimilar[0m[2m active[0m[2m compute[0m[2m per token. Dense[0m[2m: total[0m[2m params[0m[2m = active params[0m[2m,[0m[2m compute[0m[2m scales[0m[2m with param[0m[2m count.
+- Compute[0m[2m: MoE[0m[2m can trade[0m[2m compute[0m[2m for capacity[0m[2m:[0m[2m larger[0m[2m model[0m[2m with[0m[2m near[0m[2m constant[0m[2m F[0m[2mLOPs. But[0m[2m overhead[0m[2m routing[0m[2m, token[0m[2m dispatch[0m[2m, load balancing;[0m[2m can[0m[2m have[0m[2m uneven[0m[2m load[0m[2m,[0m[2m expert[0m[2m under[0m[2mutil[0m[2mization;[0m[2m in[0m[2m batch[0m[2m, experts[0m[2m may need to handle[0m[2m variable[0m[2m tokens[0m[2m.
+- Memory[0m[2m: MoE weights[0m[2m larger[0m[2m, needs[0m[2m store[0m[2m all experts[0m[2m.[0m[2m Active[0m[2m memory for[0m[2m compute[0m[2m smaller[0m[2m but inference[0m[2m requires[0m[2m expert[0m[2m weights[0m[2m resident[0m[2m unless[0m[2m off[0m[2mloading[0m[2m;[0m[2m memory bandwidth[0m[2m can[0m[2m be bottleneck[0m[2m. Dense[0m[2m: weight[0m[2m memory proportional[0m[2m active[0m[2m;[0m[2m no[0m[2m routing[0m[2m.[0m[2m
+- Serving[0m[2m/in[0m[2mference: MoE more[0m[2m complex[0m[2m batching[0m[2m/p[0m[2macking; GPU[0m[2m utilization[0m[2m lower[0m[2m if[0m[2m batch[0m[2m small[0m[2m due[0m[2m sp[0m[2marsity; token[0m[2m-to[0m[2m-expert[0m[2m assignment[0m[2m leads[0m[2m data[0m[2m-dependent[0m[2m routing[0m[2m, memory fragmentation[0m[2m;[0m[2m can require[0m[2m all[0m[2m experts loaded[0m[2m;[0m[2m expert[0m[2m parallel[0m[2mism[0m[2m across devices[0m[2m with[0m[2m high communication ([0m[2mall[0m[2m-to[0m[2m-all[0m[2m)[0m[2m or[0m[2m memory[0m[2m pressure[0m[2m. Dense[0m[2m predictable[0m[2m and[0m[2m highly[0m[2m optimized.
+- Training[0m[2m: MoE requires[0m[2m load[0m[2m balancing/[0m[2maux[0m[2miliary[0m[2m loss[0m[2m, expert[0m[2m capacity[0m[2m constraints[0m[2m, token[0m[2m dropping[0m[2m, gating[0m[2m stability[0m[2m, more[0m[2m hyper[0m[2mparams[0m[2m; can[0m[2m be less[0m[2m stable;[0m[2m often[0m[2m needs[0m[2m large[0m[2m batches[0m[2m/data[0m[2m;[0m[2m router[0m[2m can[0m[2m collapse[0m[2m. Dense simpler[0m[2m,[0m[2m well[0m[2m-[0m[2moptimized.
+- Quality[0m[2m: MoE[0m[2m can achieve[0m[2m dense[0m[2m-model[0m[2m quality[0m[2m at[0m[2m lower active[0m[2m compute;[0m[2m often[0m[2m more[0m[2m capacity[0m[2m with[0m[2m same[0m[2m compute[0m[2m; but may[0m[2m have[0m[2m artifacts[0m[2m:[0m[2m routing[0m[2m errors[0m[2m, expert[0m[2m specialization[0m[2m, capacity[0m[2m overflow[0m[2m, load[0m[2m imbalance[0m[2m, under[0m[2mtrained[0m[2m experts if[0m[2m batch[0m[2m insufficient[0m[2m.
+- Scaling[0m[2m: MoE[0m[2m scales capacity[0m[2m cheap[0m[2mly but[0m[2m communication[0m[2m/memory[0m[2m overhead[0m[2m; dense has[0m[2m smoother[0m[2m scaling[0m[2m and[0m[2m easier[0m[2m inference[0m[2m.
+- Efficiency trade[0m[2m-offs: 
+[0m[2m  [0m[2m1)[0m[2m compute[0m[2m vs memory: MoE[0m[2m reduces[0m[2m compute[0m[2m for[0m[2m a[0m[2m given capacity[0m[2m but increases memory/storage[0m[2m.
+  2)[0m[2m hardware[0m[2m utilization[0m[2m: dense[0m[2m has[0m[2m high arithmetic[0m[2m intensity[0m[2m and good[0m[2m GPU[0m[2m tensor[0m[2m core[0m[2m utilization; MoE may[0m[2m have lower due sparse[0m[2m activation[0m[2m,[0m[2m variable[0m[2m loads[0m[2m, small[0m[2m expert[0m[2m sizes[0m[2m, communication[0m[2m.
+  3)[0m[2m throughput[0m[2m/[0m[2mlatency[0m[2m: MoE can lower[0m[2m per[0m[2m-token compute[0m[2m but overhead[0m[2m may[0m[2m offset[0m[2m,[0m[2m especially short[0m[2m prompts[0m[2m or[0m[2m small batch; better[0m[2m at[0m[2m large[0m[2m batch?[0m[2m Actually[0m[2m active[0m[2m compute[0m[2m per token[0m[2m constant[0m[2m;[0m[2m throughput[0m[2m can[0m[2m improve[0m[2m if experts[0m[2m are[0m[2m smaller[0m[2m and batch[0m[2m allows[0m[2m sharing[0m[2m?[0m[2m Need[0m[2m nuanced[0m[2m. In[0m[2mference[0m[2m latency[0m[2m: MoE[0m[2m requires[0m[2m routing[0m[2m and dispatch[0m[2m; experts may[0m[2m be small[0m[2m; all[0m[2m experts memory[0m[2m.[0m[2m For serving[0m[2m, batching[0m[2m many[0m[2m tokens can improve[0m[2m expert[0m[2m GPU[0m[2m utilization but not necessarily latency[0m[2m. Expert[0m[2m parallelism can increase[0m[2m cross[0m[2m-device[0m[2m communication[0m[2m.
+  4)[0m[2m Training[0m[2m vs[0m[2m inference[0m[2m: MoE training[0m[2m often[0m[2m more expensive due[0m[2m balancing[0m[2m,[0m[2m larger[0m[2m optimizer[0m[2m states[0m[2m? If[0m[2m total[0m[2m params large[0m[2m, optimizer states for[0m[2m all experts[0m[2m ([0m[2munless[0m[2m sh[0m[2marded[0m[2m) increase[0m[2m memory;[0m[2m active[0m[2m F[0m[2mLOPs lower[0m[2m but weight[0m[2m updates[0m[2m all[0m[2m experts?[0m[2m In[0m[2m training, all[0m[2m expert[0m[2m weights get[0m[2m updated?[0m[2m Typically[0m[2m all[0m[2m experts in[0m[2m model[0m[2m are[0m[2m in[0m[2m graph[0m[2m and gradient[0m[2m computed[0m[2m for active[0m[2m experts[0m[2m; gradients[0m[2m for[0m[2m inactive[0m[2m experts zero[0m[2m;[0m[2m optimizer[0m[2m states for[0m[2m all experts exist[0m[2m. Compute[0m[2m for[0m[2m backward[0m[2m of[0m[2m experts[0m[2m only[0m[2m active tokens[0m[2m;[0m[2m all[0m[2m-to[0m[2m-all[0m[2m. Dense[0m[2m:[0m[2m no[0m[2m routing[0m[2m.
+  [0m[2m5) Batch[0m[2m-size[0m[2m dependence[0m[2m: MoE benefits[0m[2m from[0m[2m larger batches[0m[2m because[0m[2m experts[0m[2m receive[0m[2m more tokens,[0m[2m better[0m[2m utilization[0m[2m, load[0m[2m balance[0m[2m smoother[0m[2m; dense[0m[2m less[0m[2m batch[0m[2m-size[0m[2m dependent[0m[2m.[0m[2m
+  6) Quant[0m[2mization/sp[0m[2marsity[0m[2m: MoE weights[0m[2m more[0m[2m numerous[0m[2m;[0m[2m quantization can[0m[2m reduce[0m[2m memory but expert[0m[2m precision[0m[2m issues[0m[2m.
+
+[0m[2mNeed maybe include table.[0m[2m
+
+Question[0m[2m: "Explain the[0m[2m key differences between mixture-of-exp[0m[2merts and dense transformer architectures,[0m[2m focusing on efficiency trade-offs."[0m[2m Need[0m[2m answer maybe[0m[2m general[0m[2m. Let[0m[2m's structure[0m[2m:
+- Overview[0m[2m
+- Core[0m[2m architectural[0m[2m difference
+- Efficiency[0m[2m trade-offs:[0m[2m compute[0m[2m, memory, throughput[0m[2m/[0m[2mlatency, training stability[0m[2m/[0m[2mcomplex[0m[2mity, scaling[0m[2m/b[0m[2match[0m[2m, hardware[0m[2m
+[0m[2m- When[0m[2m choose[0m[2m.[0m[2m
+
+Let[0m[2m's ensure[0m[2m not[0m[2m overs[0m[2mimplify[0m[2m. Also[0m[2m maybe[0m[2m mention mixture[0m[2m-of[0m[2m-experts variants[0m[2m: top[0m[2m-k gating[0m[2m, learned[0m[2m router[0m[2m, shared[0m[2m experts,[0m[2m auxiliary[0m[2m load[0m[2m balancing, capacity[0m[2m factor[0m[2m,[0m[2m token[0m[2m dropping[0m[2m. Dense transformer[0m[2m: standard[0m[2m FF[0m[2mN. Mo[0m[2mE can[0m[2m be applied[0m[2m to FF[0m[2mN;[0m[2m attention[0m[2m remains[0m[2m dense.
+
+Need maybe formula[0m[2m: Dense[0m[2m model[0m[2m: N params[0m[2m,[0m[2m each[0m[2m token[0m[2m activates[0m[2m N weights[0m[2m,[0m[2m FLOPs ~[0m[2m [0m[2m2*N[0m[2m*L[0m[2m etc[0m[2m. MoE: total[0m[2m params[0m[2m N[0m[2m_total[0m[2m, active params[0m[2m N_active[0m[2m <[0m[2m< N_total[0m[2m;[0m[2m FLOPs[0m[2m per[0m[2m token ~ [0m[2m2*N_active;[0m[2m memory[0m[2m ~ N_total. Efficiency[0m[2m:[0m[2m can[0m[2m get[0m[2m quality[0m[2m of dense[0m[2m with M[0m[2m active[0m[2m F[0m[2mLOPs while[0m[2m storing[0m[2m bigger[0m[2m total[0m[2m. But[0m[2m memory[0m[2m and[0m[2m bandwidth[0m[2m.
+
+Also[0m[2m mention "eff[0m[2miciency" in[0m[2m terms of compute[0m[2m vs memory[0m[2m trade[0m[2m-off[0m[2m:[0m[2m MoE is[0m[2m compute[0m[2m-s[0m[2mparse[0m[2m but memory-d[0m[2mense. Dense is[0m[2m memory[0m[2m-com[0m[2mpute[0m[2m coupled[0m[2m.
+
+Need maybe mention "[0m[2mMo[0m[2mE does[0m[2m not automatically[0m[2m reduce F[0m[2mLOPs if[0m[2m all[0m[2m experts are large[0m[2m or[0m[2m top[0m[2m-k increases[0m[2m active[0m[2m params".[0m[2m The[0m[2m trade[0m[2m is[0m[2m only[0m[2m if[0m[2m total[0m[2m params[0m[2m >[0m[2m active.[0m[2m
+
+Let[0m[2m's produce[0m[2m final with headings. Need[0m[2m maybe[0m[2m include examples: total[0m[2m 100B[0m[2m, top[0m[2m-[0m[2m2 experts of[0m[2m 10B[0m[2m =[0m[2m 2[0m[2m0B active? Actually if[0m[2m each[0m[2m expert 5[0m[2mB and 8[0m[2m experts =[0m[2m 4[0m[2m0B total[0m[2m, top-[0m[2m2 = 1[0m[2m0B active. Could[0m[2m illustrate[0m[2m.
+
+Potential[0m[2m pitfalls: In[0m[2mference[0m[2m memory[0m[2m: if[0m[2m experts[0m[2m are on[0m[2m GPU[0m[2m, total[0m[2m weights[0m[2m; but[0m[2m if off[0m[2mloaded[0m[2m, latency[0m[2m increases[0m[2m. Expert[0m[2m parallelism: communication[0m[2m all[0m[2m-to-all[0m[2m between[0m[2m tokens and experts[0m[2m. In[0m[2m training, token[0m[2m dispatch and capacity[0m[2m. Dense[0m[2m has[0m[2m no[0m[2m token[0m[2m routing[0m[2m,[0m[2m uniform[0m[2m. 
+
+[0m[2mNeed include[0m[2m "efficiency trade[0m[2m-offs" explicitly[0m[2m. Could[0m[2m say[0m[2m:
+- Lower[0m[2m active[0m[2m compute:[0m[2m yes[0m[2m,[0m[2m but only[0m[2m if experts[0m[2m are not too[0m[2m large and[0m[2m top-k small[0m[2m;[0m[2m overhead can[0m[2m reduce[0m[2m benefits[0m[2m.
+- Higher[0m[2m memory: weights[0m[2m,[0m[2m optimizer, KV[0m[2m cache[0m[2m unaffected[0m[2m? Attention[0m[2m KV[0m[2m cache same if[0m[2m attention dense[0m[2m; MoE affects[0m[2m feed[0m[2m-forward[0m[2m weights[0m[2m. If[0m[2m attention also[0m[2m Mo[0m[2mE? Standard[0m[2m Mo[0m[2mE only[0m[2m FFN. So[0m[2m KV cache unchanged[0m[2m.
+- Higher communication[0m[2m in[0m[2m distributed[0m[2m:[0m[2m expert parallel[0m[2mism vs[0m[2m tensor[0m[2m parallelism[0m[2m. Dense[0m[2m TP[0m[2m shards[0m[2m each[0m[2m layer[0m[2m; Mo[0m[2mE EP[0m[2m shards[0m[2m experts,[0m[2m all[0m[2m-to-all[0m[2m. If[0m[2m single[0m[2m GPU[0m[2m, all experts[0m[2m memory[0m[2m; if expert[0m[2m size[0m[2m small, poor[0m[2m GPU[0m[2m utilization.
+- Load[0m[2m balancing: aux[0m[2m loss[0m[2m can trade[0m[2m off[0m[2m quality and[0m[2m efficiency[0m[2m; capacity[0m[2m factor[0m[2m can drop[0m[2m tokens.[0m[2m
+
+[0m[2mLet[0m[2m's make[0m[2m answer[0m[2m comprehensive[0m[2m.
+
+Need not[0m[2m use[0m[2m citations[0m[2m. Maybe[0m[2m table[0m[2m.
+
+Let's draft[0m[2m final:
+
+Title[0m[2m: Dense vs[0m[2m MoE.
+
+Start[0m[2m: In[0m[2m a[0m[2m dense transformer, each[0m[2m layer[0m[2m's[0m[2m feed[0m[2m-forward network[0m[2m is applied[0m[2m to every token; total[0m[2m parameters[0m[2m = active parameters[0m[2m. In MoE, the[0m[2m FFN is replaced by a[0m[2m set of expert networks[0m[2m plus[0m[2m router[0m[2m; router[0m[2m chooses[0m[2m top-k experts[0m[2m per token; only[0m[2m those[0m[2m active.[0m[2m This[0m[2m dec[0m[2mouples[0m[2m parameter[0m[2m count from active compute[0m[2m.
+
+Then[0m[2m table:
+Dimension[0m[2m | Dense | Mo[0m[2mE | Trade[0m[2m-off
+[0m[2mCompute,[0m[2m Memory[0m[2m, Through[0m[2mput, Training, Serving[0m[2m.[0m[2m
+
+Details[0m[2m:
+1[0m[2m. Compute: dense[0m[2m F[0m[2mLOPs proportional[0m[2m to parameter[0m[2m count; MoE can[0m[2m have[0m[2m much[0m[2m larger total capacity[0m[2m at[0m[2m fixed[0m[2m active compute[0m[2m;[0m[2m but routing[0m[2m/dis[0m[2mpatch overhead.
+2.[0m[2m Memory: MoE[0m[2m stores[0m[2m all experts; active[0m[2m weights[0m[2m smaller but total[0m[2m memory[0m[2m larger.[0m[2m Inference[0m[2m may[0m[2m need all expert[0m[2m weights; if[0m[2m offloaded[0m[2m ->[0m[2m latency. Dense[0m[2m weights[0m[2m fit[0m[2m active[0m[2m;[0m[2m no experts[0m[2m unused[0m[2m in[0m[2m memory but[0m[2m all[0m[2m weights[0m[2m used[0m[2m.
+3. GPU[0m[2m efficiency[0m[2m: dense regular[0m[2m, high utilization[0m[2m; MoE sparse[0m[2m and[0m[2m data-dependent, small[0m[2m expert G[0m[2mEM[0m[2mMs[0m[2m, variable[0m[2m expert[0m[2m loads[0m[2m, lower arithmetic[0m[2m intensity,[0m[2m can leave[0m[2m GPUs[0m[2m under[0m[2mutilized[0m[2m especially[0m[2m small batches/[0m[2mshort sequences[0m[2m;[0m[2m large batches[0m[2m improve. Expert[0m[2m parallelism introduces[0m[2m all-to-all[0m[2m.
+4. Training:[0m[2m MoE needs[0m[2m load balancing, router[0m[2m capacity, token[0m[2m dropping[0m[2m, auxiliary[0m[2m losses[0m[2m, larger[0m[2m batch,[0m[2m stability[0m[2m; optimizer[0m[2m states for all experts[0m[2m. Dense simpler[0m[2m.
+5. Quality[0m[2m/sc[0m[2maling: MoE can approach[0m[2m dense[0m[2m quality[0m[2m at lower compute;[0m[2m but artifacts[0m[2m:[0m[2m load[0m[2m imbalance[0m[2m, expert collapse, capacity[0m[2m overflow, undertrained[0m[2m experts;[0m[2m sensitive[0m[2m to batch size[0m[2m and[0m[2m data.
+6. Serving[0m[2m/[0m[2mlatency: dense[0m[2m predictable; Mo[0m[2mE variable[0m[2m routing[0m[2m and[0m[2m communication[0m[2m may[0m[2m increase tail[0m[2m latency; batching[0m[2m helps[0m[2m throughput[0m[2m but[0m[2m not necessarily[0m[2m latency.
+
+Trade[0m[2m-off summary[0m[2m: Mo[0m[2mE is a[0m[2m compute-memory[0m[2m tradeoff[0m[2m: buy[0m[2m capacity[0m[2m for[0m[2m compute[0m[2m by[0m[2m storing[0m[2m more weights[0m[2m; efficient[0m[2m if[0m[2m memory[0m[2m/storage[0m[2m and[0m[2m communication can be supported[0m[2m and[0m[2m batch sizes[0m[2m large. Dense[0m[2m is more[0m[2m efficient per[0m[2m weight[0m[2m on[0m[2m simple[0m[2m hardware and simpler[0m[2m.
+
+Need maybe mention[0m[2m "Mo[0m[2mE does[0m[2m not reduce[0m[2m memory for[0m[2m activations[0m[2m?[0m[2m Activation[0m[2m memory[0m[2m may[0m[2m increase[0m[2m due to expert[0m[2m dispatch buffers[0m[2m, token[0m[2m grouping[0m[2m, but per[0m[2m-token compute[0m[2m activations[0m[2m smaller[0m[2m." Also[0m[2m "KV[0m[2m cache unaffected[0m[2m in[0m[2m standard FF[0m[2mN[0m[2m MoE."[0m[2m Could[0m[2m include.
+
+Let[0m[2m's formulate[0m[2m final.[0m[2m Need[0m[2m desired[0m[2m oververbosity 9:[0m[2m detailed[0m[2m. Should[0m[2m be maybe[0m[2m 1000-[0m[2m1500 words?[0m[2m Maybe[0m[2m enough[0m[2m. User[0m[2m just[0m[2m asks explain key[0m[2m differences focusing[0m[2m efficiency trade-offs. We can[0m[2m provide[0m[2m in[0m[2m-depth but not too long.[0m[2m We[0m[2m can[0m[2m include table and[0m[2m bullets. Good[0m[2m.
+
+Let's consider[0m[2m technical[0m[2m accuracy[0m[2m:
+- Dense Transformer[0m[2m: In[0m[2m standard[0m[2m architecture[0m[2m, each token goes[0m[2m through[0m[2m same[0m[2m weights[0m[2m in[0m[2m each[0m[2m layer;[0m[2m for[0m[2m N[0m[2m parameters[0m[2m, active[0m[2m params[0m[2m per[0m[2m token ~[0m[2mN[0m[2m ([0m[2mexcluding[0m[2m embedding[0m[2m maybe[0m[2m). F[0m[2mLOPs roughly[0m[2m linear[0m[2m in N and[0m[2m sequence[0m[2m length.
+- MoE[0m[2m: total[0m[2m params includes[0m[2m all experts; top-k router[0m[2m selects[0m[2m k[0m[2m.[0m[2m Active params[0m[2m per token ~[0m[2m base[0m[2m params[0m[2m + k*[0m[2mexpert_params[0m[2m. If experts[0m[2m are disjoint[0m[2m, total FF[0m[2mN[0m[2m params = E[0m[2m*expert[0m[2m_params, active[0m[2m = k*expert_params[0m[2m. Compute[0m[2m roughly[0m[2m scales[0m[2m with active,[0m[2m not total[0m[2m. But router[0m[2m and[0m[2m load[0m[2m balancing.[0m[2m In[0m[2m practice[0m[2m, expert[0m[2m parallel[0m[2mism and[0m[2m capacity[0m[2m factor[0m[2m. 
+[0m[2m- Efficiency[0m[2m: "[0m[2mparameter[0m[2m efficiency[0m[2m":[0m[2m total[0m[2m capacity per[0m[2m active F[0m[2mLOP[0m[2m. "memory[0m[2m efficiency": MoE worse[0m[2m. "[0m[2mcompute efficiency": Mo[0m[2mE better[0m[2m per[0m[2m token[0m[2m if[0m[2m overhead[0m[2m low[0m[2m. "hardware[0m[2m efficiency": dense[0m[2m better[0m[2m due[0m[2m regular[0m[2mity.
+[0m[2m- Training compute[0m[2m: active[0m[2m FLOPs less[0m[2m but[0m[2m communication[0m[2m may[0m[2m increase[0m[2m.[0m[2m Optim[0m[2mizer memory[0m[2m: if[0m[2m full[0m[2m model[0m[2m, optimizer states[0m[2m for all experts,[0m[2m can[0m[2m dominate[0m[2m;[0m[2m sh[0m[2marded[0m[2m across[0m[2m devices[0m[2m. Dense[0m[2m optimizer[0m[2m state[0m[2m proportional[0m[2m to active ([0m[2msame total[0m[2m). Mo[0m[2mE total[0m[2m params[0m[2m bigger[0m[2m so[0m[2m optimizer memory bigger[0m[2m. But[0m[2m if using expert[0m[2m parallelism, each[0m[2m rank[0m[2m stores subset[0m[2m experts,[0m[2m but[0m[2m still[0m[2m need all[0m[2m across[0m[2m system[0m[2m.
+- In[0m[2mference: all[0m[2m expert[0m[2m weights must be resident[0m[2m unless[0m[2m quant[0m[2mized[0m[2m/offloaded[0m[2m; memory[0m[2m-band[0m[2mwidth[0m[2m bound[0m[2m for[0m[2m small[0m[2m batches[0m[2m.[0m[2m Dense[0m[2m may[0m[2m have[0m[2m better weight[0m[2m utilization[0m[2m because[0m[2m all weights used[0m[2m each[0m[2m token; MoE some[0m[2m experts[0m[2m not[0m[2m used for a[0m[2m given token but[0m[2m used[0m[2m by[0m[2m batch;[0m[2m at[0m[2m low[0m[2m batch, many[0m[2m experts idle[0m[2m.[0m[2m
+- Load[0m[2m balancing: if[0m[2m some[0m[2m experts popular[0m[2m, capacity[0m[2m overflow[0m[2m; auxiliary[0m[2m load[0m[2m loss[0m[2m may[0m[2m reduce quality by[0m[2m forcing[0m[2m balanced[0m[2m routing.
+- Batch[0m[2m size: With[0m[2m Mo[0m[2mE, larger[0m[2m batch distributes[0m[2m tokens more[0m[2m evenly[0m[2m,[0m[2m improves[0m[2m expert utilization and[0m[2m training[0m[2m stability[0m[2m;[0m[2m smaller batch leads[0m[2m to variance[0m[2m and unused[0m[2m capacity[0m[2m. Dense[0m[2m independent[0m[2m.
+- Sequence[0m[2m length[0m[2m: attention[0m[2m complexity[0m[2m O[0m[2m(L[0m[2m^2) often[0m[2m dominates[0m[2m for[0m[2m long contexts[0m[2m; MoE changes[0m[2m FFN[0m[2m compute but[0m[2m not attention,[0m[2m so benefits[0m[2m shrink[0m[2m for long sequences[0m[2m?[0m[2m Could[0m[2m mention: Mo[0m[2mE affects[0m[2m FFN,[0m[2m not standard[0m[2m attention; if attention[0m[2m dominates[0m[2m, relative[0m[2m efficiency[0m[2m benefit[0m[2m smaller[0m[2m. Good[0m[2m nu[0m[2mance.
+- Token[0m[2m length[0m[2m: Mo[0m[2mE can[0m[2m be more[0m[2m efficient for long[0m[2m text[0m[2m? For[0m[2m generation[0m[2m, memory[0m[2m bandwidth[0m[2m;[0m[2m larger[0m[2m expert[0m[2m weights hurt[0m[2m.
+[0m[2m- Efficiency[0m[2m trade-off[0m[2m: For[0m[2m fixed[0m[2m active[0m[2m compute, MoE[0m[2m increases[0m[2m memory[0m[2m.[0m[2m For fixed memory[0m[2m, MoE may not[0m[2m fit[0m[2m;[0m[2m quant[0m[2mization helps[0m[2m but[0m[2m can[0m[2m affect router[0m[2m. 
+[0m[2m- Dense[0m[2m can[0m[2m use[0m[2m aggressive[0m[2m quant[0m[2mization and kernel[0m[2m optimizations[0m[2m; MoE harder[0m[2m.[0m[2m
+
+Need maybe mention[0m[2m "m[0m[2mixture-of-experts can[0m[2m be seen[0m[2m as conditional[0m[2m computation[0m[2m: different[0m[2m tokens use[0m[2m different sub[0m[2mnetworks".[0m[2m Good[0m[2m.
+
+Let's include[0m[2m formula[0m[2m:
+D[0m[2mense: F[0m[2mLOPs ≈[0m[2m 2·[0m[2mP[0m[2m_active[0m[2m ([0m[2mwith[0m[2m P_active[0m[2m =[0m[2m P_total).
+[0m[2mMoE: FLOPs[0m[2m ≈ 2·P_active[0m[2m + routing[0m[2m/dis[0m[2mpatch overhead[0m[2m,[0m[2m with[0m[2m P_total =[0m[2m P_base[0m[2m + E[0m[2m·P[0m[2m_expert[0m[2m, P_active =[0m[2m P_base + k·P[0m[2m_expert. The[0m[2m larger[0m[2m P[0m[2m_total/P[0m[2m_active, the[0m[2m more capacity per[0m[2m F[0m[2mLOP.
+
+Need ensure[0m[2m "[0m[2mefficiency[0m[2m trade-offs" maybe "[0m[2mMo[0m[2mE trades[0m[2m memory[0m[2m/storage[0m[2m and systems[0m[2m complexity[0m[2m for compute[0m[2m efficiency[0m[2m and capacity[0m[2m".[0m[2m Dense[0m[2m trades lower[0m[2m capacity at[0m[2m same[0m[2m F[0m[2mLOPs for[0m[2m simplicity[0m[2m and high[0m[2m hardware[0m[2m utilization.
+
+Let's craft[0m[2m final with table[0m[2m.[0m[2m Use[0m[2m clear[0m[2m language[0m[2m.
+
+Need[0m[2m perhaps[0m[2m mention "Mo[0m[2mE is[0m[2m not free[0m[2m:[0m[2m active[0m[2m F[0m[2mLOPs only[0m[2m count[0m[2m experts[0m[2m invoked[0m[2m; total[0m[2m training[0m[2m cost[0m[2m includes[0m[2m communication[0m[2m and load[0m[2m balancing; inference[0m[2m throughput[0m[2m may not[0m[2m improve[0m[2m if[0m[2m experts[0m[2m small[0m[2m or[0m[2m batch[0m[2m small[0m[2m." Good.
+
+Let's[0m[2m produce final.
+[0m
+[2m[thought for 27948 ms / 1405 chars][0m
+[2m[TTFT 28133 ms][0m 
+
+A **dense transformer** applies the same full feed-forward network to every token, so the number of weights in the model is essentially the number of weights activated per token.
+
+A **mixture-of-experts (MoE)** transformer replaces one large feed-forward layer with multiple smaller “expert” subnetworks plus a router. For each token, the router selects a small subset of experts, usually top-1 or top-2, and only those experts compute a result for that token.
+
+The core efficiency difference is:
+
+> **MoE decouples total parameter count from active compute.**  
+> A model can store many experts, but activate only a small subset per token.
+
+That trade-off creates several important efficiency consequences.
+
+---
+
+## 1. Compute: MoE can be faster per token, but not automatically
+
+For a dense transformer with \(P\) parameters, roughly \(P\) weights are used for each token.
+
+For a MoE model:
+
+\[
+P_{\text{total}} = P_{\text{base}} + E \cdot P_{\text{expert}}
+\]
+
+\[
+P_{\text{active}} = P_{\text{base}} + k \cdot P_{\text{expert}}
+\]
+
+where:
+
+- \(E\) = number of experts  
+- \(k\) = number of experts selected per token  
+- \(P_{\text{base}}\) = non-expert parameters such as attention, norms, embedding, output heads  
+
+If \(k < E\), then:
+
+\[
+P_{\text{active}} < P_{\text{total}}
+\]
+
+So MoE can provide much larger model capacity with lower per-token FLOPs than a dense model of the same total size.
+
+### Example
+
+Suppose a model has 8 experts, each 5B parameters, and selects top-2 experts.
+
+- Total expert parameters: \(8 \times 5B = 40B\)
+- Active expert parameters: \(2 \times 5B = 10B\)
+
+The model may behave more like a much larger dense model in terms of capacity, but only performs the compute of a smaller dense model per token.
+
+### But there are overheads
+
+MoE is not simply “more parameters, same compute.” It adds:
+
+- Router computation
+- Token-to-expert dispatch
+- Expert-to-token gathering
+- Load-balancing logic
+- Extra memory traffic
+- Possible capacity overflow or token dropping
+- Communication overhead in distributed settings
+
+So the practical speedup may be smaller than the theoretical FLOP reduction.
+
+---
+
+## 2. Memory: MoE uses much more memory
+
+This is the biggest trade-off.
+
+A dense model stores only the weights it actively uses.
+
+A MoE model stores **all experts**, even if most are inactive for a given token.
+
+That means:
+
+| Property | Dense | MoE |
+|---|---:|---:|
+| Total weights stored | Smaller | Larger |
+| Active weights per token | All weights | Only selected experts |
+| Memory pressure | Lower | Higher |
+| Optimizer state memory | Proportional to active weights | Proportional to all expert weights |
+
+For inference, MoE often requires all expert weights to be resident on GPU, unless experts are offloaded to CPU or NVMe. If offloaded, the model may be slower due to memory bandwidth and transfer latency.
+
+For training, MoE requires optimizer states for all experts, even though only some experts are active for each token. This increases memory substantially unless expert weights and optimizer states are sharded across devices.
+
+So MoE trades **memory efficiency** for **compute efficiency**.
+
+---
+
+## 3. Hardware utilization: dense is usually easier to execute efficiently
+
+Dense transformers are highly regular. Each token goes through the same layers, producing predictable matrix multiplications that are very well optimized for GPUs and TPUs.
+
+MoE is more irregular:
+
+- Each token may route to different experts.
+- Expert loads may be uneven.
+- Some experts may receive many more tokens than others.
+- Expert GEMMs can be smaller and less efficient.
+- Batched token-to-expert dispatch can fragment workloads.
+- GPU utilization may be lower if experts are too small or if the batch size is small.
+
+This is especially important for inference:
+
+- Dense models have predictable latency and throughput.
+- MoE models can be more sensitive to batch size and routing behavior.
+- Small-batch inference may underuse experts because different tokens select different experts.
+- Large-batch serving can improve expert utilization because tokens are spread across experts.
+
+In other words, MoE can be compute-efficient in theory, but dense models often have better **hardware efficiency** in practice.
+
+---
+
+## 4. Communication: MoE is harder to scale across devices
+
+Dense transformers are commonly parallelized using tensor parallelism or pipeline parallelism. The communication patterns are relatively standard and predictable.
+
+MoE often uses **expert parallelism**, where different experts are placed on different devices. For each token, the system must route tokens to the devices that hold their selected experts.
+
+This introduces:
+
+- All-to-all communication
+- Token shuffling
+- Dynamic load imbalance
+- Possible tail latency
+- More complex scheduling
+
+If experts fit on a single GPU, MoE is simpler, but memory may be the bottleneck. If experts are sharded across many GPUs, communication can become a major cost.
+
+So MoE can reduce active compute, but it may increase communication and systems complexity.
+
+---
+
+## 5. Training complexity: MoE requires careful stabilization
+
+Dense transformers are simpler to train: all tokens use the same feed-forward weights, and there is no routing decision.
+
+MoE requires additional machinery:
+
+- Learned router
+- Top-k gating
+- Load-balancing auxiliary loss
+- Expert capacity limits
+- Token dropping or expert queuing when capacity is exceeded
+- Expert utilization monitoring
+- Careful batch-size and data-scaling choices
+
+Problems include:
+
+- Router collapse: one or a few experts become overly popular.
+- Expert underuse: some experts receive too few tokens and learn poorly.
+- Capacity overflow: many tokens route to the same expert.
+- Instability: aggressive load-balancing losses can hurt quality.
+- Sensitivity to batch size: MoE usually benefits from larger batches because expert load averages out.
+
+Thus, MoE can be harder to train stably and may require more tuning.
+
+---
+
+## 6. Quality versus efficiency: MoE can buy quality with less active compute
+
+The main advantage of MoE is that it can often approach the quality of a larger dense model while using fewer active FLOPs per token.
+
+For example:
+
+- A 30B active-parameter MoE model may have 200B+ total parameters.
+- It may outperform a 30B dense model in many benchmarks.
+- It does so with roughly the same per-token compute as a 30B dense model, but with more stored capacity.
+
+However, that quality gain is not free. It comes with:
+
+- Higher memory usage
+- More complex inference systems
+- Potentially lower GPU utilization
+- More training instability
+- Greater sensitivity to routing and load balancing
+
+So MoE is a **capacity-for-compute trade-off**: you get more model capacity per active FLOP, but you pay in memory, systems complexity, and sometimes efficiency.
+
+---
+
+## 7. Batch-size sensitivity
+
+Dense models are relatively insensitive to batch size in terms of which weights are active. Every token uses the same full network.
+
+MoE benefits more from larger batches because:
+
+- More tokens spread over experts smooths load imbalance.
+- Experts receive enough tokens to be utilized efficiently.
+- Communication overhead can be amortized.
+- Training is more stable.
+
+With small batches or short sequences, MoE can be less efficient because:
+
+- Fewer tokens reach each expert.
+- Expert utilization is uneven.
+- Dispatch overhead is less amortized.
+- Inference latency may increase.
+
+This is one reason MoE often performs better in large-batch serving or training settings.
+
+---
+
+## 8. Attention is not automatically improved
+
+Most MoE architectures change the feed-forward block, not the attention mechanism.
+
+Therefore:
+
+- Attention remains dense in standard MoE transformers.
+- The quadratic cost of attention with respect to sequence length is unchanged.
+- For very long contexts, attention may dominate compute, reducing the relative benefit of MoE.
+
+MoE mainly improves efficiency of the feed-forward portion of the transformer, not the attention portion.
+
+---
+
+## Summary table
+
+| Dimension | Dense Transformer | Mixture-of-Experts |
+|---|---|---|
+| Parameter usage | All parameters active per token | Only selected experts active |
+| Total parameters | Smaller | Much larger possible |
+| Active FLOPs | Scales with total parameters | Scales with active experts |
+| Memory usage | Lower | Higher |
+| Training memory | Lower | Higher due to all experts and optimizer states |
+| Inference memory | Lower | Higher, unless experts are offloaded/quantized |
+| Hardware efficiency | High, regular, well optimized | Lower, irregular, expert-dependent |
+| Serving complexity | Simpler | More complex routing and expert placement |
+| Communication overhead | Lower | Higher with expert parallelism |
+| Load balancing | Not needed | Required |
+| Training stability | More stable | More sensitive to routing, capacity, batch size |
+| Batch-size sensitivity | Lower | Higher |
+| Main trade-off | Simpler and memory-efficient, but less capacity per FLOP | More capacity per FLOP, but more memory and systems cost |
+
+---
+
+## Bottom line
+
+A dense transformer is straightforward: you pay memory and compute proportional to the number of parameters.
+
+A mixture-of-experts model is more nuanced:
+
+> MoE can achieve high model capacity with lower active compute, but it trades that compute efficiency for increased memory, communication, training complexity, and systems overhead.
+
+MoE is most attractive when:
+
+- You can afford storing many parameters.
+- You have enough batch size or serving load to use experts efficiently.
+- You can handle expert parallelism or memory pressure.
+- You want higher model quality without proportionally higher per-token compute.
+
+Dense transformers are usually better when:
+
+- Simplicity matters.
+- Memory is limited.
+- Inference latency must be predictable.
+- Batch sizes are small.
+- Hardware utilization and optimized dense kernels are more important than parameter scale.
+
+[1mTTFT  28133 ms  |  4876 tokens  |   106.1 tok/s  |  think 27948 ms (12428 chars)[0m
+
+Run 2/7
+
+[1mTTFT   8942 ms  |  2589 tokens  |   105.7 tok/s  |  think 8884 ms (3566 chars)[0m
+
+Run 3/7
+
+[1mTTFT  17084 ms  |  3141 tokens  |   100.5 tok/s  |  think 17035 ms (6752 chars)[0m
+
+Run 4/7
+
+[1mTTFT   5660 ms  |  1365 tokens  |   101.0 tok/s  |  think 5610 ms (2450 chars)[0m
+
+Run 5/7
+
+[1mTTFT  21246 ms  |  3001 tokens  |   100.5 tok/s  |  think 21197 ms (8536 chars)[0m
+
+Run 6/7
+
+[1mTTFT  15043 ms  |  2981 tokens  |   100.7 tok/s  |  think 14994 ms (5970 chars)[0m
+
+Run 7/7
+
+[1mTTFT   3662 ms  |  1593 tokens  |   112.0 tok/s  |  think 3612 ms (1607 chars)[0m
+
+Average  TTFT : 14253 ms
+Average  tok/s: 103.8
+  run 1: TTFT      48 ms |   512 tok |   86.5 tok/s
+  run 2: TTFT      48 ms |   512 tok |  101.6 tok/s
+  run 3: TTFT      74 ms |   512 tok |   84.0 tok/s
+  run 4: TTFT      48 ms |   512 tok |   86.0 tok/s
+  run 5: TTFT      50 ms |   512 tok |   82.1 tok/s
+FIXEDLEN avg tok/s: 88.1  avg TTFT: 54 ms  (temperature=1.0, thinking=on, ignore_eos, 512 out)
+  run 1: TTFT      51 ms |   256 tok |  110.7 tok/s
+  run 2: TTFT      50 ms |   256 tok |  110.8 tok/s
+  run 3: TTFT      48 ms |   256 tok |  110.7 tok/s
+  run 4: TTFT      48 ms |   256 tok |  110.7 tok/s
+  run 5: TTFT      48 ms |   256 tok |  110.7 tok/s
+GREEDY avg tok/s: 110.7  avg TTFT: 49 ms  (temperature=0.0, thinking=off, ignore_eos, 256 out)
+Mean acceptance length: 2.29, Accepted throughput: 64.80 tokens/s, Drafted throughput: 250.99 tokens/s, Accepted: 648 tokens, Drafted: 2510 tokens, Per-position acceptance rate: 0.564, 0.339, 0.207, 0.112, 0.070, Avg Draft acceptance rate: 25.8%
+Mean acceptance length: 2.10, Accepted throughput: 54.70 tokens/s, Drafted throughput: 249.48 tokens/s, Accepted: 547 tokens, Drafted: 2495 tokens, Per-position acceptance rate: 0.533, 0.279, 0.150, 0.100, 0.034, Avg Draft acceptance rate: 21.9%
+Mean acceptance length: 2.19, Accepted throughput: 58.89 tokens/s, Drafted throughput: 246.97 tokens/s, Accepted: 589 tokens, Drafted: 2470 tokens, Per-position acceptance rate: 0.540, 0.316, 0.182, 0.095, 0.059, Avg Draft acceptance rate: 23.8%
+Mean acceptance length: 1.90, Accepted throughput: 44.80 tokens/s, Drafted throughput: 248.50 tokens/s, Accepted: 448 tokens, Drafted: 2485 tokens, Per-position acceptance rate: 0.527, 0.203, 0.109, 0.042, 0.020, Avg Draft acceptance rate: 18.0%
+Mean acceptance length: 1.70, Accepted throughput: 35.20 tokens/s, Drafted throughput: 250.49 tokens/s, Accepted: 352 tokens, Drafted: 2505 tokens, Per-position acceptance rate: 0.419, 0.164, 0.066, 0.032, 0.022, Avg Draft acceptance rate: 14.1%
+Mean acceptance length: 1.78, Accepted throughput: 37.50 tokens/s, Drafted throughput: 239.48 tokens/s, Accepted: 375 tokens, Drafted: 2395 tokens, Per-position acceptance rate: 0.449, 0.203, 0.086, 0.029, 0.017, Avg Draft acceptance rate: 15.7%

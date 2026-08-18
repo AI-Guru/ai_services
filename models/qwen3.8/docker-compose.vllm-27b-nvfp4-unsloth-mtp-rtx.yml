@@ -1,11 +1,17 @@
 # Qwen3.8-27B-NVFP4 (Unsloth) + MTP speculative decoding
 #
-# ===================== UNVERIFIED (not yet booted) ======================
-# This file is docker-compose.vllm-27b-nvfp4-unsloth-rtx.yml — which IS
-# verified (58.7 tok/s, tools 4/4, vision OK, needle-exact to ~51.7K) — plus
-# --speculative-config, and NOTHING else. Keep it that way: the two are a
-# controlled A/B and the only valid reading of a delta between them is
-# "MTP did that". If you tune one, tune both.
+# ============ VERIFIED 97.9 tok/s — SUPERSEDED 2026-08-18 ===============
+# This was the production endpoint. It is now THIRD; see README.md's throughput
+# table. docker-compose.vllm-27b-nvfp4-gittensor-dspark-rtx.yml serves 111.8
+# tok/s on the same port and served-model-name.
+#
+# Kept because it is one half of two controlled A/Bs that produced the result:
+#   vs ...-unsloth-rtx.yml       (same checkpoint, no MTP)   -> what MTP is worth
+#   vs ...-gittensor-mtp-rtx.yml (same MTP depth, W4A4)      -> what W4A4 is worth
+# The second one is the surprising one: on the FASTER W4A4 target the same MTP
+# depth scores LOWER (95.9), because a harder-quantized target diverges further
+# from its own BF16 draft head. Do not "modernise" this file to the newer
+# checkpoint — that would destroy the comparison.
 # ========================================================================
 #
 # The MTP head is REAL here, not just a config claim: this checkpoint's
@@ -77,17 +83,22 @@ services:
   qwen38-27b-nvfp4-unsloth-mtp:
     image: vllm/vllm-openai:qwen38-x86_64-cu130
     container_name: qwen38-27b-nvfp4-unsloth-mtp
-    # unless-stopped since 2026-08-15: this is the PRODUCTION endpoint (97.9
-    # tok/s, the fastest verified config here) and it must survive reboots.
-    # It was "no" while the community-quant + speculation combination was
-    # unproven; it booted clean repeatedly and a reboot on 2026-08-15 took the
-    # endpoint down precisely because of that setting.
+    # "no" since 2026-08-18: this WAS the production endpoint (97.9 tok/s) and
+    # is no longer — docker-compose.vllm-27b-nvfp4-gittensor-dspark-rtx.yml
+    # serves 111.8 tok/s on the same port with the same served-model-name.
+    # Two composes with restart: unless-stopped on port 11484 would fight each
+    # other for the card on every boot, so only the production one keeps it.
+    #
+    # Retained as provenance for the W4A16-vs-W4A4 and MTP-vs-DSpark results:
+    # this checkpoint's SOFTER quantization gives its BF16 MTP head a better
+    # acceptance rate (2.19 / 59.4%) than the faster W4A4 target does
+    # (~1.9 / 38-55%), which is the whole reason MTP looked good here first.
     #
     # The crash-loop risk this originally guarded against is real — see
     # CLAUDE.md — so if you edit the command below, watch the first boot with
     # the crash-loop-aware waiter rather than a naive "wait until healthy" loop,
     # which hangs until timeout instead of reporting the failure.
-    restart: unless-stopped
+    restart: "no"
 
     deploy:
       resources:

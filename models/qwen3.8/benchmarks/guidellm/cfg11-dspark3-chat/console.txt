@@ -1,0 +1,1322 @@
+✔ OpenAIHTTPBackend backend validated with model qwen3.8-27b
+  {'target': 'http://localhost:11484', 'model': 'qwen3.8-27b', 'timeout': 60.0, 
+  'http2': True, 'follow_redirects': True, 'verify': False, 'openai_paths':     
+  {'health': 'health', 'models': 'v1/models', 'text_completions':               
+  'v1/completions', 'chat_completions': 'v1/chat/completions',                  
+  'audio_transcriptions': 'v1/audio/transcriptions', 'audio_translations':      
+  'v1/audio/translations'}, 'validate_backend': {'method': 'GET', 'url':        
+  'http://localhost:11484/health'}}                                             
+✔ Processor resolved
+  Using processor 'Qwen/Qwen3.8-27B'                                            
+✔ Request loader initialized with inf unique requests
+  {'data':                                                                      
+  "['prompt_tokens=2000,prompt_tokens_stdev=500,prompt_tokens_min=1000,prompt_to
+  kens_max=3000,output_tokens=300,output_tokens_stdev=75,output_tokens_min=150,o
+  utput_tokens_max=450']", 'data_args': '[]', 'data_samples': -1,               
+  'preprocessors': ['GenerativeColumnMapper',                                   
+  'GenerativeChatCompletionsRequestFormatter'], 'collator':                     
+  'GenerativeRequestCollator', 'sampler': 'None', 'num_workers': 1,             
+  'random_seed': 42}                                                            
+✔ Resolved transient phase configurations
+  Warmup: percent=0.1 value=None mode='prefer_duration'                         
+  Cooldown: percent=None value=None mode='prefer_duration'                      
+  Rampup (Throughput/Concurrent): 0.0                                           
+✔ ConcurrentProfile profile resolved
+  {'str': "type_='concurrent' completed_strategies=[]                           
+  constraints={'max_seconds': 60.0} rampup_duration=0.0 streams=[1, 2, 4, 8, 16,
+  32, 64] strategy_types=['concurrent', 'concurrent', 'concurrent',             
+  'concurrent', 'concurrent', 'concurrent', 'concurrent']", 'type':             
+  'ConcurrentProfile', 'class': 'ConcurrentProfile', 'module':                  
+  'guidellm.benchmark.profiles', 'attributes': {'type_': 'concurrent',          
+  'completed_strategies': [], 'constraints': {'max_seconds': 60.0},             
+  'rampup_duration': 0.0, 'streams': [1, 2, 4, 8, 16, 32, 64]}}                 
+✔ Output formats resolved
+  {'json': "output_path=PosixPath('benchmarks/guidellm/cfg11-dspark3-chat')"}   
+✔ Setup complete, starting benchmarks...
+
+
+
+Process ForkProcess-50:
+Process ForkProcess-58:
+Process ForkProcess-52:
+Process ForkProcess-51:
+Process ForkProcess-54:
+Process ForkProcess-57:
+Process ForkProcess-53:
+Process ForkProcess-55:
+Process ForkProcess-59:
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+httpx.ConnectError: All connection attempts failed
+httpcore.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+Traceback (most recent call last):
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+httpcore.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+httpcore.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+httpcore.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+RuntimeError: Worker process 9 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+
+The above exception was the direct cause of the following exception:
+
+
+The above exception was the direct cause of the following exception:
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+httpcore.ConnectError: All connection attempts failed
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 9 encountered an error: Worker process 9 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+httpx.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+httpx.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+httpx.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+RuntimeError: Worker process 0 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+
+The above exception was the direct cause of the following exception:
+
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+Traceback (most recent call last):
+httpx.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 5 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+httpx.ConnectError: All connection attempts failed
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+
+The above exception was the direct cause of the following exception:
+
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+Traceback (most recent call last):
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 7 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 0 encountered an error: Worker process 0 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+RuntimeError: Worker process 5 encountered an error: Worker process 5 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+RuntimeError: Worker process 7 encountered an error: Worker process 7 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 1 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Process ForkProcess-56:
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+RuntimeError: Worker process 4 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The above exception was the direct cause of the following exception:
+
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+Traceback (most recent call last):
+RuntimeError: Worker process 1 encountered an error: Worker process 1 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 2 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+RuntimeError: Worker process 8 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 4 encountered an error: Worker process 4 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 8 encountered an error: Worker process 8 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+RuntimeError: Worker process 2 encountered an error: Worker process 2 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 3 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 3 encountered an error: Worker process 3 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        pool_request.request
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 101, in handle_async_request
+    raise exc
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 78, in handle_async_request
+    stream = await self._connect(request)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_async/connection.py", line 124, in _connect
+    stream = await self._network_backend.connect_tcp(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/auto.py", line 31, in connect_tcp
+    return await self._backend.connect_tcp(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<5 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_backends/anyio.py", line 113, in connect_tcp
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 182, in validate
+    response = await self._async_client.request(**validate_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<3 lines>...
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError: All connection attempts failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 236, in _process_requests
+    await self._processing_startup()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 258, in _processing_startup
+    await self.backend.validate()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/backends/openai.py", line 185, in validate
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from exc
+RuntimeError: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 147, in run
+    asyncio.run(self.run_async())
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 198, in run_async
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from task_err
+RuntimeError: Worker process 6 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 313, in _bootstrap
+    self.run()
+    ~~~~~~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/multiprocessing/process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker.py", line 150, in run
+    raise RuntimeError(
+    ...<2 lines>...
+    ) from err
+RuntimeError: Worker process 6 encountered an error: Worker process 6 encountered an error: Backend validation request failed. Could not connect to the server or validate the backend configuration.
+Traceback (most recent call last):
+  File "/home/despara/miniconda3/bin/guidellm", line 7, in <module>
+    sys.exit(cli())
+             ~~~^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 1485, in __call__
+    return self.main(*args, **kwargs)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 1406, in main
+    rv = self.invoke(ctx)
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 1873, in invoke
+    return _process_result(sub_ctx.command.invoke(sub_ctx))
+                           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 1269, in invoke
+    return ctx.invoke(self.callback, **ctx.params)
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/click/core.py", line 824, in invoke
+    return callback(*args, **kwargs)
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/__main__.py", line 465, in run
+    asyncio.run(
+    ~~~~~~~~~~~^
+        benchmark_generative_text(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<7 lines>...
+        )
+        ^
+    )
+    ^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/despara/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "uvloop/loop.pyx", line 1518, in uvloop.loop.Loop.run_until_complete
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/benchmark/entrypoints.py", line 523, in benchmark_generative_text
+    async for benchmark in benchmarker.run(
+    ...<13 lines>...
+            report.benchmarks.append(benchmark)
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/benchmark/benchmarker.py", line 133, in run
+    async for (
+    ...<25 lines>...
+            )
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/scheduler.py", line 143, in run
+    raise err
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/scheduler.py", line 126, in run
+    await worker_group.create_processes()
+  File "/home/despara/miniconda3/lib/python3.13/site-packages/guidellm/scheduler/worker_group.py", line 255, in create_processes
+    raise RuntimeError(
+        "Worker process group startup failed: error_event is set"
+    )
+RuntimeError: Worker process group startup failed: error_event is set

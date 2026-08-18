@@ -1,0 +1,20 @@
+# Locally-rebuilt DSpark drafters (2.5 GB of weights, hardlinked to one copy).
+# These are Doopeworld/Qwen3.8-27B-DSpark-vLLM with a single edited field —
+# config.json's `block_size` — so vLLM will accept a num_speculative_tokens
+# below the published 7. Regenerate with the recipe in README.md rather than
+# committing weights.
+drafters/
+
+# GuideLLM's raw per-request dumps: ~11-16 MB each, 140 MB total, and they hold
+# one record per request rather than anything you would read. The numbers that
+# matter are already in benchmarks/RESULTS.log, benchmarks/PROD.log and each
+# run's console.txt, all of which ARE committed. Regenerate with gllm.sh.
+benchmarks/guidellm/**/benchmarks.json
+benchmarks/guidellm/benchmarks.json
+
+# The repo root ignores *.log, but these two ARE the results — RESULTS.log is
+# one line per single-stream run and PROD.log one line per concurrency run, and
+# README.md points at both as the record of what was actually measured
+# (including the runs that OOMed, hung or died).
+!benchmarks/RESULTS.log
+!benchmarks/PROD.log

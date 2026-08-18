@@ -1,0 +1,171 @@
+### FINAL dspark7-prob
+args: --kv-cache-dtype fp8 --gpu-memory-utilization 0.88 --speculative-config {"method":"dspark","model":"Doopeworld/Qwen3.8-27B-DSpark-vLLM","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}
+env: 
+2026-08-18T16:08:29+02:00
+Endpoint : http://localhost:11484/v1
+Model    : qwen3.8-27b
+Prompt   : Explain the key differences between mixture-of-experts and dense transformer arc…
+Runs     : 7
+Warmup   : sending short request… done (0.3s)
+
+
+Run 1/7
+
+[2m[thinking…][0m [2mWe[0m[2m need answer user:[0m[2m "Explain the key differences between mixture[0m[2m-of-experts and dense transformer architectures[0m[2m, focusing on efficiency trade-offs." Need[0m[2m provide concise but[0m[2m detailed explanation. Done. Now[0m[2m craft final. Need cover[0m[2m Mo[0m[2mE[0m[2m vs dense transformer[0m[2m.[0m[2m Focus efficiency[0m[2m trade-offs: parameter[0m[2m count[0m[2m vs active[0m[2m compute[0m[2m, memory[0m[2m,[0m[2m training[0m[2m/in[0m[2mference[0m[2m, routing[0m[2m, sp[0m[2marsity, load[0m[2m balancing[0m[2m, communication[0m[2m, quality[0m[2m, latency, hardware[0m[2m.[0m[2m Dense[0m[2m:[0m[2m all params[0m[2m in[0m[2m forward[0m[2m; uniform[0m[2m compute[0m[2m. MoE: experts[0m[2m condition[0m[2mally[0m[2m activated[0m[2m, more[0m[2m total[0m[2m params[0m[2m,[0m[2m less F[0m[2mLO[0m[2mPs[0m[2m, better[0m[2m scaling[0m[2m maybe[0m[2m.[0m[2m Trade[0m[2m-offs: memory[0m[2m footprint[0m[2m large[0m[2m (all[0m[2m experts[0m[2m must[0m[2m fit[0m[2m), activation[0m[2m routing[0m[2m overhead[0m[2m, load[0m[2m balancing, training[0m[2m instability[0m[2m,[0m[2m batch sensitivity[0m[2m, communication[0m[2m in[0m[2m sh[0m[2marding,[0m[2m inference[0m[2m latency[0m[2m if[0m[2m experts[0m[2m not cached[0m[2m;[0m[2m quality[0m[2m may[0m[2m require more[0m[2m data[0m[2m/t[0m[2muning[0m[2m. Also compare[0m[2m dense compute[0m[2m F[0m[2mLOPs ~[0m[2m [0m[2m6[0m[2mN;[0m[2m MoE active[0m[2m ~ dense[0m[2m core[0m[2m + routed[0m[2m top[0m[2m-k[0m[2m. Maybe mention conditional[0m[2m computation[0m[2m, softmax[0m[2m/Top[0m[2m-k routing,[0m[2m shared[0m[2m experts[0m[2m, capacity[0m[2m factor[0m[2m. Include examples maybe[0m[2m Switch[0m[2m/G[0m[2mSh[0m[2mard[0m[2m/M[0m[2mix[0m[2mtral[0m[2m. But not[0m[2m necessary[0m[2m.[0m[2m Structure[0m[2m: intro[0m[2m, dense[0m[2m,[0m[2m MoE, table, trade-offs.[0m[2m Ensure accurate[0m[2m. Let's think details[0m[2m.
+
+Dense Transformer[0m[2m: every token[0m[2m goes[0m[2m through every layer[0m[2m and every[0m[2m attention[0m[2m/[0m[2mFF[0m[2mN[0m[2m param[0m[2m. Parameter[0m[2m count[0m[2m N[0m[2m correlates[0m[2m directly[0m[2m with FLO[0m[2mPs per[0m[2m token[0m[2m. Scaling[0m[2m: increase[0m[2m N[0m[2m ->[0m[2m more compute[0m[2m and memory[0m[2m per[0m[2m token[0m[2m. Simple[0m[2m training[0m[2m; stable;[0m[2m hardware[0m[2m-friendly[0m[2m.
+
+MoE[0m[2m: At certain[0m[2m layers (often[0m[2m FFN replaced[0m[2m with[0m[2m experts[0m[2m).[0m[2m Token[0m[2m embedding[0m[2m/router[0m[2m selects[0m[2m top[0m[2m-k[0m[2m experts.[0m[2m Each token[0m[2m computed[0m[2m by[0m[2m only subset[0m[2m.[0m[2m Total params =[0m[2m sum[0m[2m experts[0m[2m + router[0m[2m; active params[0m[2m smaller[0m[2m. Enables[0m[2m larger[0m[2m model[0m[2m capacity[0m[2m without proportional[0m[2m compute. Efficiency[0m[2m: inference[0m[2m F[0m[2mLOPs closer[0m[2m to dense with active[0m[2m params;[0m[2m training[0m[2m maybe[0m[2m less F[0m[2mLOPs?[0m[2m But training memory[0m[2m high[0m[2m because[0m[2m all experts. Need capacity[0m[2m factor[0m[2m to handle[0m[2m routing[0m[2m, token[0m[2m drop[0m[2m, auxiliary[0m[2m load-b[0m[2malance losses[0m[2m. Routing[0m[2m adds[0m[2m overhead; load[0m[2m imbalance[0m[2m.[0m[2m In[0m[2m distributed[0m[2m training[0m[2m, expert[0m[2m parallel[0m[2mism[0m[2m requires[0m[2m all[0m[2m-to[0m[2m-all[0m[2m communication, sh[0m[2marded[0m[2m experts,[0m[2m possible[0m[2m str[0m[2mag[0m[2mgl[0m[2mers[0m[2m. Inference:[0m[2m if experts[0m[2m distributed[0m[2m across[0m[2m GPUs/n[0m[2modes[0m[2m, all[0m[2m-to-all[0m[2m; expert[0m[2m off[0m[2mloading[0m[2m; cache[0m[2m misses[0m[2m;[0m[2m batch[0m[2m size affects[0m[2m expert[0m[2m utilization[0m[2m. Small[0m[2m batches[0m[2m:[0m[2m top-k[0m[2m may activate[0m[2m many unique[0m[2m experts ->[0m[2m memory[0m[2m bandwidth[0m[2m; high batches[0m[2m: reuse[0m[2m. For serving[0m[2m, Mo[0m[2mE can[0m[2m be efficient[0m[2m if expert[0m[2m parallel[0m[2mism and load[0m[2m balancing; can be worse[0m[2m if overhead dominates[0m[2m.
+
+Key[0m[2m differences:
+- Compute[0m[2m: dense[0m[2m fixed[0m[2m full[0m[2m params; MoE[0m[2m sparse[0m[2m activation[0m[2m.
+- Parameter[0m[2m scaling[0m[2m: Mo[0m[2mE dec[0m[2mouples[0m[2m total params[0m[2m and[0m[2m compute[0m[2m.
+- Quality[0m[2m: MoE[0m[2m can get benefits[0m[2m of large model with lower[0m[2m F[0m[2mLOPs; but[0m[2m requires data/[0m[2mregular[0m[2mization[0m[2m, routing[0m[2m artifacts[0m[2m, mode[0m[2m collapse[0m[2m.
+- Memory: Mo[0m[2mE total[0m[2m memory[0m[2m larger; active[0m[2m memory[0m[2m maybe[0m[2m manageable[0m[2m with[0m[2m expert[0m[2m parallel[0m[2mism; dense[0m[2m lower[0m[2m memory for same[0m[2m active[0m[2m compute[0m[2m? If[0m[2m compare[0m[2m total vs active.
+[0m[2m- Training: dense[0m[2m stable[0m[2m,[0m[2m easier optimizer[0m[2m state[0m[2m? MoE[0m[2m has more[0m[2m params[0m[2m (optimizer[0m[2m states[0m[2m) and[0m[2m communication[0m[2m;[0m[2m router[0m[2m losses[0m[2m.
+- In[0m[2mference latency[0m[2m: Mo[0m[2mE variable[0m[2m;[0m[2m can have[0m[2m lower F[0m[2mLOPs but[0m[2m higher memory[0m[2m traffic[0m[2m and communication[0m[2m;[0m[2m latency-sensitive[0m[2m small[0m[2m batch[0m[2m can suffer[0m[2m.
+
+Need answer[0m[2m user[0m[2m's specific. Use bullet[0m[2m/table[0m[2m. Keep[0m[2m not too long but[0m[2m thorough.
+[0m
+[2m[thought for 7087 ms / 353 chars][0m
+[2m[TTFT 7235 ms][0m 
+
+Mixture-of-Experts (MoE) and dense transformer architectures differ mainly in **whether every parameter is used for every token**.
+
+## Dense transformers
+
+In a dense transformer:
+
+- Every token passes through the full model.
+- Every layer, attention head, and feed-forward block is applied to every token.
+- Model size directly determines compute cost:
+
+\[
+\text{FLOPs} \propto \text{number of parameters}
+\]
+
+So if you scale the model up, inference and training compute scale up roughly in proportion.
+
+### Advantages
+
+- Simple to train and serve.
+- Predictable compute cost.
+- Well-understood scaling behavior.
+- Easier hardware optimization because the same parameters are used for all tokens.
+
+### Disadvantages
+
+- High compute cost for very large models.
+- Less parameter capacity for a fixed inference FLOP budget.
+
+---
+
+## Mixture-of-Experts transformers
+
+In an MoE transformer:
+
+- Certain layers, often the feed-forward network, are replaced by multiple “expert” subnetworks.
+- A router selects a small subset of experts, usually top-1 or top-2, for each token.
+- Only the selected experts are activated for that token.
+
+So an MoE model can have many total parameters but relatively few **active parameters** per token.
+
+### Advantages
+
+- **Sparsity**: total model capacity can grow without growing compute proportionally.
+- **Efficiency at scale**: can approximate the quality of a larger dense model with lower active FLOPs.
+- **Flexible scaling**: you can add more experts to increase capacity without forcing every token to use all of them.
+
+### Disadvantages
+
+- Higher total memory footprint because all experts must be stored.
+- Routing overhead and load-balancing complexity.
+- Training can be less stable and more data-hungry.
+- Inference can be less predictable due to variable expert usage.
+- Often needs expert parallelism or sharding, adding communication overhead.
+
+---
+
+## Key efficiency trade-offs
+
+| Aspect | Dense Transformer | Mixture-of-Experts |
+|---|---|---|
+| Parameters used per token | All parameters | Only a subset of experts |
+| Compute scaling | Scales with total model size | Can scale total params with slower active compute growth |
+| Inference FLOPs | High for large models | Lower active FLOPs, but routing/memory overhead exists |
+| Memory | Lower for same active compute | Higher total memory due to all experts |
+| Training | Simpler and more stable | More complex due to routing and load balancing |
+| Serving | Predictable latency | Latency can vary with batch size and expert utilization |
+| Hardware fit | Very hardware-friendly | Benefits from expert parallelism but introduces communication costs |
+
+---
+
+## In practice
+
+A MoE model can be attractive when you want:
+
+- A large total model capacity,
+- But only a moderate amount of active compute per token.
+
+For example, a MoE model might have 100B total parameters but only 10–20B active parameters per token. This can give strong model quality while reducing the forward-pass compute compared to a fully dense 100B model.
+
+However, the efficiency gain is not free. MoE systems introduce:
+
+- Routing cost,
+- Load-balancing losses,
+- Expert memory pressure,
+- All-to-all communication in distributed settings,
+- More complex batching and caching.
+
+So the main trade-off is:
+
+> **MoE trades architectural simplicity and predictable compute for sparsity, allowing larger model capacity at lower active compute cost.**
+
+Dense models remain simpler and easier to serve, while MoE models can offer better capacity-per-FLOP if the added complexity and infrastructure overhead are manageable.
+
+[1mTTFT   7235 ms  |  1454 tokens  |   106.8 tok/s  |  think 7087 ms (3154 chars)[0m
+
+Run 2/7
+
+[1mTTFT  14060 ms  |  2985 tokens  |   107.8 tok/s  |  think 14009 ms (6087 chars)[0m
+
+Run 3/7
+
+[1mTTFT   4799 ms  |  2541 tokens  |   112.1 tok/s  |  think 4750 ms (2240 chars)[0m
+
+Run 4/7
+
+[1mTTFT   4381 ms  |  1361 tokens  |   113.8 tok/s  |  think 4329 ms (2087 chars)[0m
+
+Run 5/7
+
+[1mTTFT  14212 ms  |  3866 tokens  |   111.2 tok/s  |  think 14162 ms (6489 chars)[0m
+
+Run 6/7
+
+[1mTTFT   2245 ms  |  2679 tokens  |   119.1 tok/s  |  think 2195 ms (1081 chars)[0m
+
+Run 7/7
+
+[1mTTFT   4320 ms  |  2250 tokens  |   111.9 tok/s  |  think 4270 ms (1946 chars)[0m
+
+Average  TTFT : 7322 ms
+Average  tok/s: 111.8
+  run 1: TTFT      49 ms |   512 tok |   88.7 tok/s
+  run 2: TTFT      48 ms |   512 tok |   95.0 tok/s
+  run 3: TTFT      50 ms |   512 tok |   89.3 tok/s
+  run 4: TTFT      49 ms |   512 tok |   90.6 tok/s
+  run 5: TTFT      51 ms |   512 tok |   86.2 tok/s
+FIXEDLEN avg tok/s: 90.0  avg TTFT: 49 ms  (temperature=1.0, thinking=on, ignore_eos, 512 out)
+  run 1: TTFT      49 ms |   256 tok |  112.1 tok/s
+  run 2: TTFT      49 ms |   256 tok |  112.1 tok/s
+  run 3: TTFT      49 ms |   256 tok |  112.2 tok/s
+  run 4: TTFT      48 ms |   256 tok |  112.3 tok/s
+  run 5: TTFT      48 ms |   256 tok |  112.2 tok/s
+GREEDY avg tok/s: 112.2  avg TTFT: 49 ms  (temperature=0.0, thinking=off, ignore_eos, 256 out)
+Mean acceptance length: 2.34, Accepted throughput: 66.29 tokens/s, Drafted throughput: 345.06 tokens/s, Accepted: 663 tokens, Drafted: 3451 tokens, Per-position acceptance rate: 0.580, 0.323, 0.185, 0.116, 0.067, 0.047, 0.028, Avg Draft acceptance rate: 19.2%
+Mean acceptance length: 2.29, Accepted throughput: 63.90 tokens/s, Drafted throughput: 347.19 tokens/s, Accepted: 639 tokens, Drafted: 3472 tokens, Per-position acceptance rate: 0.611, 0.323, 0.185, 0.089, 0.050, 0.018, 0.012, Avg Draft acceptance rate: 18.4%
+Mean acceptance length: 2.27, Accepted throughput: 62.20 tokens/s, Drafted throughput: 341.59 tokens/s, Accepted: 622 tokens, Drafted: 3416 tokens, Per-position acceptance rate: 0.609, 0.303, 0.160, 0.090, 0.055, 0.035, 0.023, Avg Draft acceptance rate: 18.2%
+Mean acceptance length: 1.87, Accepted throughput: 42.60 tokens/s, Drafted throughput: 343.71 tokens/s, Accepted: 426 tokens, Drafted: 3437 tokens, Per-position acceptance rate: 0.501, 0.214, 0.075, 0.041, 0.014, 0.012, 0.010, Avg Draft acceptance rate: 12.4%
+Mean acceptance length: 1.79, Accepted throughput: 39.00 tokens/s, Drafted throughput: 346.48 tokens/s, Accepted: 390 tokens, Drafted: 3465 tokens, Per-position acceptance rate: 0.475, 0.200, 0.065, 0.020, 0.012, 0.008, 0.008, Avg Draft acceptance rate: 11.3%
+Mean acceptance length: 1.90, Accepted throughput: 41.80 tokens/s, Drafted throughput: 324.08 tokens/s, Accepted: 418 tokens, Drafted: 3241 tokens, Per-position acceptance rate: 0.499, 0.222, 0.089, 0.039, 0.024, 0.022, 0.009, Avg Draft acceptance rate: 12.9%

@@ -1,0 +1,10 @@
+PROD|cfg16-adaptive|GPU KV cache size: 967,870|done
+PROD|cfg12-mtp2|GPU KV cache size: 1,584,779|done
+PROD|cfg11-dspark3|GPU KV cache size: 1,127,821|done
+PROD|cfg03-mnbt16k|GPU KV cache size: 955,500|done
+PROD|cfg11-dspark3-retest|GPU KV cache size: 1,127,821|end_status=running|err_lines=0
+0
+PROD|cfg-mtp1|GPU KV cache size: 1,610,313|end_status=running|err_lines=0
+0
+PROD|cfg-mtp3|GPU KV cache size: 1,557,969|end_status=running|err_lines=0
+0
