@@ -20,7 +20,14 @@ There are two answers here and you have to pick on concurrency:
 
 The single-stream table below is sorted by single-stream speed, as it must be.
 **Read [Production selection](#production-selection-concurrency-changes-the-answer-2026-08-18)
-before deploying any of it** — the config that wins there ranks 12th here.
+before deploying any of it** — the config that wins there ranks 5th here.
+
+📊 **[`20260818-qwen38-27b-speculation-crossover.html`](20260818-qwen38-27b-speculation-crossover.html)**
+— the whole investigation as one page: ten interactive charts covering the
+concurrency inversion, the memory-vs-compute arithmetic behind it, the
+draft-length curve, the mixed text+image gap, KV-pool cost, per-position
+acceptance decay, and the eight things that did not work. Self-contained; open
+it in a browser.
 
 The gain came from three independent changes, none of which is "use NVFP4 +
 MTP" — that was already being done:
@@ -756,6 +763,7 @@ Sorted the same way as the throughput table: fastest first.
 | `summarize_gllm.py` | Flattens `benchmarks.json` into one row per concurrency level. |
 | `mixed_load.py` | Concurrent text+image load generator. guidellm is text-only and cannot build a mixed-modality batch, which is the case that actually decides a multimodal config. |
 | `benchmarks/PROD.log`, `benchmarks/serverlog-*.txt` | Per-config production run record and the engine log for each. |
+| `20260818-qwen38-27b-speculation-crossover.html` | The full write-up with interactive charts. Self-contained apart from Google Fonts; no build step. |
 | `benchmarks/RESULTS.log` | Every run, including the OOMs and the hang. |
 
 **Do not use `docker rm -f` on a loaded model.** All three scripts stop with

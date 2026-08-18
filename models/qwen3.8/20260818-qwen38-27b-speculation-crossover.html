@@ -1,0 +1,913 @@
+<title>Qwen3.8 Speculation Crossover</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --ground:#f6f7f9; --surface:#ffffff; --surface-2:#eef1f5; --surface-3:#e4e9ef;
+  --ink:#101620; --ink-2:#4c5766; --ink-3:#7c8695;
+  --rule:#dde3ea; --rule-strong:#c3ccd6;
+  --accent:#2a78d6; --accent-soft:#e8f0fb;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+  --good:#0ca30c; --warn:#fab219; --bad:#d03b3b;
+  --shadow:0 1px 2px rgba(16,22,32,.06),0 8px 24px -12px rgba(16,22,32,.14);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --ground:#0f1319; --surface:#161b23; --surface-2:#1d232c; --surface-3:#242c37;
+    --ink:#eef2f7; --ink-2:#a9b3bf; --ink-3:#7b8695;
+    --rule:#28303a; --rule-strong:#3a4552;
+    --accent:#3987e5; --accent-soft:#17273c;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --good:#0ca30c; --warn:#fab219; --bad:#d03b3b;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ground:#0f1319; --surface:#161b23; --surface-2:#1d232c; --surface-3:#242c37;
+  --ink:#eef2f7; --ink-2:#a9b3bf; --ink-3:#7b8695;
+  --rule:#28303a; --rule-strong:#3a4552;
+  --accent:#3987e5; --accent-soft:#17273c;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  --good:#0ca30c; --warn:#fab219; --bad:#d03b3b;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.col{max-width:68ch;margin-left:auto;margin-right:auto}
+h1,h2,h3,h4{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif;text-wrap:balance;margin:0}
+h1{font-weight:700;font-size:clamp(2.5rem,6.2vw,4.3rem);line-height:1.02;letter-spacing:-.022em}
+h2{font-weight:700;font-size:clamp(1.6rem,3.1vw,2.1rem);line-height:1.12;letter-spacing:-.014em}
+h3{font-weight:600;font-size:1.16rem;line-height:1.3;letter-spacing:-.005em}
+p{margin:0 0 1.05em}
+a{color:var(--accent)}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
+code{background:var(--surface-2);padding:.12em .38em;border-radius:3px;border:1px solid var(--rule)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- masthead ---------- */
+.masthead{border-bottom:1px solid var(--rule);background:var(--surface);}
+.mast-in{padding:64px 0 46px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);margin:0 0 20px}
+.lede{font-size:1.19rem;line-height:1.55;color:var(--ink-2);max-width:60ch;margin:22px 0 0}
+.lede strong{color:var(--ink);font-weight:600}
+.specline{display:flex;flex-wrap:wrap;gap:0 30px;margin-top:34px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace;font-size:.745rem;color:var(--ink-3);letter-spacing:.02em}
+.specline b{color:var(--ink-2);font-weight:500}
+
+/* ---------- stat tiles ---------- */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:46px 0 0}
+.tile{background:var(--surface);padding:20px 22px 18px}
+.tile .k{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.tile .v{font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;font-size:2.15rem;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tile .u{font-size:.83rem;color:var(--ink-3);font-weight:500;margin-left:4px;font-family:"IBM Plex Sans",sans-serif}
+.tile .s{font-size:.79rem;color:var(--ink-2);margin-top:7px;line-height:1.35}
+
+/* ---------- sections ---------- */
+section{padding:66px 0 8px}
+.sec-head{margin-bottom:30px}
+.sec-num{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.14em;color:var(--accent);text-transform:uppercase;display:block;margin-bottom:11px}
+.sec-head p{color:var(--ink-2);margin-top:12px;font-size:1.03rem}
+
+/* ---------- panels ---------- */
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:24px 26px 20px;margin:30px 0;box-shadow:var(--shadow)}
+.panel-h{display:flex;justify-content:space-between;align-items:baseline;gap:18px;flex-wrap:wrap;margin-bottom:4px}
+.panel-t{font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:600;font-size:1.03rem;letter-spacing:-.004em}
+.panel-s{font-size:.83rem;color:var(--ink-3);max-width:56ch;margin:5px 0 16px;line-height:1.45}
+.axis-note{font-family:"IBM Plex Mono",monospace;font-size:.68rem;color:var(--ink-3);letter-spacing:.04em}
+
+/* legend */
+.legend{display:flex;flex-wrap:wrap;gap:7px 18px;margin:2px 0 14px}
+.lg{display:inline-flex;align-items:center;gap:7px;font-size:.79rem;color:var(--ink-2)}
+.lg i{width:15px;height:3px;border-radius:2px;flex:none;display:block}
+.lg i.sq{width:11px;height:11px;border-radius:2.5px}
+
+/* charts */
+.chart{width:100%;display:block;overflow:visible}
+.chart-scroll{overflow-x:auto;margin:0 -4px;padding:0 4px}
+.grid line{stroke:var(--rule);stroke-width:1}
+.axis line,.axis path{stroke:var(--rule-strong);stroke-width:1}
+.axis text,.tick text{font-family:"IBM Plex Mono",monospace;font-size:10.5px;fill:var(--ink-3);font-variant-numeric:tabular-nums}
+.alab{font-family:"IBM Plex Mono",monospace;font-size:10px;fill:var(--ink-3);letter-spacing:.07em;text-transform:uppercase}
+.dlab{font-family:"IBM Plex Sans Condensed",sans-serif;font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+.vlab{font-family:"IBM Plex Mono",monospace;font-size:10.5px;fill:var(--ink-2);font-variant-numeric:tabular-nums}
+
+/* tooltip */
+.tip{position:fixed;pointer-events:none;z-index:60;background:var(--surface);border:1px solid var(--rule-strong);
+  border-radius:7px;padding:9px 11px;box-shadow:var(--shadow);font-size:.79rem;opacity:0;transition:opacity .09s;max-width:270px}
+.tip.on{opacity:1}
+.tip .tt{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.06em;color:var(--ink-3);text-transform:uppercase;margin-bottom:6px}
+.tip .tr{display:flex;align-items:center;gap:7px;justify-content:space-between;line-height:1.5}
+.tip .tr span:first-child{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2)}
+.tip .tr b{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-weight:500;color:var(--ink)}
+.tip i{width:9px;height:9px;border-radius:2px;flex:none}
+
+/* tables */
+.tbl-wrap{overflow-x:auto;border:1px solid var(--rule);border-radius:9px;background:var(--surface);margin:26px 0}
+table{border-collapse:collapse;width:100%;font-size:.845rem}
+th,td{text-align:right;padding:9px 13px;border-bottom:1px solid var(--rule);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal;min-width:220px}
+thead th{font-family:"IBM Plex Mono",monospace;font-size:.67rem;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:500;background:var(--surface-2);position:sticky;top:0}
+tbody td{font-variant-numeric:tabular-nums;font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--ink-2)}
+tbody td:first-child{font-family:"IBM Plex Sans",sans-serif;font-size:.855rem;color:var(--ink)}
+tbody tr:last-child td{border-bottom:none}
+tr.hi td{background:var(--accent-soft)}
+tr.hi td:first-child{font-weight:600;color:var(--ink);box-shadow:inset 3px 0 0 var(--accent)}
+td.pos{color:var(--good)} td.neg{color:var(--bad)}
+caption{caption-side:bottom;text-align:left;padding:10px 13px;font-size:.76rem;color:var(--ink-3);line-height:1.45}
+
+/* callouts */
+.call{border-left:3px solid var(--accent);background:var(--surface);padding:16px 20px;margin:26px 0;border-radius:0 8px 8px 0;
+  border-top:1px solid var(--rule);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.call.bad{border-left-color:var(--bad)} .call.good{border-left-color:var(--good)}
+.call h4{font-size:.98rem;margin-bottom:7px;font-weight:600}
+.call p:last-child{margin-bottom:0}
+.call p{font-size:.925rem;color:var(--ink-2)}
+
+/* pills */
+.pill{display:inline-flex;align-items:center;gap:5px;font-family:"IBM Plex Mono",monospace;font-size:.7rem;
+  padding:2px 8px;border-radius:11px;border:1px solid;letter-spacing:.03em;white-space:nowrap}
+.pill.ok{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,transparent);background:color-mix(in srgb,var(--good) 9%,transparent)}
+.pill.no{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent);background:color-mix(in srgb,var(--bad) 9%,transparent)}
+.pill.wa{color:var(--ink-2);border-color:var(--rule-strong);background:var(--surface-2)}
+
+/* verdict cards */
+.verdicts{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:16px;margin:30px 0}
+.vc{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:20px 21px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:9px}
+.vc.win{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),var(--shadow)}
+.vc .vt{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.vc .vn{font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;font-size:1.16rem;line-height:1.2}
+.vc code{font-size:.72rem;word-break:break-all;display:block;padding:7px 9px;line-height:1.45}
+.vc p{font-size:.865rem;color:var(--ink-2);margin:0}
+
+footer{border-top:1px solid var(--rule);margin-top:70px;padding:38px 0 60px;color:var(--ink-3);font-size:.83rem;background:var(--surface)}
+footer h3{font-size:.95rem;color:var(--ink);margin-bottom:10px}
+footer code{font-size:.76rem}
+hr.rule{border:0;border-top:1px solid var(--rule);margin:52px 0}
+ul.tight{margin:0 0 1em;padding-left:1.15em}
+ul.tight li{margin-bottom:.42em;color:var(--ink-2)}
+@media (max-width:640px){
+  .wrap{padding:0 18px}
+  .mast-in{padding:44px 0 34px}
+  .panel{padding:18px 15px 14px;border-radius:8px}
+  body{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+</style>
+
+<div class="masthead">
+  <div class="wrap mast-in">
+    <p class="eyebrow">RTX PRO 6000 Blackwell · vLLM · 2026-08-18</p>
+    <h1>The fastest config<br>is the slowest one.</h1>
+    <p class="lede">Thirty-odd benchmark runs to find the quickest way to serve <strong>Qwen3.8-27B</strong> on one 96&nbsp;GB Blackwell card. The single-stream winner turned out to be the <strong>worst config in the fleet</strong> once eight requests are in flight — and the config that actually belongs in production ranked <strong>fifth</strong> on the speed table everyone quotes.</p>
+    <div class="specline">
+      <span><b>GPU</b> RTX PRO 6000 Blackwell 96 GB · sm_120</span>
+      <span><b>Engine</b> vLLM 0.1.dev19754+g3a0914114</span>
+      <span><b>Harness</b> GuideLLM 0.5.4</span>
+      <span><b>Runs</b> 30+ configs · 0 failed requests</span>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Single stream, best</div><div class="v">111.8<span class="u">tok/s</span></div><div class="s">DSpark-7 + probabilistic. Peaks alone, collapses under load.</div></div>
+      <div class="tile"><div class="k">Production, aggregate</div><div class="v">1,159<span class="u">tok/s</span></div><div class="s">MTP-2 + probabilistic at concurrency 30.</div></div>
+      <div class="tile"><div class="k">vs official FP8 recipe</div><div class="v">2.38<span class="u">×</span></div><div class="s">Single stream. 45.6 → 108.7 tok/s.</div></div>
+      <div class="tile"><div class="k">Errors under load</div><div class="v">0</div><div class="s">5 scenarios to concurrency 64, plus mixed text+image bursts.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+<section id="crossover">
+  <div class="col sec-head">
+    <span class="sec-num">The finding</span>
+    <h2>Two configs, opposite answers</h2>
+    <p>Every published benchmark for this model measures one request at a time. That number ranks configurations in an order that reverses almost exactly once the card is actually busy.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Aggregate throughput vs concurrency — chat workload</span><span class="axis-note">2,000 in / 300 out · GuideLLM</span></div>
+    <p class="panel-s">Four speculative-decoding strategies on the identical W4A4 NVFP4 checkpoint. The only thing that changes is how many tokens the drafter proposes per step.</p>
+    <div id="lg-cross" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-cross" class="chart" role="img" aria-label="Line chart: aggregate output tokens per second against concurrency for four configurations, showing DSpark-7 leading at low concurrency then falling last at high concurrency"></svg></div>
+  </div>
+
+  <div class="col">
+    <p>At one request in flight, <strong>DSpark-7 + probabilistic</strong> leads by 58% over no speculation at all. By concurrency 30 it is dead last — behind even the config that does no speculative decoding whatsoever. Meanwhile <strong>MTP-2 + probabilistic</strong>, which gives up 3% single-stream, delivers <strong>30% more aggregate throughput</strong> at the load a real endpoint actually sees.</p>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>Aggregate output tok/s, chat profile. Concurrency is GuideLLM's achieved mean, so a requested 32 reports as ~30. Bold column marks the winner at each level.</caption>
+      <thead><tr><th>Configuration</th><th>1</th><th>2</th><th>4</th><th>8</th><th>15</th><th>30</th><th>55</th><th>Draft slots</th></tr></thead>
+      <tbody id="tb-conc"></tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="mechanism">
+  <div class="col sec-head">
+    <span class="sec-num">The mechanism</span>
+    <h2>Speculation is free until the GPU is busy</h2>
+    <p>The crossover is not an artifact. It follows directly from what the card is bottlenecked on, and the bottleneck changes as the batch fills.</p>
+  </div>
+
+  <div class="col">
+    <p>Decoding one token requires reading all 17.5&nbsp;GB of weights. At 1.79&nbsp;TB/s that is 9.8&nbsp;ms, and it is the same 9.8&nbsp;ms whether you verify one draft token or sixteen — the arithmetic to check them is rounding error next to the memory traffic:</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Cost of one verify step vs draft block size</span><span class="axis-note">weights 17.5 GB · 1.79 TB/s · ~1.5 PFLOPS FP4</span></div>
+    <p class="panel-s">Weight-read time is flat; compute is negligible at every block size that fits. This is why a long draft block is nearly free for a single user — and why it stops being free when many users share the step.</p>
+    <div id="lg-mem" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-mem" class="chart" role="img" aria-label="Bar chart showing weight-read time constant at 9.8 milliseconds across draft block sizes 1 to 16 while compute time stays under 0.6 milliseconds"></svg></div>
+  </div>
+
+  <div class="col">
+    <p>Once enough requests share a step, the GPU flips from memory-bound to compute-bound. Now every drafted-but-rejected token is real work stolen from a real request. Draft cost per request per step becomes the thing that decides throughput — and it orders the table perfectly, in both directions:</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Draft length is the whole story</span><span class="axis-note">same checkpoint · same engine</span></div>
+    <p class="panel-s">At concurrency 1, throughput rises monotonically with draft length. At concurrency 30 the curve inverts into a peak at two tokens. Nothing else about these configurations differs.</p>
+    <div id="lg-slots" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-slots" class="chart" role="img" aria-label="Two-panel chart: at concurrency 1 throughput increases with draft slots; at concurrency 30 throughput peaks at two draft slots and falls away on both sides"></svg></div>
+  </div>
+
+  <div class="call">
+    <h4>The rule this gives you</h4>
+    <p>The optimal draft length falls as concurrency rises. A single-stream draft-length sweep — the thing every checkpoint card publishes — is therefore the wrong instrument for choosing a production configuration. It is measuring the memory-bound regime and your endpoint runs in the compute-bound one.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="ladder">
+  <div class="col sec-head">
+    <span class="sec-num">Single stream</span>
+    <h2>The ladder everyone publishes</h2>
+    <p>Worth having, and worth reading with the caveat above attached. Getting from the official FP8 recipe to the top of this chart took three independent changes, only one of which appears in any vendor documentation.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Single-request throughput, all 16 configurations</span><span class="axis-note">test_chat.py · temp 1.0 · thinking on</span></div>
+    <p class="panel-s">Bars are the sampled protocol — the model's own generation_config, which is how clients actually hit the endpoint. Dots are greedy (temperature 0, thinking off): the protocol every vendor checkpoint card quotes.</p>
+    <div id="lg-lad" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-ladder" class="chart" role="img" aria-label="Horizontal bar chart ranking 16 configurations by single-stream throughput from 111.8 down to 45.6 tokens per second"></svg></div>
+  </div>
+
+  <div class="col">
+    <h3>The three changes that mattered</h3>
+    <p>None of them is "use NVFP4 with MTP" — that was already being done by the configuration this work started from.</p>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>Each change measured independently, holding everything else fixed.</caption>
+      <thead><tr><th>Change</th><th>Effect</th><th>Why it was not obvious</th></tr></thead>
+      <tbody>
+        <tr><td><b>W4A4 checkpoint</b> instead of W4A16</td><td class="pos">58.7 → 77.1<br>+31%</td><td style="text-align:left;white-space:normal;min-width:280px">Both repositories are labelled "NVFP4". Only one puts <em>activations</em> in 4-bit, and only that one engages the FP4 tensor cores.</td></tr>
+        <tr><td><b>DSpark block drafter</b> instead of the built-in MTP head</td><td class="pos">77.1 → 102<br>+32%</td><td style="text-align:left;white-space:normal">MTP got <em>worse</em> as the target got faster: a harder-quantized target diverges further from its own BF16 draft head.</td></tr>
+        <tr><td><code>draft_sample_method: probabilistic</code></td><td class="pos">102 → 111.8<br>+10%</td><td style="text-align:left;white-space:normal">Worth roughly nothing at temperature 0 — which is the only way vendors benchmark, so no card mentions it.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">"NVFP4" is two different things</span><span class="axis-note">no speculation · single stream</span></div>
+    <p class="panel-s">The single largest lever, and it is invisible from the repository name. On sm_120 the FP4 tensor cores only engage when the activations are 4-bit too; a W4A16 checkpoint dequantizes and runs the GEMM at 16-bit, buying VRAM and nothing else.</p>
+    <div class="chart-scroll"><svg id="c-quant" class="chart" role="img" aria-label="Bar chart comparing 77.1 tokens per second for W4A4 against 58.7 for W4A16 and 45.6 for FP8"></svg></div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="multimodal">
+  <div class="col sec-head">
+    <span class="sec-num">Mixed load</span>
+    <h2>Under DSpark, images pay double</h2>
+    <p>A multimodal endpoint gets text-only and image-bearing requests in the same batch. That combination is where the two speculative strategies separate hardest — and it is not visible in any text-only benchmark.</p>
+  </div>
+
+  <div class="col">
+    <p>vLLM says the quiet part out loud at startup and then carries on serving:</p>
+    <p><code>Draft model Qwen3DSparkForCausalLM does not support external multimodal embeddings. Embeddings from the target model will not be passed to the drafter; using text-only draft inputs instead.</code></p>
+    <p>So on every image turn the DSpark drafter is guessing from text alone, and the draft compute is wasted. MTP is part of the target model and reads its hidden states, so it has no such blind spot.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Per-stream throughput on a 50/50 text+image batch</span><span class="axis-note">concurrency 32 · 128 requests · 0.5–4.75 MP images</span></div>
+    <p class="panel-s">Text and image requests interleaved in the same batch. A balanced pair of bars means the strategy treats both modalities alike; a short right-hand bar means image requests are subsidising the drafter.</p>
+    <div id="lg-mm" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-mixed" class="chart" role="img" aria-label="Grouped bar chart of per-stream throughput for text versus image requests across five configurations at concurrency 32"></svg></div>
+  </div>
+
+  <div class="call bad">
+    <h4>The gap is a factor of 1.7</h4>
+    <p>Under DSpark-7 an image request decodes at <b>18.4 tok/s</b> while a text request in the same batch gets <b>31.8</b>. Under MTP-2 + probabilistic the two are <b>36.1</b> and <b>38.1</b> — within a few percent of each other. For a vision endpoint this settles the choice on its own, before throughput is even considered.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="kv">
+  <div class="col sec-head">
+    <span class="sec-num">Capacity</span>
+    <h2>Speculation is rented from the KV cache</h2>
+    <p>Draft slots are not free in memory either. They come out of the same pool that determines how many long-context users fit on the card at once.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">KV cache pool by configuration</span><span class="axis-note">--gpu-memory-utilization 0.88 · 262 K max context</span></div>
+    <p class="panel-s">The right-hand figure is how many simultaneous requests at the full 262,144-token context the pool supports. DSpark-7 gives up nearly half the pool relative to no speculation.</p>
+    <div class="chart-scroll"><svg id="c-kv" class="chart" role="img" aria-label="Horizontal bar chart of KV cache pool size by configuration, from 1.83 million tokens with no speculation down to 968 thousand with DSpark-7"></svg></div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="workload">
+  <div class="col sec-head">
+    <span class="sec-num">Workload shape</span>
+    <h2>What the drafter is guessing about</h2>
+    <p>Two more results that decide how much any of this transfers to your traffic.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Draft acceptance decays by position — and the decay depends on the text</span><span class="axis-note">DSpark block 7 · same running server</span></div>
+    <p class="panel-s">On prose, the seventh drafted token survives 1.6% of the time and is pure waste. On structured, list-like output the same slot lands 32% of the time. The benchmark prompt everyone uses is close to speculation's worst case.</p>
+    <div id="lg-acc" class="legend"></div>
+    <div class="chart-scroll"><svg id="c-accept" class="chart" role="img" aria-label="Line chart of per-position draft acceptance rate for prose versus structured output across seven draft positions"></svg></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Peak aggregate throughput by workload</span><span class="axis-note">DSpark-7 · concurrency swept 1→32</span></div>
+    <p class="panel-s">Decode-heavy work peaks three to four times higher than prefill-heavy work. Speculation does nothing for prefill, which is a second reason its advantage shrinks on retrieval and summarisation endpoints.</p>
+    <div class="chart-scroll"><svg id="c-scen" class="chart" role="img" aria-label="Horizontal bar chart of peak throughput by scenario: codegen 994, chat 891, agentic 371, rag 326, summarization 251 tokens per second"></svg></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h"><span class="panel-t">Throughput bought with latency — the production config</span><span class="axis-note">MTP-2 + probabilistic · chat</span></div>
+    <p class="panel-s">Each point is one concurrency level. Up is more aggregate throughput; right is a slower response for every individual user. The knee around concurrency 8–15 is where an interactive endpoint should sit.</p>
+    <div class="chart-scroll"><svg id="c-front" class="chart" role="img" aria-label="Scatter plot of aggregate throughput against median request latency across concurrency levels, showing diminishing returns past concurrency 15"></svg></div>
+  </div>
+
+  <div class="col">
+    <p>Reading the knee off that curve gives the practical capacity of a single card:</p>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>Sweet spot defined as request latency p50 under ~5 s with TPOT under ~15 ms.</caption>
+      <thead><tr><th>Scenario</th><th>In / out tokens</th><th>Sweet-spot concurrency</th><th>tok/s there</th><th>Latency p50</th><th>Practical users</th></tr></thead>
+      <tbody>
+        <tr><td>Chat</td><td>2 K / 300</td><td>8</td><td>639</td><td>3.8 s</td><td>~12</td></tr>
+        <tr><td>Code generation</td><td>4 K / 1 500</td><td>~8</td><td>~600</td><td>—</td><td>~8</td></tr>
+        <tr><td>RAG</td><td>8 K / 256</td><td>4</td><td>~230</td><td>4.3 s</td><td>~5</td></tr>
+        <tr><td>Summarisation</td><td>12 K / 300</td><td>4</td><td>~195</td><td>6.6 s</td><td>~4</td></tr>
+        <tr><td>Agentic</td><td>16 K / 800</td><td>4</td><td>~247</td><td>12.6 s</td><td>1–2</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="failures">
+  <div class="col sec-head">
+    <span class="sec-num">Negative results</span>
+    <h2>Eight things that did not work</h2>
+    <p>Recorded because each cost a boot cycle, and because several of them fail in ways that look like something else entirely.</p>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>Every one of these was measured, not assumed.</caption>
+      <thead><tr><th>Attempt</th><th>Outcome</th><th>What actually happened</th></tr></thead>
+      <tbody>
+        <tr><td><code>probabilistic</code> + <code>--async-scheduling</code></td><td><span class="pill no">hangs</span></td><td style="text-align:left;white-space:normal;min-width:300px">Not a crash. Server answers, 90 GB allocated, GPU utilisation 0%, <code>/health</code> never returns, nothing logged. Each flag is worth ~10% alone; they cannot be combined.</td></tr>
+        <tr><td>gittensor DSpark-NVFP4 drafter</td><td><span class="pill no">won't load</span></td><td style="text-align:left;white-space:normal">Dies with a tensor-shape error naming no parameter. Its quantization ignore-list uses SGLang glob syntax (<code>markov_head*</code>), which vLLM's matcher silently fails to match, so the Markov head gets quantized to half width.</td></tr>
+        <tr><td>Adaptive speculation schedule</td><td><span class="pill no">worse</span></td><td style="text-align:left;white-space:normal">Switching draft depth by batch size at the measured crossover gave 817 tok/s at concurrency 30 — below both configs it was meant to combine. KV pool stayed at the speculative value regardless.</td></tr>
+        <tr><td><code>VLLM_QWEN3_5_GDN_DECODE_KERNEL=fused</code></td><td><span class="pill no">refused</span></td><td style="text-align:left;white-space:normal">"requires a BF16 Qwen3.5 model … and an SM100 GPU". SM100 is B200/B300; this card is SM120. Blackwell is not one architecture.</td></tr>
+        <tr><td><code>--gpu-memory-utilization</code> 0.90 / 0.95</td><td><span class="pill no">OOM</span></td><td style="text-align:left;white-space:normal">Fails inside the Gated DeltaNet chunk kernel's warmup workspace, which vLLM's KV-pool profiling does not account for. Raising the number makes it worse.</td></tr>
+        <tr><td><code>dspark_draft_topk: 8</code></td><td><span class="pill no">hurts</span></td><td style="text-align:left;white-space:normal">112.4 → 109.3. Cheapens the Markov projection but costs more acceptance than it saves (2.24 → 2.11).</td></tr>
+        <tr><td><code>VLLM_USE_V2_MODEL_RUNNER=1</code></td><td><span class="pill wa">no effect</span></td><td style="text-align:left;white-space:normal">107.5 vs 109.4 — inside noise. It targets GB200-class MoE serving.</td></tr>
+        <tr><td><code>--max-num-batched-tokens 16384</code></td><td><span class="pill wa">wash</span></td><td style="text-align:left;white-space:normal">vLLM warns that speculation clamps the scheduler to 2048 tokens, but raising it changes nothing for single-stream decode and little at concurrency.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="call">
+    <h4>One retraction</h4>
+    <p>A DSpark-3 run first appeared to crash under load — GuideLLM reported a dead worker group, then every request got connection-refused. A clean re-run passed with the engine still running and zero error lines in its log. It was the <em>benchmark harness</em> that died, not the server. From the client side those two look identical, so the test rig now always saves the engine log.</p>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="verdict">
+  <div class="col sec-head">
+    <span class="sec-num">Recommendation</span>
+    <h2>Which one to actually run</h2>
+    <p>There is no single answer, and pretending otherwise is how the wrong config ends up deployed. Pick on concurrency.</p>
+  </div>
+
+  <div class="verdicts">
+    <div class="vc win">
+      <div class="vt">Multi-user · multimodal · agentic</div>
+      <div class="vn">MTP-2 + probabilistic</div>
+      <code>{"method":"mtp","num_speculative_tokens":2,"draft_sample_method":"probabilistic"}</code>
+      <p>Best from concurrency 8 upward, +61% KV pool, and images decode at full speed. Gives up 3% single-stream. <b>This is the default.</b></p>
+    </div>
+    <div class="vc">
+      <div class="vt">One user, latency above all</div>
+      <div class="vn">DSpark-7 + probabilistic</div>
+      <code>{"method":"dspark","model":"Doopeworld/Qwen3.8-27B-DSpark-vLLM","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}</code>
+      <p>+14% at a single request (127 vs 111 tok/s). Nothing else is in flight to lose, so its collapse under load never happens.</p>
+    </div>
+    <div class="vc">
+      <div class="vt">Batch / offline, no latency target</div>
+      <div class="vn">MTP-1</div>
+      <code>{"method":"mtp","num_speculative_tokens":1}</code>
+      <p>Highest aggregate measured anywhere here: 1,233.6 tok/s at concurrency 55. Weakest single-stream of the speculative options.</p>
+    </div>
+  </div>
+
+  <div class="col">
+    <h3>Verified on the deployed configuration</h3>
+    <p>Speed that breaks correctness is not speed. The production config was re-checked after deployment, with speculation active throughout:</p>
+    <ul class="tight">
+      <li><b>Tool calling 4/4</b>, including three parallel calls folded into one answer.</li>
+      <li><b>Vision</b> at 0.5, 1.05 and 4.75 MP — the last is 4,663 prompt tokens, well past the 2,048-token tokenizer trap that breaks community repacks.</li>
+      <li><b>Needle-in-haystack recall exact at 43,247 tokens</b>, needle at 85% depth.</li>
+      <li><b>Byte-identical output across three runs at temperature 0</b> — rejection sampling is lossless, and a correct drafter cannot change the output distribution. It doesn't.</li>
+      <li><b>Zero failed requests</b> across five concurrency scenarios to 64 and mixed-modality bursts to 32.</li>
+    </ul>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap col">
+    <h3>Method, and how to disagree with it</h3>
+    <p>Two throughput protocols are reported throughout because for speculative configurations they genuinely disagree. <b>Sampled</b> uses the model's own <code>generation_config</code> (temperature 1.0, top_p 0.95, top_k 20) with thinking on — how the endpoint is really used. <b>Greedy</b> uses temperature 0 with thinking off and <code>ignore_eos</code> — the protocol every vendor checkpoint card quotes. Speculative acceptance is a function of the target's sampling distribution, so quoting one against the other compares two different experiments.</p>
+    <p>The control that makes the rest trustworthy: with speculation off, all three protocols agree to within 2% (77.1 / 77.3 / 78.8 tok/s). Every disagreement elsewhere is acceptance-rate sensitivity, not benchmark noise.</p>
+    <p>Two measurement traps worth inheriting. <b>GuideLLM's TTFT is unusable against vLLM</b> — its median reads ~0 ms because vLLM emits an SSE frame with an empty role delta the instant a request is admitted, and the harness timestamps that as the first token; judge responsiveness by request latency instead. And <b>counting stream chunks undercounts throughput roughly twofold, but only when speculation is working</b> — vLLM packs every token accepted in one verify step into a single SSE frame, so the fastest configs look the slowest. Read <code>usage.completion_tokens</code>. That bug produced a 51.5 tok/s reading for a configuration actually running at 112.3 before it was caught.</p>
+    <p>Cross-boot spread on this card is about 3%; differences smaller than that are not read as real. Concurrency figures are GuideLLM's achieved mean, so a requested 32 reports as ~30.</p>
+  </div>
+</footer>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+const S=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS="http://www.w3.org/2000/svg";
+const el=(t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+const tip=document.getElementById('tip');
+function showTip(html,ev){tip.innerHTML=html;tip.classList.add('on');
+  const r=tip.getBoundingClientRect();let x=ev.clientX+14,y=ev.clientY-10;
+  if(x+r.width>innerWidth-8)x=ev.clientX-r.width-14;
+  if(y+r.height>innerHeight-8)y=innerHeight-r.height-8;
+  if(y<8)y=8;
+  tip.style.left=x+'px';tip.style.top=y+'px';}
+function hideTip(){tip.classList.remove('on');}
+const fmt=n=>n>=1000?n.toLocaleString('en-US'):(Number.isInteger(n)?n:n.toFixed(1));
+
+/* ---------- data ---------- */
+const CONC=[1,2,4,8,15,30,55];
+const SERIES=[
+  {n:"DSpark-7 + probabilistic",k:"s1",slots:7,v:[127.2,231.8,401.3,584.8,768.6,891.3,867.1]},
+  {n:"MTP-2 + probabilistic",   k:"s2",slots:2,v:[111.3,220.5,388.9,639.5,913.3,1158.6,1213.6]},
+  {n:"MTP-1",                   k:"s3",slots:1,v:[96.7,178.3,331.0,536.5,838.6,1089.1,1233.6]},
+  {n:"No speculation",          k:"s5",slots:0,v:[80.6,137.8,245.4,446.2,707.7,1004.8,1136.2]}
+];
+const CONC_ALL=[
+  ["MTP-2 + probabilistic",[111.3,220.5,388.9,639.5,913.3,1158.6,1213.6],2,1],
+  ["MTP-1",[96.7,178.3,331.0,536.5,838.6,1089.1,1233.6],1,0],
+  ["MTP-2",[100.3,202.4,367.5,599.3,835.3,1090.8,1163.8],2,0],
+  ["DSpark-3",[104.1,213.2,375.0,607.3,807.3,1059.0,1131.2],3,0],
+  ["No speculation",[80.6,137.8,245.4,446.2,707.7,1004.8,1136.2],0,0],
+  ["DSpark-7 + prob + mnbt16k",[130.3,233.3,414.2,605.5,774.3,932.7,857.2],7,0],
+  ["DSpark-7 + probabilistic",[127.2,231.8,401.3,584.8,768.6,891.3,867.1],7,0],
+  ["DSpark-7 + adaptive schedule",[125.4,229.2,404.0,590.7,781.3,817.3,811.0],7,0]
+];
+const LADDER=[
+  ["DSpark-7 + probabilistic",111.8,112.2,0],["DSpark-5 + probabilistic",111.1,107.0,0],
+  ["DSpark-7 + prob + mnbt16k",110.0,110.6,0],["DSpark-6 + async",109.5,114.0,0],
+  ["MTP-2 + probabilistic",108.7,122.1,1],["DSpark-7 + draft_topk 8",107.6,109.3,0],
+  ["DSpark-5 + async",103.8,116.9,0],["DSpark-4 + async",102.8,111.4,0],
+  ["DSpark-7 + async",102.0,112.3,0],["DSpark-7 (no flags)",101.6,null,0],
+  ["Unsloth NVFP4 + MTP-2",97.9,null,0],["DSpark-3 + async",96.4,104.5,0],
+  ["W4A4 + MTP-2",95.9,null,0],["W4A4, no speculation",77.1,78.8,0],
+  ["Unsloth NVFP4, no spec",58.7,null,0],["FP8, official recipe",45.6,null,0]
+];
+const MIXED=[
+  ["MTP-2 + probabilistic",38.1,36.1,1],["MTP-2",39.0,33.7,0],["No speculation",37.4,36.3,0],
+  ["DSpark-3",41.8,25.4,0],["DSpark-7 + probabilistic",31.8,18.4,0]
+];
+const KV=[["No speculation",1831994,6.99,0],["MTP-1",1610313,6.14,0],["MTP-2",1584779,6.04,0],
+  ["MTP-2 + probabilistic",1557969,5.94,1],["DSpark-3",1127821,4.30,0],["DSpark-7",967870,3.69,0]];
+const ACC_PROSE=[.583,.365,.234,.154,.080,.038,.016];
+const ACC_STRUCT=[.831,.688,.614,.540,.471,.402,.317];
+const SCEN=[["Code generation",994.5,20],["Chat",891.3,29],["Agentic",370.5,11],["RAG",326.1,14],["Summarisation",251.4,22]];
+const FRONT=[[2.6,111.3,1],[2.7,220.5,2],[3.5,388.9,4],[3.8,639.5,8],[5.4,913.3,15],[8.6,1158.6,30],[16.3,1213.6,55]];
+
+/* ---------- helpers ---------- */
+function legend(id,items,shape){
+  const c=document.getElementById(id); if(!c)return;
+  c.innerHTML=items.map(i=>`<span class="lg"><i class="${shape||''}" style="background:${i.c}"></i>${i.n}</span>`).join('');
+}
+function mkSvg(node,w,h){node.setAttribute('viewBox',`0 0 ${w} ${h}`);node.setAttribute('width','100%');
+  node.setAttribute('height',h);node.setAttribute('preserveAspectRatio','xMinYMin meet');node.innerHTML='';return node;}
+
+/* ---------- 1. crossover ---------- */
+function crossover(){
+  const sv=document.getElementById('c-cross'); if(!sv)return;
+  const W=880,H=430,M={t:16,r:150,b:46,l:58};
+  mkSvg(sv,W,H);
+  const cols=SERIES.map(s=>S('--'+s.k));
+  legend('lg-cross',SERIES.map((s,i)=>({n:s.n,c:cols[i]})));
+  const iw=W-M.l-M.r, ih=H-M.t-M.b, maxY=1300;
+  const X=i=>M.l+(i/(CONC.length-1))*iw, Y=v=>M.t+ih-(v/maxY)*ih;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=1300;v+=260){
+    g.appendChild(el('line',{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),stroke:S('--rule'),'stroke-width':1}));
+    const t=el('text',{x:M.l-9,y:Y(v)+3.5,'text-anchor':'end',class:'tick'});t.textContent=fmt(v);g.appendChild(t);
+  }
+  CONC.forEach((c,i)=>{const t=el('text',{x:X(i),y:H-M.b+19,'text-anchor':'middle',class:'tick'});t.textContent=c;g.appendChild(t);});
+  const ax=el('text',{x:M.l+iw/2,y:H-6,'text-anchor':'middle',class:'alab'});ax.textContent='concurrent requests';g.appendChild(ax);
+  const ay=el('text',{x:14,y:M.t+ih/2,'text-anchor':'middle',class:'alab',transform:`rotate(-90 14 ${M.t+ih/2})`});
+  ay.textContent='aggregate output tok/s';g.appendChild(ay);
+
+  SERIES.forEach((s,si)=>{
+    const d=s.v.map((v,i)=>`${i?'L':'M'}${X(i)},${Y(v)}`).join(' ');
+    g.appendChild(el('path',{d,fill:'none',stroke:cols[si],'stroke-width':2.4,'stroke-linejoin':'round','stroke-linecap':'round'}));
+    s.v.forEach((v,i)=>{
+      g.appendChild(el('circle',{cx:X(i),cy:Y(v),r:4.2,fill:cols[si],stroke:S('--surface'),'stroke-width':2}));
+    });
+  });
+  // Direct labels need a de-collision pass, not hand-tuned nudges: MTP-1 and
+  // MTP-2 finish 20 tok/s apart, which is 5px on this scale and far closer than
+  // a two-line label can sit. Lay them out top-down, pushing each down until it
+  // clears the previous by LBL_H, then shift the whole stack back into frame.
+  const last=CONC.length-1, LBL_H=34;
+  const lbl=SERIES.map((s,si)=>({i:si,y:Y(s.v[last]),s,c:cols[si]})).sort((a,b)=>a.y-b.y);
+  for(let i=1;i<lbl.length;i++) if(lbl[i].y-lbl[i-1].y<LBL_H) lbl[i].y=lbl[i-1].y+LBL_H;
+  const over=lbl[lbl.length-1].y-(M.t+ih-6);
+  if(over>0) lbl.forEach(l=>l.y-=over);
+  if(lbl[0].y<M.t+10){const d0=M.t+10-lbl[0].y;lbl.forEach(l=>l.y+=d0);}
+  lbl.forEach(l=>{
+    const ty=Y(l.s.v[last]);
+    // leader line whenever the label had to move off its own datapoint
+    if(Math.abs(l.y-ty)>3){
+      g.appendChild(el('path',{d:`M${X(last)+5},${ty} L${X(last)+10},${l.y-3}`,
+        stroke:l.c,'stroke-width':1.2,fill:'none',opacity:.55}));
+    }
+    const t=el('text',{x:X(last)+13,y:l.y,class:'dlab',fill:l.c});
+    t.textContent=l.s.n.replace(' + probabilistic',' +prob');
+    g.appendChild(t);
+    const t2=el('text',{x:X(last)+13,y:l.y+14,class:'vlab',fill:S('--ink-3')});
+    t2.textContent=fmt(l.s.v[last])+' tok/s';g.appendChild(t2);
+  });
+  // crossover marker
+  const cx=X(3.35);
+  g.appendChild(el('line',{x1:cx,x2:cx,y1:M.t,y2:M.t+ih,stroke:S('--ink-3'),'stroke-width':1,'stroke-dasharray':'3 4',opacity:.65}));
+  const cl=el('text',{x:cx+7,y:M.t+14,class:'alab',fill:S('--ink-3')});cl.textContent='crossover';g.appendChild(cl);
+
+  // hover columns
+  CONC.forEach((c,i)=>{
+    const bw=iw/(CONC.length-1);
+    const r=el('rect',{x:X(i)-bw/2,y:M.t,width:bw,height:ih,fill:'transparent'});
+    r.addEventListener('mousemove',ev=>{
+      const rows=SERIES.map((s,si)=>`<div class="tr"><span><i style="background:${cols[si]}"></i>${s.n}</span><b>${fmt(s.v[i])}</b></div>`).join('');
+      showTip(`<div class="tt">concurrency ${c} · tok/s</div>${rows}`,ev);
+    });
+    r.addEventListener('mouseleave',hideTip);
+    g.appendChild(r);
+  });
+}
+
+/* ---------- 2. memory-bound ---------- */
+function membound(){
+  const sv=document.getElementById('c-mem'); if(!sv)return;
+  const B=[1,2,4,8,12,16],W=880,H=250,M={t:14,r:22,b:48,l:58};
+  mkSvg(sv,W,H);
+  const c1=S('--s1'),c2=S('--s2');
+  legend('lg-mem',[{n:'weight read (memory)',c:c1},{n:'compute for the block',c:c2}],'sq');
+  const iw=W-M.l-M.r,ih=H-M.t-M.b,maxY=12;
+  const bw=iw/B.length, pad=bw*0.24;
+  const Y=v=>M.t+ih-(v/maxY)*ih;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=12;v+=3){
+    g.appendChild(el('line',{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),stroke:S('--rule')}));
+    const t=el('text',{x:M.l-9,y:Y(v)+3.5,'text-anchor':'end',class:'tick'});t.textContent=v;g.appendChild(t);
+  }
+  B.forEach((b,i)=>{
+    const comp=(2*27e9*b)/1.5e15*1e3, mem=9.78;
+    const x0=M.l+i*bw+pad, w=(bw-2*pad)/2-1;
+    [[mem,c1,0],[comp,c2,w+2]].forEach(([v,c,dx])=>{
+      const h=Math.max(2,(v/maxY)*ih);
+      g.appendChild(el('rect',{x:x0+dx,y:Y(v),width:w,height:h,fill:c,rx:3}));
+    });
+    const t=el('text',{x:M.l+i*bw+bw/2,y:H-M.b+19,'text-anchor':'middle',class:'tick'});t.textContent=b;g.appendChild(t);
+    const r=el('rect',{x:M.l+i*bw,y:M.t,width:bw,height:ih,fill:'transparent'});
+    r.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">draft block ${b}</div>
+       <div class="tr"><span><i style="background:${c1}"></i>weight read</span><b>9.78 ms</b></div>
+       <div class="tr"><span><i style="background:${c2}"></i>compute</span><b>${comp.toFixed(2)} ms</b></div>`,ev));
+    r.addEventListener('mouseleave',hideTip);g.appendChild(r);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='draft block size (tokens verified per step)';g.appendChild(ax);
+  const ay=el('text',{x:14,y:M.t+ih/2,'text-anchor':'middle',class:'alab',transform:`rotate(-90 14 ${M.t+ih/2})`});ay.textContent='milliseconds';g.appendChild(ay);
+}
+
+/* ---------- 3. draft slots ---------- */
+function slots(){
+  const sv=document.getElementById('c-slots'); if(!sv)return;
+  const W=880,H=300,M={t:26,r:20,b:52,l:60},gap=64;
+  mkSvg(sv,W,H);
+  const cA=S('--s1'),cB=S('--s2');
+  legend('lg-slots',[{n:'concurrency 1 (memory-bound)',c:cA},{n:'concurrency 30 (compute-bound)',c:cB}]);
+  const pw=(W-M.l-M.r-gap)/2, ih=H-M.t-M.b;
+  const pts=[{s:0,a:80.6,b:1004.8,n:'none'},{s:1,a:96.7,b:1089.1,n:'MTP-1'},
+             {s:2,a:100.3,b:1090.8,n:'MTP-2'},{s:3,a:104.1,b:1059.0,n:'DSpark-3'},{s:7,a:127.2,b:891.3,n:'DSpark-7'}];
+  [[0,'a',cA,140,'tok/s at concurrency 1'],[1,'b',cB,1300,'tok/s at concurrency 30']].forEach(([pi,key,col,maxY,title])=>{
+    const x0=M.l+pi*(pw+gap);
+    const X=s=>x0+(s/7)*pw, Y=v=>M.t+ih-(v/maxY)*ih;
+    const g=el('g');sv.appendChild(g);
+    const tt=el('text',{x:x0,y:M.t-11,class:'alab',fill:col});tt.textContent=title;g.appendChild(tt);
+    const steps=pi?5:4;
+    for(let i=0;i<=steps;i++){const v=maxY*i/steps;
+      g.appendChild(el('line',{x1:x0,x2:x0+pw,y1:Y(v),y2:Y(v),stroke:S('--rule')}));
+      const t=el('text',{x:x0-8,y:Y(v)+3.5,'text-anchor':'end',class:'tick'});t.textContent=fmt(Math.round(v));g.appendChild(t);}
+    const d=pts.map((p,i)=>`${i?'L':'M'}${X(p.s)},${Y(p[key])}`).join(' ');
+    g.appendChild(el('path',{d,fill:'none',stroke:col,'stroke-width':2.4,'stroke-linejoin':'round'}));
+    pts.forEach(p=>{
+      g.appendChild(el('circle',{cx:X(p.s),cy:Y(p[key]),r:4.6,fill:col,stroke:S('--surface'),'stroke-width':2}));
+      const t=el('text',{x:X(p.s),y:H-M.b+18,'text-anchor':'middle',class:'tick'});t.textContent=p.s;g.appendChild(t);
+      const hit=el('circle',{cx:X(p.s),cy:Y(p[key]),r:15,fill:'transparent'});
+      hit.addEventListener('mousemove',ev=>showTip(
+        `<div class="tt">${p.n} · ${p.s} draft slot${p.s===1?'':'s'}</div>
+         <div class="tr"><span><i style="background:${cA}"></i>concurrency 1</span><b>${p.a}</b></div>
+         <div class="tr"><span><i style="background:${cB}"></i>concurrency 30</span><b>${fmt(p.b)}</b></div>`,ev));
+      hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+    });
+    // annotate the peak on the right panel
+    if(pi===1){
+      const p=pts[2];
+      const t=el('text',{x:X(p.s),y:Y(p.b)-13,'text-anchor':'middle',class:'dlab',fill:col});t.textContent='peak at 2';g.appendChild(t);
+    }else{
+      const p=pts[4];
+      const t=el('text',{x:X(p.s)-4,y:Y(p.a)-13,'text-anchor':'end',class:'dlab',fill:col});t.textContent='rises to 7';g.appendChild(t);
+    }
+    const ax=el('text',{x:x0+pw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='draft slots per request per step';g.appendChild(ax);
+  });
+}
+
+/* ---------- 4. ladder ---------- */
+function ladder(){
+  const sv=document.getElementById('c-ladder'); if(!sv)return;
+  const rowH=25,W=880,M={t:14,r:74,b:44,l:214},H=M.t+LADDER.length*rowH+M.b;
+  mkSvg(sv,W,H);
+  const c1=S('--s1'),c2=S('--s2'),acc=S('--accent');
+  legend('lg-lad',[{n:'sampled — temp 1.0, thinking on',c:c1},{n:'greedy — temp 0 (vendor protocol)',c:c2}],'sq');
+  const iw=W-M.l-M.r,maxX=125;
+  const X=v=>M.l+(v/maxX)*iw;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=125;v+=25){
+    g.appendChild(el('line',{x1:X(v),x2:X(v),y1:M.t,y2:M.t+LADDER.length*rowH,stroke:S('--rule')}));
+    const t=el('text',{x:X(v),y:H-M.b+20,'text-anchor':'middle',class:'tick'});t.textContent=v;g.appendChild(t);
+  }
+  LADDER.forEach((r,i)=>{
+    const [n,samp,grd,hi]=r, y=M.t+i*rowH;
+    const lb=el('text',{x:M.l-11,y:y+rowH/2+4,'text-anchor':'end',class:'dlab',fill:hi?acc:S('--ink-2')});
+    lb.setAttribute('font-weight',hi?700:500);lb.textContent=n;g.appendChild(lb);
+    g.appendChild(el('rect',{x:M.l,y:y+4.5,width:Math.max(2,X(samp)-M.l),height:rowH-11,fill:hi?acc:c1,rx:3,opacity:hi?1:.82}));
+    if(grd!=null){
+      g.appendChild(el('circle',{cx:X(grd),cy:y+rowH/2,r:4.6,fill:c2,stroke:S('--surface'),'stroke-width':2}));
+    }
+    const vt=el('text',{x:X(samp)+9,y:y+rowH/2+4,class:'vlab'});vt.textContent=samp.toFixed(1);g.appendChild(vt);
+    const hit=el('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">${n}</div>
+       <div class="tr"><span><i style="background:${c1}"></i>sampled</span><b>${samp.toFixed(1)}</b></div>`+
+      (grd!=null?`<div class="tr"><span><i style="background:${c2}"></i>greedy</span><b>${grd.toFixed(1)}</b></div>`:'')+
+      `<div class="tr"><span>vs FP8</span><b>${(samp/45.6).toFixed(2)}×</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='tokens per second, single request';g.appendChild(ax);
+}
+
+/* ---------- 5. quant ---------- */
+function quant(){
+  const sv=document.getElementById('c-quant'); if(!sv)return;
+  const D=[["W4A4 NVFP4 · 4-bit weights + activations",77.1,1],
+           ["W4A16 NVFP4 · 4-bit weights only",58.7,0],
+           ["FP8 · official recipe",45.6,0]];
+  const rowH=52,W=880,M={t:8,r:80,b:38,l:300},H=M.t+D.length*rowH+M.b;
+  mkSvg(sv,W,H);
+  const acc=S('--accent'),base=S('--s1');
+  const iw=W-M.l-M.r,maxX=85,X=v=>M.l+(v/maxX)*iw;
+  const g=el('g');sv.appendChild(g);
+  D.forEach((r,i)=>{
+    const [n,v,hi]=r,y=M.t+i*rowH;
+    const lb=el('text',{x:M.l-13,y:y+rowH/2+4,'text-anchor':'end',class:'dlab',fill:hi?acc:S('--ink-2')});
+    lb.setAttribute('font-weight',hi?700:500);lb.textContent=n;g.appendChild(lb);
+    g.appendChild(el('rect',{x:M.l,y:y+9,width:X(v)-M.l,height:rowH-24,fill:hi?acc:base,rx:4,opacity:hi?1:.55}));
+    const vt=el('text',{x:X(v)+11,y:y+rowH/2+5,class:'dlab',fill:S('--ink')});vt.textContent=v.toFixed(1)+' tok/s';g.appendChild(vt);
+    const hit=el('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(`<div class="tt">${n}</div><div class="tr"><span>single stream</span><b>${v.toFixed(1)} tok/s</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='tokens per second, no speculation';g.appendChild(ax);
+}
+
+/* ---------- 6. mixed modality ---------- */
+function mixed(){
+  const sv=document.getElementById('c-mixed'); if(!sv)return;
+  const rowH=54,W=880,M={t:10,r:96,b:44,l:214},H=M.t+MIXED.length*rowH+M.b;
+  mkSvg(sv,W,H);
+  const cT=S('--s1'),cI=S('--s2');
+  legend('lg-mm',[{n:'text-only request',c:cT},{n:'image request, same batch',c:cI}],'sq');
+  const iw=W-M.l-M.r,maxX=46,X=v=>M.l+(v/maxX)*iw;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=45;v+=15){
+    g.appendChild(el('line',{x1:X(v),x2:X(v),y1:M.t,y2:M.t+MIXED.length*rowH,stroke:S('--rule')}));
+    const t=el('text',{x:X(v),y:H-M.b+20,'text-anchor':'middle',class:'tick'});t.textContent=v;g.appendChild(t);}
+  MIXED.forEach((r,i)=>{
+    const [n,tx,im,hi]=r,y=M.t+i*rowH;
+    const lb=el('text',{x:M.l-11,y:y+rowH/2+4,'text-anchor':'end',class:'dlab',fill:hi?S('--accent'):S('--ink-2')});
+    lb.setAttribute('font-weight',hi?700:500);lb.textContent=n;g.appendChild(lb);
+    const bh=15;
+    g.appendChild(el('rect',{x:M.l,y:y+7,width:Math.max(2,X(tx)-M.l),height:bh,fill:cT,rx:3}));
+    g.appendChild(el('rect',{x:M.l,y:y+7+bh+2,width:Math.max(2,X(im)-M.l),height:bh,fill:cI,rx:3}));
+    const d=el('text',{x:X(Math.max(tx,im))+11,y:y+rowH/2+4,class:'vlab'});
+    const gapPct=Math.round((1-im/tx)*100);
+    d.textContent=`${tx.toFixed(1)} / ${im.toFixed(1)}`;g.appendChild(d);
+    const hit=el('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">${n} · concurrency 32</div>
+       <div class="tr"><span><i style="background:${cT}"></i>text</span><b>${tx.toFixed(1)} tok/s</b></div>
+       <div class="tr"><span><i style="background:${cI}"></i>image</span><b>${im.toFixed(1)} tok/s</b></div>
+       <div class="tr"><span>image penalty</span><b>${gapPct>0?'−'+gapPct+'%':'none'}</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='per-stream tokens per second';g.appendChild(ax);
+}
+
+/* ---------- 7. KV ---------- */
+function kv(){
+  const sv=document.getElementById('c-kv'); if(!sv)return;
+  const rowH=40,W=880,M={t:8,r:150,b:40,l:214},H=M.t+KV.length*rowH+M.b;
+  mkSvg(sv,W,H);
+  const acc=S('--accent'),base=S('--s1');
+  const iw=W-M.l-M.r,maxX=1.95e6,X=v=>M.l+(v/maxX)*iw;
+  const g=el('g');sv.appendChild(g);
+  [0,5e5,1e6,1.5e6].forEach(v=>{
+    g.appendChild(el('line',{x1:X(v),x2:X(v),y1:M.t,y2:M.t+KV.length*rowH,stroke:S('--rule')}));
+    const t=el('text',{x:X(v),y:H-M.b+20,'text-anchor':'middle',class:'tick'});t.textContent=(v/1e6).toFixed(1)+'M';g.appendChild(t);});
+  KV.forEach((r,i)=>{
+    const [n,v,mult,hi]=r,y=M.t+i*rowH;
+    const lb=el('text',{x:M.l-11,y:y+rowH/2+4,'text-anchor':'end',class:'dlab',fill:hi?acc:S('--ink-2')});
+    lb.setAttribute('font-weight',hi?700:500);lb.textContent=n;g.appendChild(lb);
+    g.appendChild(el('rect',{x:M.l,y:y+7,width:X(v)-M.l,height:rowH-16,fill:hi?acc:base,rx:3,opacity:hi?1:.62}));
+    const vt=el('text',{x:X(v)+11,y:y+rowH/2+4,class:'vlab'});vt.textContent=v.toLocaleString('en-US')+'  ·  '+mult.toFixed(2)+'×';g.appendChild(vt);
+    const hit=el('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">${n}</div><div class="tr"><span>KV pool</span><b>${v.toLocaleString('en-US')} tok</b></div>
+       <div class="tr"><span>at full 262K context</span><b>${mult.toFixed(2)}× concurrent</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='KV cache pool (tokens)';g.appendChild(ax);
+}
+
+/* ---------- 8. acceptance ---------- */
+function accept(){
+  const sv=document.getElementById('c-accept'); if(!sv)return;
+  const W=880,H=310,M={t:16,r:118,b:52,l:56};
+  mkSvg(sv,W,H);
+  const c1=S('--s2'),c2=S('--s1');
+  legend('lg-acc',[{n:'structured / list output',c:c2},{n:'prose (the benchmark prompt)',c:c1}]);
+  const iw=W-M.l-M.r,ih=H-M.t-M.b;
+  const X=i=>M.l+(i/6)*iw, Y=v=>M.t+ih-(v)*ih;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=1.0001;v+=.25){
+    g.appendChild(el('line',{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),stroke:S('--rule')}));
+    const t=el('text',{x:M.l-9,y:Y(v)+3.5,'text-anchor':'end',class:'tick'});t.textContent=Math.round(v*100)+'%';g.appendChild(t);}
+  for(let i=0;i<7;i++){const t=el('text',{x:X(i),y:H-M.b+19,'text-anchor':'middle',class:'tick'});t.textContent=i+1;g.appendChild(t);}
+  [[ACC_STRUCT,c2,'structured'],[ACC_PROSE,c1,'prose']].forEach(([arr,col,nm])=>{
+    const d=arr.map((v,i)=>`${i?'L':'M'}${X(i)},${Y(v)}`).join(' ');
+    g.appendChild(el('path',{d,fill:'none',stroke:col,'stroke-width':2.4,'stroke-linejoin':'round'}));
+    arr.forEach((v,i)=>g.appendChild(el('circle',{cx:X(i),cy:Y(v),r:4,fill:col,stroke:S('--surface'),'stroke-width':2})));
+    const t=el('text',{x:X(6)+12,y:Y(arr[6])+4,class:'dlab',fill:col});t.textContent=nm;g.appendChild(t);
+    const t2=el('text',{x:X(6)+12,y:Y(arr[6])+18,class:'vlab'});t2.textContent=Math.round(arr[6]*100)+'% at slot 7';g.appendChild(t2);
+  });
+  for(let i=0;i<7;i++){
+    const bw=iw/6;
+    const r=el('rect',{x:X(i)-bw/2,y:M.t,width:bw,height:ih,fill:'transparent'});
+    r.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">draft position ${i+1}</div>
+       <div class="tr"><span><i style="background:${c2}"></i>structured</span><b>${(ACC_STRUCT[i]*100).toFixed(1)}%</b></div>
+       <div class="tr"><span><i style="background:${c1}"></i>prose</span><b>${(ACC_PROSE[i]*100).toFixed(1)}%</b></div>`,ev));
+    r.addEventListener('mouseleave',hideTip);g.appendChild(r);
+  }
+  const ax=el('text',{x:M.l+iw/2,y:H-10,'text-anchor':'middle',class:'alab'});ax.textContent='position within the 7-token draft block';g.appendChild(ax);
+  const ay=el('text',{x:13,y:M.t+ih/2,'text-anchor':'middle',class:'alab',transform:`rotate(-90 13 ${M.t+ih/2})`});ay.textContent='accepted';g.appendChild(ay);
+}
+
+/* ---------- 9. scenarios ---------- */
+function scen(){
+  const sv=document.getElementById('c-scen'); if(!sv)return;
+  const rowH=42,W=880,M={t:8,r:160,b:40,l:170},H=M.t+SCEN.length*rowH+M.b;
+  mkSvg(sv,W,H);
+  const base=S('--s1');
+  const iw=W-M.l-M.r,maxX=1050,X=v=>M.l+(v/maxX)*iw;
+  const g=el('g');sv.appendChild(g);
+  [0,250,500,750,1000].forEach(v=>{
+    g.appendChild(el('line',{x1:X(v),x2:X(v),y1:M.t,y2:M.t+SCEN.length*rowH,stroke:S('--rule')}));
+    const t=el('text',{x:X(v),y:H-M.b+20,'text-anchor':'middle',class:'tick'});t.textContent=v;g.appendChild(t);});
+  SCEN.forEach((r,i)=>{
+    const [n,v,c]=r,y=M.t+i*rowH;
+    const lb=el('text',{x:M.l-11,y:y+rowH/2+4,'text-anchor':'end',class:'dlab',fill:S('--ink-2')});lb.textContent=n;g.appendChild(lb);
+    g.appendChild(el('rect',{x:M.l,y:y+8,width:X(v)-M.l,height:rowH-19,fill:base,rx:3,opacity:.85}));
+    const vt=el('text',{x:X(v)+11,y:y+rowH/2+4,class:'vlab'});vt.textContent=v.toFixed(1)+' tok/s @ conc '+c;g.appendChild(vt);
+    const hit=el('rect',{x:0,y:y,width:W,height:rowH,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">${n}</div><div class="tr"><span>peak aggregate</span><b>${v.toFixed(1)} tok/s</b></div>
+       <div class="tr"><span>at concurrency</span><b>${c}</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='peak aggregate tokens per second';g.appendChild(ax);
+}
+
+/* ---------- 10. frontier ---------- */
+function frontier(){
+  const sv=document.getElementById('c-front'); if(!sv)return;
+  const W=880,H=330,M={t:20,r:40,b:52,l:62};
+  mkSvg(sv,W,H);
+  const col=S('--s1'),warn=S('--ink-3');
+  const iw=W-M.l-M.r,ih=H-M.t-M.b,maxX=18,maxY=1300;
+  const X=v=>M.l+(v/maxX)*iw, Y=v=>M.t+ih-(v/maxY)*ih;
+  const g=el('g');sv.appendChild(g);
+  for(let v=0;v<=1300;v+=260){
+    g.appendChild(el('line',{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),stroke:S('--rule')}));
+    const t=el('text',{x:M.l-9,y:Y(v)+3.5,'text-anchor':'end',class:'tick'});t.textContent=fmt(v);g.appendChild(t);}
+  for(let v=0;v<=18;v+=3){
+    const t=el('text',{x:X(v),y:H-M.b+19,'text-anchor':'middle',class:'tick'});t.textContent=v+'s';g.appendChild(t);}
+  // interactive band
+  g.appendChild(el('rect',{x:M.l,y:M.t,width:X(5)-M.l,height:ih,fill:S('--accent'),opacity:.07}));
+  const bl=el('text',{x:X(5)-8,y:M.t+14,'text-anchor':'end',class:'alab',fill:S('--accent')});bl.textContent='interactive';g.appendChild(bl);
+  const d=FRONT.map((p,i)=>`${i?'L':'M'}${X(p[0])},${Y(p[1])}`).join(' ');
+  g.appendChild(el('path',{d,fill:'none',stroke:col,'stroke-width':2.2,'stroke-linejoin':'round'}));
+  FRONT.forEach(p=>{
+    const inb=p[0]<=5;
+    g.appendChild(el('circle',{cx:X(p[0]),cy:Y(p[1]),r:inb?6:5,fill:inb?col:S('--surface'),stroke:col,'stroke-width':2}));
+    const t=el('text',{x:X(p[0])+(p[2]===55?-12:9),y:Y(p[1])-9,class:'dlab',fill:S('--ink-2'),'text-anchor':p[2]===55?'end':'start'});
+    t.textContent='c'+p[2];g.appendChild(t);
+    const hit=el('circle',{cx:X(p[0]),cy:Y(p[1]),r:16,fill:'transparent'});
+    hit.addEventListener('mousemove',ev=>showTip(
+      `<div class="tt">concurrency ${p[2]}</div>
+       <div class="tr"><span>aggregate</span><b>${fmt(p[1])} tok/s</b></div>
+       <div class="tr"><span>latency p50</span><b>${p[0]} s</b></div>
+       <div class="tr"><span>per user</span><b>${(p[1]/p[2]).toFixed(1)} tok/s</b></div>`,ev));
+    hit.addEventListener('mouseleave',hideTip);g.appendChild(hit);
+  });
+  const ax=el('text',{x:M.l+iw/2,y:H-8,'text-anchor':'middle',class:'alab'});ax.textContent='median request latency';g.appendChild(ax);
+  const ay=el('text',{x:15,y:M.t+ih/2,'text-anchor':'middle',class:'alab',transform:`rotate(-90 15 ${M.t+ih/2})`});ay.textContent='aggregate output tok/s';g.appendChild(ay);
+}
+
+/* ---------- concurrency table ---------- */
+function concTable(){
+  const tb=document.getElementById('tb-conc'); if(!tb)return;
+  const best=CONC.map((_,i)=>Math.max(...CONC_ALL.map(r=>r[1][i])));
+  tb.innerHTML=CONC_ALL.map(([n,v,slots,hi])=>
+    `<tr class="${hi?'hi':''}"><td>${n}</td>`+
+    v.map((x,i)=>`<td${x===best[i]?' style="color:var(--ink);font-weight:600"':''}>${fmt(x)}</td>`).join('')+
+    `<td>${slots}</td></tr>`).join('');
+}
+
+function drawAll(){crossover();membound();slots();ladder();quant();mixed();kv();accept();scen();frontier();}
+concTable();drawAll();
+let t=null;
+addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(drawAll,180);});
+const mq=matchMedia('(prefers-color-scheme: dark)');
+mq.addEventListener?.('change',()=>setTimeout(drawAll,60));
+new MutationObserver(()=>setTimeout(drawAll,60)).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+})();
+</script>
