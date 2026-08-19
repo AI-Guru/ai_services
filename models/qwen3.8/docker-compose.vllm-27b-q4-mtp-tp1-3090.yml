@@ -1,0 +1,176 @@
+# Qwen3.8-27B W4A16 (INT4) on ONE RTX 3090 -- single card, reduced context
+#
+# Companion to docker-compose.vllm-27b-q4-tp2-3090.yml (same community
+# checkpoint, same caveats -- read that header first) and to
+# docker-compose.vllm-27b-fp8-tp2-3090.yml (hardware facts, KV arithmetic).
+#
+# !! 256K CONTEXT IS NOT REACHABLE ON ONE 24 GB CARD. This file does NOT serve
+# the full 262,144. That is arithmetic, not a tuning failure:
+#
+#   Budget on one 3090 at 0.95 util          ~22.8 GiB
+#     INT4 weights, NOT sharded              ~18.6 GiB   (all of them, one card)
+#     CUDA graphs                             ~1.0 GiB
+#     DeltaNet state, 32 slots                ~1.2 GiB
+#     activations / workspace                 ~1.0 GiB
+#                                            ----------
+#     left for KV cache                       ~1.0 GiB
+#
+#   256K of fp8 KV needs 8 GiB. We have about an eighth of that. There is no
+#   flag that closes a 7 GiB gap. Going below Q4 does not rescue it either --
+#   even free weights would leave ~19 GiB, and the 8 GiB KV would fit but you
+#   would be serving a 2-bit model to get there.
+#
+#   The reason TP2 works is NOT just double capacity: sharding halves the
+#   WEIGHTS (~9.8 GiB/GPU), and it is that freed space, not the extra card's
+#   raw size, that the 256K KV cache moves into.
+#
+# !! THIS IS THE MTP VARIANT AND ITS CEILING IS HALF THE NON-MTP ONE.
+# The MTP draft head costs 0.86 GiB on an already-full card: KV drops
+# 3.23 -> 2.37 GiB, and the pool from 25,088 -> 17,600 tokens. --max-model-len
+# is therefore 49,152 here, NOT the 98,304 used by the non-MTP TP1 file.
+#
+# Measured 2026-08-19 on this exact config:
+#     48,048 tok  OK, needle HIT, 50.8 s
+#     64,048 tok  ENGINE WEDGED -- see below
+#
+# !! THE 64K FAILURE MODE IS A HANG, NOT AN ERROR. This is worse than the
+# non-MTP file's clean OOM. The request began prefilling, reached 45.5% KV
+# usage, and then the engine loop went silent: no further log lines at all,
+# GPU pinned at 100% / 330 W / 79 C, for 48 minutes, while /health kept
+# answering 200 OK. Nothing times out, nothing crashes, no exception is ever
+# raised -- the client just waits forever and any health-based supervision
+# believes the server is fine.
+#
+# So do NOT tune this file by raising --max-model-len and watching for a
+# failure; the failure does not announce itself. Recovery is
+# `docker compose down` (took ~10 s, GPU released cleanly, no Xid and no crash
+# dump -- verified). If you do raise it, watch the ENGINE log for the periodic
+# "Avg generation throughput / Running: N reqs" lines and treat their
+# disappearance as the failure signal.
+#
+# NON-MTP CEILING, for reference (that file, no draft head), by probing this exact config with real
+# needle-in-haystack requests rather than trusting the startup log:
+#     24,048 tok  OK   23.6 s   needle HIT
+#     48,048 tok  OK   50.6 s   needle HIT
+#     96,048 tok  OK  120.7 s   needle HIT
+#    110,040 tok  FATAL -- torch.OutOfMemoryError, EngineCore dies, 500s
+# --max-model-len is therefore set to 98,304 (96K), just under the last size
+# that worked. That is 37% of the model's native 262,144.
+#
+# !! THE 110K FAILURE IS NOT A GRACEFUL REJECTION. It kills EngineCore and the
+# whole server goes down with it -- every in-flight request 500s, and with
+# restart: unless-stopped you would get a crash-loop. Do not raise
+# --max-model-len here "to see if it fits"; a request that does not fit takes
+# the server with it.
+#
+# !! AND IT DOES NOT OOM WHERE YOU EXPECT. At the moment of death the KV cache
+# was only 4.6% used (kv_cache_usage=0.0459) and the scheduler was on the FIRST
+# 2048-token chunk of prefill. The allocation that failed was inside Triton's
+# autotuner --
+#     triton/testing.py do_bench -> get_empty_cache_for_benchmark
+#     torch.OutOfMemoryError: Tried to allocate 256.00 MiB
+# i.e. Triton benchmarking the DeltaNet kernels at a new sequence-length shape
+# needed a 256 MiB scratch buffer that was not there. So the binding constraint
+# on one card is not "KV cache full", it is transient autotune workspace on top
+# of an already-full card. Reading the KV-usage number alone would tell you
+# there was plenty of room.
+#
+# So: 2 GPUs is a hard requirement for 256K on this model on this hardware.
+# On one card you choose between context and nothing else -- this file takes
+# the largest context that actually fits, set from the measured KV pool rather
+# than guessed. See README for the measured value; --max-model-len below is
+# tuned to it. If vLLM refuses to start with
+#   "max seq len (N) is larger than the maximum number of tokens that can be
+#    stored in KV cache"
+# then this host has less free VRAM than when it was tuned -- lower it further,
+# do not raise --gpu-memory-utilization past 0.95.
+#
+# NOTE this is the ONE config here that is NOT a like-for-like speed comparison
+# with the TP2 files. It serves a much shorter context, so its throughput is
+# not "the same workload on half the hardware".
+#
+# Usage: docker compose -f docker-compose.vllm-27b-q4-mtp-tp1-3090.yml up -d
+# API endpoint: http://localhost:11489/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-q4-mtp-tp1:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen38-27b-q4-mtp-tp1
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # ONE card only. TP1 with both cards visible would still only use
+              # GPU 0 for weights, but pinning makes the intent explicit and
+              # leaves GPU 1 genuinely free.
+              device_ids: ["0"]
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 16gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11489:8000"
+
+    volumes:
+      - /home/hordak/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - philbert440/Qwen3.8-27B-W4A16-AWQ
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # TP1 -- no all-reduce at all, so --disable-custom-all-reduce is
+      # unnecessary here (it is REQUIRED in both TP2 files).
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "49152"
+      - --kv-cache-dtype
+      - fp8
+      - --gpu-memory-utilization
+      - "0.95"
+      - --max-num-seqs
+      - "32"
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --language-model-only
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: qwen38-3090-network

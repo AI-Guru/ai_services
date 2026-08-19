@@ -142,7 +142,8 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
   <p class="eyebrow">Qwen3.8-27B · vLLM · 2026-08-19</p>
   <h1>256K on Two 3090s</h1>
   <p class="lede">Serving Qwen3.8-27B at its full 262,144-token context on a pair of RTX 3090s —
-  what fits, what it costs, and why the second card is not optional.</p>
+  what fits, what it costs, why the second card is not optional, and where speculative decoding
+  pays for itself.</p>
   <div class="chips">
     <span class="chip">2 × <b>RTX 3090</b> 24 GB</span>
     <span class="chip">SM <b>8.6</b> Ampere</span>
@@ -164,22 +165,22 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
 
   <div class="cards">
     <div class="card">
-      <span class="nm">Q4 · 2 GPU</span>
-      <span class="big">69.9<span class="unit">tok/s</span></span>
-      <span class="sub">Full 262,144 context. Fastest, and the most headroom.</span>
+      <span class="nm">Q4 + MTP-2 · 2 GPU</span>
+      <span class="big">74.6<span class="unit">tok/s</span></span>
+      <span class="sub">Full context and the fastest result. Speculation is nearly free here.</span>
       <span class="pill ok"><i class="dot"></i>256K verified</span>
     </div>
     <div class="card">
       <span class="nm">FP8 · 2 GPU</span>
       <span class="big">47.3<span class="unit">tok/s</span></span>
-      <span class="sub">First-party checkpoint, full context, but 32% slower.</span>
+      <span class="sub">First-party checkpoint, full context, but 37% slower.</span>
       <span class="pill ok"><i class="dot"></i>256K verified</span>
     </div>
     <div class="card">
-      <span class="nm">Q4 · 1 GPU</span>
-      <span class="big">44.9<span class="unit">tok/s</span></span>
-      <span class="sub">Ceiling is 96K tokens. 256K is unreachable on one card.</span>
-      <span class="pill no"><i class="dot"></i>256K impossible</span>
+      <span class="nm">Q4 + MTP-2 · 1 GPU</span>
+      <span class="big">55.4<span class="unit">tok/s</span></span>
+      <span class="sub">Best single-card speed, but context collapses to 48K to pay for it.</span>
+      <span class="pill no"><i class="dot"></i>48K ceiling</span>
     </div>
   </div>
 </section>
@@ -199,12 +200,24 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
       </thead>
       <tbody>
         <tr>
-          <td>Q4 W4A16 · TP2</td><td>2</td><td class="hi">69.9 tok/s</td><td>76 ms</td><td>189 ms</td>
+          <td>Q4 + MTP-2 · TP2</td><td>2</td><td class="hi">74.6 tok/s</td><td>—</td><td>—</td>
+          <td>262,144</td><td>252,058 ✓</td><td>—</td><td>12.07 GiB</td>
+        </tr>
+        <tr>
+          <td>Q4 W4A16 · TP2</td><td>2</td><td>69.9 tok/s</td><td>76 ms</td><td>189 ms</td>
           <td>262,144</td><td>252,058 ✓</td><td>965 tok/s</td><td>12.66 GiB</td>
+        </tr>
+        <tr>
+          <td>Q4 + MTP-1 · TP2</td><td>2</td><td>69.5 tok/s</td><td>—</td><td>—</td>
+          <td>262,144</td><td>—</td><td>—</td><td>12.07 GiB</td>
         </tr>
         <tr>
           <td>FP8 · TP2</td><td>2</td><td>47.3 tok/s</td><td>77 ms</td><td>186 ms</td>
           <td>262,144</td><td>252,058 ✓</td><td>954 tok/s</td><td>7.04 GiB</td>
+        </tr>
+        <tr>
+          <td>Q4 + MTP-2 · TP1</td><td>1</td><td>55.4 tok/s</td><td>—</td><td>—</td>
+          <td>49,152</td><td>48,048 ✓</td><td>—</td><td>2.37 GiB</td>
         </tr>
         <tr>
           <td>Q4 W4A16 · TP1</td><td>1</td><td>44.9 tok/s</td><td>98 ms</td><td>43,775 ms</td>
@@ -213,8 +226,11 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
       </tbody>
     </table>
   </div>
-  <p class="foot">Decode is the mean of 3 runs (Q4/TP2: 70.4 / 69.8 / 69.7 · FP8/TP2: 47.7 / 47.3 / 46.9 · Q4/TP1: 44.9 / 44.7).
-  Prefill measured on the long-context run. TP1's 43.8 s cold TTFT is one-time Triton autotune, not steady state.</p>
+  <p class="foot">Decode is the mean of 3 runs (Q4/TP2: 70.4 / 69.8 / 69.7 · FP8/TP2: 47.7 / 47.3 / 46.9 ·
+  Q4/TP1: 44.9 / 44.7 · Q4+MTP-2/TP1: 52.6 / 58.6 / 54.9). The MTP/TP1 spread is wide — read that 55.4 as ±3,
+  though the gap to baseline sits well outside it. Prefill measured on the long-context run.
+  TP1's 43.8 s cold TTFT is one-time Triton autotune, not steady state. MTP-3 on TP2 is absent because it
+  never completed a request.</p>
 </section>
 
 <hr>
@@ -233,21 +249,97 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
 
   <div class="chart simple">
     <p class="ct">Single-stream decode throughput</p>
-    <p class="cs">Same prompt, same sampling, 3 runs averaged. Higher is better.</p>
+    <p class="cs">Same prompt, same sampling, 3 runs averaged. Solid = 2 GPUs, faded = 1 GPU. Higher is better.</p>
     <div class="rows">
       <div class="row">
-        <div class="rl"><span class="rn">Q4 · TP2</span><span class="rv">262,144 ctx</span></div>
-        <div class="bar"><div class="fill" style="width:100%" title="69.9 tok/s">69.9</div></div>
+        <div class="rl"><span class="rn">Q4 + MTP-2 · TP2</span><span class="rv">262,144 ctx · 2 GPU</span></div>
+        <div class="bar"><div class="fill" style="width:100%" title="74.6 tok/s">74.6</div></div>
       </div>
       <div class="row">
-        <div class="rl"><span class="rn">FP8 · TP2</span><span class="rv">262,144 ctx</span></div>
-        <div class="bar"><div class="fill" style="width:67.7%" title="47.3 tok/s">47.3</div></div>
+        <div class="rl"><span class="rn">Q4 · TP2</span><span class="rv">262,144 ctx · 2 GPU</span></div>
+        <div class="bar"><div class="fill" style="width:93.7%" title="69.9 tok/s">69.9</div></div>
       </div>
       <div class="row">
-        <div class="rl"><span class="rn">Q4 · TP1</span><span class="rv">98,304 ctx</span></div>
-        <div class="bar"><div class="fill muted" style="width:64.2%" title="44.9 tok/s">44.9</div></div>
+        <div class="rl"><span class="rn">FP8 · TP2</span><span class="rv">262,144 ctx · 2 GPU</span></div>
+        <div class="bar"><div class="fill" style="width:63.4%" title="47.3 tok/s">47.3</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 + MTP-2 · TP1</span><span class="rv">49,152 ctx · 1 GPU</span></div>
+        <div class="bar"><div class="fill muted" style="width:74.3%" title="55.4 tok/s">55.4</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 · TP1</span><span class="rv">98,304 ctx · 1 GPU</span></div>
+        <div class="bar"><div class="fill muted" style="width:60.2%" title="44.9 tok/s">44.9</div></div>
       </div>
     </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Speculation</p>
+    <h2>MTP pays most where the target is slowest</h2>
+    <p>Qwen3.8-27B ships an MTP head (<code>mtp_num_hidden_layers=1</code>), and both checkpoints carry
+    its weights — including the community Q4, which leaves the draft head unquantized in BF16 while the
+    target is 4-bit. Draft length was swept at 1, 2 and 3.</p>
+    <p><b>Two is the only setting that works.</b> One draft token does not earn back its extra forward
+    pass. Three loads happily, reports a healthy 12.07 GiB KV pool, and then dies on the first request
+    with a 256 MiB Triton-autotune OOM — vLLM's startup sizing does not account for the longer draft's
+    workspace.</p>
+  </div>
+
+  <div class="chart simple">
+    <p class="ct">Gain from MTP-2 over the same config without speculation</p>
+    <p class="cs">Identical checkpoint, identical flags, draft head added. Bars show tok/s.</p>
+    <div class="rows">
+      <div class="row">
+        <div class="rl"><span class="rn">TP2 — 2 GPU</span><span class="rv">69.9 → 74.6 · <b>+6.7%</b></span></div>
+        <div class="bar"><div class="fill" style="width:100%" title="74.6 tok/s with MTP-2">74.6</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">TP1 — 1 GPU</span><span class="rv">44.9 → 55.4 · <b>+23.4%</b></span></div>
+        <div class="bar"><div class="fill muted" style="width:74.3%" title="55.4 tok/s with MTP-2">55.4</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-head col" style="margin-top:26px">
+    <p>The single card gains three and a half times as much, and the mechanism explains why. MTP amortizes
+    one pass over the weights across several verified tokens. TP1 carries all ~19 GB of weights on one
+    card; TP2 splits them. The more bandwidth-starved the target, the more each avoided weight-load is
+    worth — so the payoff scales <em>inversely</em> with how fast the target already is.</p>
+    <p>That is the same relationship the README hit on the RTX PRO 6000, read from the other end: there,
+    MTP got <em>worse</em> as the NVFP4 target got faster. Nothing contradicts; speculation is simply
+    priced against the target it is speculating for.</p>
+  </div>
+
+  <div class="chart simple" style="margin-top:22px">
+    <p class="ct">Draft acceptance by position, MTP-2</p>
+    <p class="cs">52.3% of draft tokens accepted overall — 1.05 extra tokens per step. Identical on TP1 and TP2.</p>
+    <div class="rows">
+      <div class="row">
+        <div class="rl"><span class="rn">Position 0</span><span class="rv">2,697 of 4,212 drafts</span></div>
+        <div class="bar"><div class="fill" style="width:64%" title="64% accepted at position 0">64%</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">Position 1</span><span class="rv">1,706 of 4,212 drafts</span></div>
+        <div class="bar"><div class="fill muted" style="width:40.5%" title="40.5% accepted at position 1">40%</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="foot">Acceptance decays fast with depth, which is why a third draft token would have bought
+  little even if it had fit.</p>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <h2>On one card, MTP is a trade, not a win</h2>
+    <p>The draft head costs 0.86 GiB on a card that had none to spare. KV falls 3.23 → 2.37 GiB and the
+    pool from 25,088 → 17,600 tokens, so the verified context ceiling halves: <b>96K without MTP, 48K
+    with it</b>. Single-card users are choosing between 44.9 tok/s at 96K and 55.4 tok/s at 48K — there
+    is no setting that gives both.</p>
+    <p>On two cards no such trade exists. KV only moves 12.66 → 12.07 GiB and the full 262,144 survives
+    intact, which is why MTP-2 is the recommended configuration rather than an optional extra.</p>
   </div>
 </section>
 
@@ -346,7 +438,7 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
 <section>
   <div class="sec-head col">
     <p class="eyebrow">Traps</p>
-    <h2>Seven things that cost time</h2>
+    <h2>Ten things that cost time</h2>
   </div>
 
   <div class="trap">
@@ -406,6 +498,34 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
     entire thinking phase, which is why it reads 4.2 s to 126 s. True first-token latency was measured
     separately and is 76–98 ms warm. Use <code>reasoning_effort: low</code>, not <code>enable_thinking:false</code>.</p>
   </div>
+
+  <div class="trap">
+    <h3>MTP on one card does not fail — it hangs</h3>
+    <p>A 64K request to the TP1+MTP config began prefilling, reached 45.5% KV usage, and then the engine
+    loop went silent: no further log output, GPU pinned at 100% / 330 W / 79 °C, for 48 minutes. No
+    timeout, no exception, no crash. <code>/health</code> returned 200 OK the entire time, so
+    health-based supervision believes the server is fine and the client waits forever.</p>
+    <p>This is strictly worse than the clean OOM the non-MTP TP1 config gives you. Recovery is
+    <code>docker compose down</code> (~10 s; GPU released cleanly, no Xid, no crash dump). If you tune
+    <code>--max-model-len</code> upward here, watch the engine's periodic
+    <em>“Avg generation throughput / Running: N reqs”</em> lines and treat their disappearance — not an
+    error — as the failure signal.</p>
+  </div>
+
+  <div class="trap warn">
+    <h3>MTP-3 passes startup and dies on the first request</h3>
+    <p>Draft length 3 loads, reports 12.07 GiB of KV and 2.69× concurrency at 262,144, and reads as
+    perfectly healthy. The first request kills it with the same 256 MiB Triton-autotune OOM. Startup
+    memory sizing does not model the longer draft's workspace, so “it started” proves nothing.</p>
+  </div>
+
+  <div class="trap note">
+    <h3><code>draft_sample_method: probabilistic</code> does not exist in stock vLLM</h3>
+    <p>The README's +10% from probabilistic drafting cannot be reproduced on
+    <code>vllm/vllm-openai:cu130-nightly</code>. <code>SpeculativeConfig</code> rejects the key outright
+    — <code>pydantic ValidationError: unexpected_keyword_argument</code>. It must be a patch carried by
+    the Blackwell-specific <code>qwen38-x86_64-cu130</code> image. Budget nothing for it here.</p>
+  </div>
 </section>
 
 <section>
@@ -429,10 +549,13 @@ hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
   <div class="sec-head col">
     <p class="eyebrow">Reproduce</p>
     <h2>Files and commands</h2>
-    <p>Three new compose files; nothing existing was modified. They are named for this hardware
+    <p>Five new compose files; nothing existing was modified. They are named for this hardware
     (<code>-3090</code>) to keep them distinct from the RTX PRO 6000 configs alongside them.</p>
   </div>
-<pre><b># 2 GPUs, Q4, full 256K — the recommended configuration</b>
+<pre><b># 2 GPUs, Q4 + MTP-2, full 256K — the recommended configuration</b>
+docker compose -f docker-compose.vllm-27b-q4-mtp-tp2-3090.yml up -d  <span style="opacity:.6"># :11488</span>
+
+<b># 2 GPUs, Q4, full 256K — no speculation</b>
 docker compose -f docker-compose.vllm-27b-q4-tp2-3090.yml up -d      <span style="opacity:.6"># :11486</span>
 
 <b># 2 GPUs, first-party FP8, full 256K</b>
@@ -441,8 +564,11 @@ docker compose -f docker-compose.vllm-27b-fp8-tp2-3090.yml up -d     <span style
 <b># 1 GPU, Q4, 96K ceiling</b>
 docker compose -f docker-compose.vllm-27b-q4-tp1-3090.yml up -d      <span style="opacity:.6"># :11487</span>
 
+<b># 1 GPU, Q4 + MTP-2 — faster, but only 48K</b>
+docker compose -f docker-compose.vllm-27b-q4-mtp-tp1-3090.yml up -d  <span style="opacity:.6"># :11489</span>
+
 <b># benchmark</b>
-python3 ../shared/test_chat.py --base-url http://localhost:11486/v1 \
+python3 ../shared/test_chat.py --base-url http://localhost:11488/v1 \
     --model qwen3.8-27b --runs 3 --warmup --no-think</pre>
   <p class="col">Checkpoints: <code>Qwen/Qwen3.8-27B-FP8</code> is first-party. The Q4 configs use
   <code>philbert440/Qwen3.8-27B-W4A16-AWQ</code> — a <b>community</b> quant (Qwen ships no official INT4
