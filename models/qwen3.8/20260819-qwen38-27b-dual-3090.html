@@ -1,0 +1,457 @@
+<title>256K on Two 3090s</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --bg:#EFF3F2; --surface:#FCFCFB; --surface-2:#E7EDEB;
+  --ink:#0E1A18; --ink-2:#3D4E4B; --muted:#657673; --rule:#D3DCDA;
+  --accent:#009486; --accent-ink:#00695F;
+  --c-weights:#009486; --c-kv:#6D4AA6; --c-graph:#C06A00;
+  --crit:#A9382B; --warn:#96590A; --good:#0F7A3D;
+  --track:#DDE5E3;
+  --shadow:0 1px 2px rgba(14,26,24,.06),0 6px 18px rgba(14,26,24,.05);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1413; --surface:#171D1C; --surface-2:#1E2625;
+    --ink:#E8EFED; --ink-2:#BCC9C6; --muted:#8A9997; --rule:#2B3634;
+    --accent:#22A597; --accent-ink:#3FBDAE;
+    --c-weights:#22A597; --c-kv:#9C80D6; --c-graph:#C87F2C;
+    --crit:#E07D6C; --warn:#D9A441; --good:#5FC183;
+    --track:#242E2C;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1413; --surface:#171D1C; --surface-2:#1E2625;
+  --ink:#E8EFED; --ink-2:#BCC9C6; --muted:#8A9997; --rule:#2B3634;
+  --accent:#22A597; --accent-ink:#3FBDAE;
+  --c-weights:#22A597; --c-kv:#9C80D6; --c-graph:#C87F2C;
+  --crit:#E07D6C; --warn:#D9A441; --good:#5FC183;
+  --track:#242E2C;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Source Serif 4",Georgia,serif; font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:960px;margin:0 auto;padding:0 28px 96px}
+.col{max-width:68ch}
+h1,h2,h3,.dh{font-family:Archivo,"Helvetica Neue",Arial,sans-serif;text-wrap:balance}
+h1{font-size:clamp(2.3rem,5.6vw,3.5rem);line-height:1.04;letter-spacing:-.022em;font-weight:700;margin:0 0 14px}
+h2{font-size:1.55rem;letter-spacing:-.012em;font-weight:600;margin:0 0 6px}
+h3{font-size:1.06rem;letter-spacing:-.004em;font-weight:600;margin:0 0 8px}
+p{margin:0 0 16px}
+a{color:var(--accent-ink)}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.86em;font-variant-ligatures:none}
+code{background:var(--surface-2);padding:.12em .38em;border-radius:4px}
+.eyebrow{font-family:Archivo,sans-serif;font-size:.72rem;font-weight:600;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--muted);margin:0 0 12px}
+
+/* header */
+header{padding:72px 0 34px;border-bottom:1px solid var(--rule);margin-bottom:44px}
+.lede{font-size:1.22rem;line-height:1.5;color:var(--ink-2);max-width:60ch;margin:0 0 26px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:"JetBrains Mono",monospace;font-size:.74rem;letter-spacing:.01em;
+  background:var(--surface);border:1px solid var(--rule);border-radius:999px;
+  padding:5px 12px;color:var(--ink-2)}
+.chip b{color:var(--ink);font-weight:500}
+
+section{margin:0 0 56px}
+.sec-head{margin-bottom:22px}
+
+/* verdict cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:0 0 8px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:18px 18px 16px;box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:2px}
+.card .nm{font-family:Archivo,sans-serif;font-size:.78rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.card .big{font-family:Archivo,sans-serif;font-size:2.5rem;font-weight:700;letter-spacing:-.03em;line-height:1.05;
+  font-variant-numeric:tabular-nums;margin-top:4px}
+.card .unit{font-size:.95rem;font-weight:500;color:var(--muted);margin-left:3px}
+.card .sub{font-size:.9rem;color:var(--ink-2);margin-top:6px;line-height:1.45}
+.pill{display:inline-flex;align-items:center;gap:6px;font-family:"JetBrains Mono",monospace;font-size:.7rem;
+  border-radius:999px;padding:3px 9px;margin-top:10px;align-self:flex-start;border:1px solid transparent}
+.pill.ok{color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent);border-color:color-mix(in srgb,var(--good) 32%,transparent)}
+.pill.no{color:var(--crit);background:color-mix(in srgb,var(--crit) 12%,transparent);border-color:color-mix(in srgb,var(--crit) 32%,transparent)}
+.dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+
+/* table */
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:12px;background:var(--surface);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;font-family:"JetBrains Mono",monospace;font-size:.79rem}
+th,td{padding:11px 14px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule)}
+th:first-child,td:first-child{text-align:left}
+thead th{font-family:Archivo,sans-serif;font-size:.68rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--rule)}
+tbody tr:last-child td{border-bottom:none}
+td{font-variant-numeric:tabular-nums;color:var(--ink-2)}
+td:first-child{color:var(--ink);font-weight:500}
+td.hi{color:var(--ink);font-weight:700}
+tbody tr:hover td{background:var(--surface-2)}
+.foot{font-family:"Source Serif 4",serif;font-size:.86rem;color:var(--muted);margin-top:10px;font-style:italic}
+
+/* charts */
+.chart{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:22px 22px 18px;box-shadow:var(--shadow)}
+.chart .ct{font-family:Archivo,sans-serif;font-weight:600;font-size:.98rem;margin:0 0 3px}
+.chart .cs{font-size:.88rem;color:var(--muted);margin:0 0 20px;font-style:italic}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin:0 0 18px}
+.lg{display:flex;align-items:center;gap:7px;font-family:"JetBrains Mono",monospace;font-size:.73rem;color:var(--ink-2)}
+.sw{width:11px;height:11px;border-radius:3px;flex:none}
+
+.rows{display:flex;flex-direction:column;gap:17px}
+.row .rl{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:6px}
+.row .rn{font-family:Archivo,sans-serif;font-size:.86rem;font-weight:600}
+.row .rv{font-family:"JetBrains Mono",monospace;font-size:.76rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.bar{display:flex;height:26px;background:var(--track);border-radius:5px;overflow:hidden;gap:2px}
+.seg{height:100%;min-width:2px;position:relative}
+.seg:first-child{border-radius:5px 0 0 5px}
+.bar .spacer{background:var(--surface);width:2px;flex:none}
+
+.simple .bar{background:var(--track);border-radius:5px;height:30px;display:block;position:relative;overflow:visible}
+.simple .fill{height:100%;border-radius:5px;background:var(--accent);display:flex;align-items:center;justify-content:flex-end;
+  padding-right:10px;color:#fff;font-family:"JetBrains Mono",monospace;font-size:.76rem;font-weight:700}
+.simple .fill.muted{background:color-mix(in srgb,var(--accent) 42%,var(--track))}
+
+/* callouts */
+.trap{border:1px solid var(--rule);border-left:3px solid var(--crit);background:var(--surface);
+  border-radius:0 10px 10px 0;padding:16px 18px;margin:0 0 14px}
+.trap.warn{border-left-color:var(--warn)}
+.trap.note{border-left-color:var(--accent)}
+.trap h3{margin:0 0 6px;font-size:.98rem}
+.trap p{margin:0;font-size:.94rem;color:var(--ink-2)}
+.trap p+p{margin-top:9px}
+
+pre{background:var(--surface);border:1px solid var(--rule);border-radius:10px;padding:15px 17px;overflow-x:auto;
+  font-family:"JetBrains Mono",monospace;font-size:.79rem;line-height:1.65;color:var(--ink-2);margin:0 0 16px}
+pre b{color:var(--accent-ink);font-weight:500}
+ul{margin:0 0 16px;padding-left:20px}
+li{margin-bottom:7px}
+hr{border:none;border-top:1px solid var(--rule);margin:0 0 44px}
+.ftr{border-top:1px solid var(--rule);padding-top:22px;color:var(--muted);font-size:.87rem}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Qwen3.8-27B · vLLM · 2026-08-19</p>
+  <h1>256K on Two 3090s</h1>
+  <p class="lede">Serving Qwen3.8-27B at its full 262,144-token context on a pair of RTX 3090s —
+  what fits, what it costs, and why the second card is not optional.</p>
+  <div class="chips">
+    <span class="chip">2 × <b>RTX 3090</b> 24 GB</span>
+    <span class="chip">SM <b>8.6</b> Ampere</span>
+    <span class="chip">NVLink <b>NV4</b> · 56 GB/s</span>
+    <span class="chip">driver <b>590.48.01</b></span>
+    <span class="chip">vLLM <b>0.16.1rc1</b></span>
+    <span class="chip">image <b>cu130-nightly</b></span>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Result</p>
+    <h2>Q4 on two cards is the configuration</h2>
+    <p>Three configurations were built and measured end to end. Single-stream decode from
+    <code>test_chat.py --runs 3 --warmup</code>; context claims verified by needle-in-haystack retrieval,
+    not by what the startup log promised.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <span class="nm">Q4 · 2 GPU</span>
+      <span class="big">69.9<span class="unit">tok/s</span></span>
+      <span class="sub">Full 262,144 context. Fastest, and the most headroom.</span>
+      <span class="pill ok"><i class="dot"></i>256K verified</span>
+    </div>
+    <div class="card">
+      <span class="nm">FP8 · 2 GPU</span>
+      <span class="big">47.3<span class="unit">tok/s</span></span>
+      <span class="sub">First-party checkpoint, full context, but 32% slower.</span>
+      <span class="pill ok"><i class="dot"></i>256K verified</span>
+    </div>
+    <div class="card">
+      <span class="nm">Q4 · 1 GPU</span>
+      <span class="big">44.9<span class="unit">tok/s</span></span>
+      <span class="sub">Ceiling is 96K tokens. 256K is unreachable on one card.</span>
+      <span class="pill no"><i class="dot"></i>256K impossible</span>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Measurements</p>
+    <h2>Every number, one table</h2>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Configuration</th><th>GPUs</th><th>Decode</th><th>TTFT warm</th><th>TTFT cold</th>
+          <th>Max ctx</th><th>Verified ctx</th><th>Prefill</th><th>KV / GPU</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Q4 W4A16 · TP2</td><td>2</td><td class="hi">69.9 tok/s</td><td>76 ms</td><td>189 ms</td>
+          <td>262,144</td><td>252,058 ✓</td><td>965 tok/s</td><td>12.66 GiB</td>
+        </tr>
+        <tr>
+          <td>FP8 · TP2</td><td>2</td><td>47.3 tok/s</td><td>77 ms</td><td>186 ms</td>
+          <td>262,144</td><td>252,058 ✓</td><td>954 tok/s</td><td>7.04 GiB</td>
+        </tr>
+        <tr>
+          <td>Q4 W4A16 · TP1</td><td>1</td><td>44.9 tok/s</td><td>98 ms</td><td>43,775 ms</td>
+          <td>98,304</td><td>96,048 ✓</td><td>804 tok/s</td><td>3.23 GiB</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="foot">Decode is the mean of 3 runs (Q4/TP2: 70.4 / 69.8 / 69.7 · FP8/TP2: 47.7 / 47.3 / 46.9 · Q4/TP1: 44.9 / 44.7).
+  Prefill measured on the long-context run. TP1's 43.8 s cold TTFT is one-time Triton autotune, not steady state.</p>
+</section>
+
+<hr>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Why</p>
+    <h2>Q4 wins decode, and does nothing for prefill</h2>
+    <p>The 48% decode gain over FP8 is not a quantization-quality trade dressed up as speed — it is
+    bandwidth. Decode on a dense 27B drags the entire weight set across the memory bus once per generated
+    token, so time-per-token tracks bytes-of-weights. 19 GB instead of 29 GB is the whole story.</p>
+    <p>Prefill is compute-bound instead, and there the two are indistinguishable: <b>965 vs 954 tok/s</b>
+    on the same 252,058-token prompt. That gap is noise. If your workload is long-prompt / short-answer,
+    Q4 buys you almost nothing.</p>
+  </div>
+
+  <div class="chart simple">
+    <p class="ct">Single-stream decode throughput</p>
+    <p class="cs">Same prompt, same sampling, 3 runs averaged. Higher is better.</p>
+    <div class="rows">
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 · TP2</span><span class="rv">262,144 ctx</span></div>
+        <div class="bar"><div class="fill" style="width:100%" title="69.9 tok/s">69.9</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">FP8 · TP2</span><span class="rv">262,144 ctx</span></div>
+        <div class="bar"><div class="fill" style="width:67.7%" title="47.3 tok/s">47.3</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 · TP1</span><span class="rv">98,304 ctx</span></div>
+        <div class="bar"><div class="fill muted" style="width:64.2%" title="44.9 tok/s">44.9</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">The budget</p>
+    <h2>Sharding halves the weights — that is what buys 256K</h2>
+    <p>The instinct is that two cards give 48 GB and 256K needs more than 24. That is the wrong model.
+    Tensor parallelism splits the <em>weights</em> across both GPUs, and the space freed on each card is
+    where the KV cache goes. Going from one card to two does not just add capacity; it removes
+    8.3 GiB of weights from the card that has to hold the cache.</p>
+  </div>
+
+  <div class="chart">
+    <p class="ct">VRAM per GPU, 24 GiB card</p>
+    <p class="cs">Measured at load. Remaining track is unallocated headroom at 0.95 utilization.</p>
+    <div class="legend">
+      <span class="lg"><i class="sw" style="background:var(--c-weights)"></i>Weights</span>
+      <span class="lg"><i class="sw" style="background:var(--c-kv)"></i>KV cache</span>
+      <span class="lg"><i class="sw" style="background:var(--c-graph)"></i>CUDA graphs</span>
+      <span class="lg"><i class="sw" style="background:var(--track)"></i>Free / activations</span>
+    </div>
+    <div class="rows">
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 · TP2</span><span class="rv">8.34 W · 12.66 KV · 0.97 G</span></div>
+        <div class="bar">
+          <div class="seg" style="background:var(--c-weights);width:34.8%" title="Weights 8.34 GiB"></div>
+          <div class="seg" style="background:var(--c-kv);width:52.8%" title="KV cache 12.66 GiB"></div>
+          <div class="seg" style="background:var(--c-graph);width:4.0%" title="CUDA graphs 0.97 GiB"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">FP8 · TP2</span><span class="rv">13.6 W · 7.04 KV · 0.97 G</span></div>
+        <div class="bar">
+          <div class="seg" style="background:var(--c-weights);width:56.7%" title="Weights ~13.6 GiB"></div>
+          <div class="seg" style="background:var(--c-kv);width:29.3%" title="KV cache 7.04 GiB"></div>
+          <div class="seg" style="background:var(--c-graph);width:4.0%" title="CUDA graphs 0.97 GiB"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">Q4 · TP1</span><span class="rv">16.68 W · 3.23 KV · 0.97 G</span></div>
+        <div class="bar">
+          <div class="seg" style="background:var(--c-weights);width:69.5%" title="Weights 16.68 GiB"></div>
+          <div class="seg" style="background:var(--c-kv);width:13.5%" title="KV cache 3.23 GiB"></div>
+          <div class="seg" style="background:var(--c-graph);width:4.0%" title="CUDA graphs 0.97 GiB"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="foot">Q4/TP1 weights measured directly (“Model loading took 16.68 GiB”); Q4/TP2 is that figure sharded;
+  FP8/TP2 derived from the 0.95 utilization budget minus measured KV and graphs.</p>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <h2>Only 16 of 64 layers hold a growing cache</h2>
+    <p>Qwen3.8-27B is hybrid — <code>full_attention_interval=4</code> means 48 Gated DeltaNet layers and
+    16 full-attention layers. DeltaNet keeps a fixed-size recurrent state; only the 16 attention layers
+    grow with sequence length. That is the only reason 256K is reachable on 48 GB at all:</p>
+  </div>
+  <pre>KV per token = 16 layers × 4 KV heads × 256 head_dim × 2 (K+V)
+             = 32,768 elements/token
+
+  fp16 KV   64 KiB/token   →  262,144 tokens = <b>16 GiB</b>
+  fp8  KV   32 KiB/token   →  262,144 tokens =  <b>8 GiB</b>   ← used here</pre>
+  <p class="col">A 64-layer all-attention model of the same shape would need four times this, and none of
+  the configurations below would exist.</p>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Single GPU</p>
+    <h2>96K, and the failure is not graceful</h2>
+    <p>The one-card ceiling was found by probing with real requests. 96,048 tokens retrieves the needle
+    correctly. 110,040 tokens kills the engine outright.</p>
+  </div>
+  <div class="chart simple">
+    <p class="ct">Context actually served</p>
+    <p class="cs">Verified by needle-in-haystack retrieval at the stated length.</p>
+    <div class="rows">
+      <div class="row">
+        <div class="rl"><span class="rn">TP2 — either quant</span><span class="rv">252,058 tokens · needle HIT</span></div>
+        <div class="bar"><div class="fill" style="width:100%" title="252,058 tokens">252,058</div></div>
+      </div>
+      <div class="row">
+        <div class="rl"><span class="rn">TP1 — Q4</span><span class="rv">96,048 tokens · needle HIT</span></div>
+        <div class="bar"><div class="fill muted" style="width:38.1%" title="96,048 tokens">96,048</div></div>
+      </div>
+    </div>
+  </div>
+  <p class="foot">Probe ladder on TP1: 24,048 ✓ 23.6 s · 48,048 ✓ 50.6 s · 96,048 ✓ 120.7 s · 110,040 ✗ fatal OOM.</p>
+</section>
+
+<hr>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Traps</p>
+    <h2>Seven things that cost time</h2>
+  </div>
+
+  <div class="trap">
+    <h3>vLLM's custom all-reduce is broken on 2×3090</h3>
+    <p>Without <code>--disable-custom-all-reduce</code> the server dies during warm-up with
+    <code>Cuda error custom_all_reduce.cuh:455 'invalid argument'</code>. P2P is fine
+    (<code>can_device_access_peer</code> true both ways, no IOMMU on the cmdline) — the kernel simply
+    does not work here. NCCL fallback is correct and costs nothing measurable.</p>
+    <p>The traceback points at <code>_initialize_kv_caches → compile_or_warm_up_model</code>, which reads
+    like an OOM or a KV sizing bug. It is neither. Read the CUDA error line <em>above</em> the traceback.</p>
+  </div>
+
+  <div class="trap">
+    <h3>The one-card OOM happens in Triton, not in the KV cache</h3>
+    <p>At the moment TP1 died on a 110K prompt, KV usage was <b>4.6%</b> and the scheduler was on the first
+    2048-token chunk. The allocation that failed was Triton's autotuner asking for a 256 MiB benchmark
+    buffer (<code>do_bench → get_empty_cache_for_benchmark</code>). Judging headroom by the KV-usage number
+    would tell you there was plenty of room.</p>
+    <p>It takes the whole server with it — every in-flight request 500s. With
+    <code>restart: unless-stopped</code> that becomes a crash-loop.</p>
+  </div>
+
+  <div class="trap warn">
+    <h3>The reported KV pool size is a 4× underestimate</h3>
+    <p>vLLM logs <code>GPU KV cache size: 114,464 tokens</code> for FP8/TP2 and
+    <code>Maximum concurrency for 262,144 tokens: 1.72x</code> — yet that config served a 252,058-token
+    request without trouble. The counter prices every one of the 64 layers as if it held a growing cache;
+    only 16 do. Trust a probe, not the log line.</p>
+  </div>
+
+  <div class="trap warn">
+    <h3><code>--max-num-seqs</code> defaults to 1024 and that is catastrophic here</h3>
+    <p>The DeltaNet recurrent state is ~37 MB per sequence slot per GPU across the 48 linear-attention
+    layers. At the default, the state pool alone would want tens of GB and leave nothing for KV.
+    All three configs pin it to 32.</p>
+  </div>
+
+  <div class="trap warn">
+    <h3>FP8 on Ampere is a memory format, not math</h3>
+    <p>SM 8.6 has no FP8 tensor cores. vLLM logs it plainly — <em>“Your GPU does not have native support
+    for FP8 computation… Weight-only FP8 compression will be used leveraging the Marlin kernel.”</em>
+    You get the 29 GB footprint that makes the model fit, at Ampere BF16 math rates. Nothing about the
+    FP8 numbers here transfers to a card that has the tensor cores.</p>
+  </div>
+
+  <div class="trap note">
+    <h3>Everything fast in the existing README is Blackwell-only</h3>
+    <p>The production config in <code>README.md</code> — NVFP4 W4A4 + DSpark + probabilistic drafting,
+    108–122 tok/s — needs SM 100/120 FP4 tensor cores. None of it runs on this host, and none of its
+    numbers are comparable to anything measured here. Those results were taken on the RTX PRO 6000.</p>
+  </div>
+
+  <div class="trap note">
+    <h3><code>--no-think</code> is a no-op on this family</h3>
+    <p>Confirmed again: <code>test_chat.py --no-think</code> still produced 1,444–25,651 characters of
+    reasoning. The script's “TTFT” is therefore time-to-first-<em>answer</em>-token — it includes the
+    entire thinking phase, which is why it reads 4.2 s to 126 s. True first-token latency was measured
+    separately and is 76–98 ms warm. Use <code>reasoning_effort: low</code>, not <code>enable_thinking:false</code>.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Quality</p>
+    <h2>fp8 KV checked, not assumed</h2>
+    <p>256K only fits with <code>--kv-cache-dtype fp8</code>, and vLLM warns that the checkpoint ships no
+    q/prob scaling factors. On this model family fp8 KV has a history of <em>silent</em> corruption
+    (vllm-project/vllm#26646 on Qwen3.6), so the failure mode is wrong answers rather than a crash.
+    Every configuration was spot-checked before its numbers were recorded — arithmetic
+    (<code>17×23+145 → 536</code>), factual recall, code retention, and needle retrieval at full length.
+    All passed on all three.</p>
+    <p>That is a smoke test, not an evaluation. It rules out gross corruption; it does not establish that
+    long-context reasoning quality is unharmed. On Q4/TP2 there is enough headroom to drop
+    <code>--kv-cache-dtype</code> entirely and run a fp16 cache at 256K — the option does not exist on the
+    FP8 config.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <p class="eyebrow">Reproduce</p>
+    <h2>Files and commands</h2>
+    <p>Three new compose files; nothing existing was modified. They are named for this hardware
+    (<code>-3090</code>) to keep them distinct from the RTX PRO 6000 configs alongside them.</p>
+  </div>
+<pre><b># 2 GPUs, Q4, full 256K — the recommended configuration</b>
+docker compose -f docker-compose.vllm-27b-q4-tp2-3090.yml up -d      <span style="opacity:.6"># :11486</span>
+
+<b># 2 GPUs, first-party FP8, full 256K</b>
+docker compose -f docker-compose.vllm-27b-fp8-tp2-3090.yml up -d     <span style="opacity:.6"># :11485</span>
+
+<b># 1 GPU, Q4, 96K ceiling</b>
+docker compose -f docker-compose.vllm-27b-q4-tp1-3090.yml up -d      <span style="opacity:.6"># :11487</span>
+
+<b># benchmark</b>
+python3 ../shared/test_chat.py --base-url http://localhost:11486/v1 \
+    --model qwen3.8-27b --runs 3 --warmup --no-think</pre>
+  <p class="col">Checkpoints: <code>Qwen/Qwen3.8-27B-FP8</code> is first-party. The Q4 configs use
+  <code>philbert440/Qwen3.8-27B-W4A16-AWQ</code> — a <b>community</b> quant (Qwen ships no official INT4
+  for 3.8-27B), compressed-tensors pack-quantized, 4-bit, group size 128, vision tower left in BF16.
+  Unvetted beyond the smoke tests above.</p>
+</section>
+
+<p class="ftr">Measured 2026-08-19 on 2 × RTX 3090 · vLLM 0.16.1rc1.dev48+ga572baff5 ·
+<code>vllm/vllm-openai:cu130-nightly</code> · all three configs served text-only with
+<code>--language-model-only</code>.</p>
+
+</div>

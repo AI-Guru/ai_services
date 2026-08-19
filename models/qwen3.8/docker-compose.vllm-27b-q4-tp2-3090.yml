@@ -1,0 +1,140 @@
+# Qwen3.8-27B W4A16 (INT4) on 2x RTX 3090, TP2 over NVLink, full 256K context
+#
+# Companion to docker-compose.vllm-27b-fp8-tp2-3090.yml. Read that file's header
+# first -- the hardware facts, the 256K KV arithmetic, and the mandatory
+# --disable-custom-all-reduce workaround are all documented there and all apply
+# here unchanged.
+#
+# !! COMMUNITY CHECKPOINT, NOT FIRST-PARTY.
+#   philbert440/Qwen3.8-27B-W4A16-AWQ
+# Qwen ships only BF16 and FP8 for 3.8-27B; there is no official INT4. Verified
+# off the repo 2026-08-19: compressed-tensors pack-quantized, num_bits=4,
+# group_size=128, symmetric=false, arch Qwen3_5ForConditionalGeneration, and an
+# `ignore` list that leaves the whole visual tower in BF16. 19.6 GB on disk
+# INCLUDING that unquantized tower. Unvetted -- treat its output quality as
+# unproven until you check it, which is doubly true here because it is stacked
+# on top of an fp8 KV cache that is itself a known corruption risk on this
+# family.
+#
+# Why Q4 at all, when FP8 already fits on 2 cards:
+#
+#   Decode on a dense 27B is MEMORY-BANDWIDTH-BOUND, not compute-bound. Each
+#   generated token drags the whole weight set across the bus, so time/token
+#   tracks the bytes of weights. Halving weights ~19.6 GB vs ~29 GB should
+#   therefore buy real single-stream throughput.
+#
+#   And on THIS host it is nearly free on the compute side. SM 8.6 has no FP8
+#   tensor cores, so the FP8 config is already paying a Marlin dequant-to-BF16
+#   penalty (see the fp8 file's header). INT4 goes through the same class of
+#   Marlin path. We are not giving up native FP8 math, because there was none.
+#
+# The other win is headroom. TP2-sharded these weights are ~9.8 GB/GPU vs
+# ~13.5 GB for FP8, which turns the 256K budget from "fits, barely" into
+# comfortable:
+#
+#   Per GPU at 0.95 util (~22.8 GiB):
+#     INT4 weights, TP2-sharded    ~9.8 GiB
+#     fp8 KV for 256K, TP2-shard   ~4.0 GiB
+#     activations + CUDA graphs    ~2.5 GiB
+#     DeltaNet state, 32 slots     ~1.2 GiB
+#                                 ----------
+#                                 ~17.5 GiB, ~5 GiB spare
+#
+# That spare is a real option: --kv-cache-dtype auto (fp16 KV) costs 8 GiB/GPU
+# instead of 4 and STILL FITS at 256K here. fp8 KV is kept below only so this
+# is directly comparable to the FP8 run and because it is the official recipe's
+# choice. If you care more about answer quality than about matching that
+# baseline, drop --kv-cache-dtype and take the fp16 cache -- on 2x3090 at Q4 you
+# can afford it, which is not true of the FP8 config.
+#
+# --max-num-seqs 32 bounds the DeltaNet recurrent-state pool (~37 MB per
+# sequence slot per GPU across 48 linear-attention layers); the 1024 default
+# would allocate tens of GB and leave nothing for KV.
+#
+# --language-model-only drops the BF16 vision tower, which this checkpoint does
+# NOT quantize. Remove it for multimodal serving and expect to lower
+# --max-model-len in exchange.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-q4-tp2-3090.yml up -d
+# API endpoint: http://localhost:11486/v1
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-q4-tp2:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen38-27b-q4-tp2
+    # Deliberately not unless-stopped -- a bad memory budget OOMs at load and
+    # unless-stopped would turn that into a silent crash-loop. See ../../CLAUDE.md.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11486:8000"
+
+    volumes:
+      - /home/hordak/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - philbert440/Qwen3.8-27B-W4A16-AWQ
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "2"
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
+      - --gpu-memory-utilization
+      - "0.95"
+      - --max-num-seqs
+      - "32"
+      # REQUIRED on 2x3090: vLLM's custom all-reduce throws
+      # 'invalid argument' on SM 8.6. Falls back to NCCL.
+      - --disable-custom-all-reduce
+      - --language-model-only
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: qwen38-3090-network

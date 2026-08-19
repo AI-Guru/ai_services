@@ -1,0 +1,188 @@
+# Qwen3.8-27B-FP8 on 2x RTX 3090 (Ampere SM 8.6), TP2 over NVLink, full 256K context
+#
+# THIS MACHINE IS NOT THE RTX PRO 6000 BOX the other files in this directory
+# target. Verified 2026-08-19:
+#   2x NVIDIA GeForce RTX 3090, compute capability 8.6, 24576 MiB each (48 GB total)
+#   NVLink: NV4 between GPU0 and GPU1, 4 links x 14.062 GB/s (~56 GB/s aggregate)
+#   driver 590.48.01
+#
+# Consequences of Ampere, all of which invalidate the -rtx configs here:
+#
+# 1. NVFP4 IS UNAVAILABLE. FP4 tensor cores are SM_100/SM_120 (Blackwell). Every
+#    NVFP4 compose in this directory -- including the production
+#    nvfp4-gittensor-mtp-prob one -- cannot run on this host. So can the DSpark
+#    and W4A4 results: the entire speculation-crossover investigation in
+#    README.md was measured on hardware this box does not have. Do not port its
+#    numbers here.
+#
+# 2. FP8 IS MEMORY-ONLY, NOT COMPUTE. SM 8.6 has no FP8 tensor cores (those are
+#    SM_89+). vLLM falls back to the FP8 Marlin path: weights stay 8-bit IN
+#    MEMORY and are dequantized to BF16/FP16 in-kernel. We get the ~27 GB
+#    (vs ~54 GB BF16) footprint that makes this fit at all, but the matmuls run
+#    at Ampere FP16 rate. Expect throughput well below the 49 tok/s BF16 figure
+#    from the PRO 6000, let alone the 108-122 tok/s NVFP4+spec numbers.
+#
+# 3. TP2 IS MANDATORY, NOT AN OPTIMIZATION. ~27 GB of FP8 weights do not fit in
+#    a single 24 GB 3090 -- there is no single-GPU FP8 configuration of this
+#    model at any context length. TP2 shards weights to ~13.5 GB/GPU.
+#
+# Image: vllm/vllm-openai:cu130-nightly (already local). Verified in-container:
+#   vllm 0.16.1rc1.dev48+ga572baff5, torch 2.10.0+cu130
+#   torch.cuda.get_arch_list() -> ['sm_75','sm_80','sm_86','sm_90','sm_100','sm_120','compute_120']
+#   registry has Qwen3_5ForConditionalGeneration
+# sm_86 IS in that list. The `vllm/vllm-openai:qwen38-x86_64-cu130` tag used by
+# the -rtx files in this directory is the Blackwell-targeted build; do not
+# assume it carries Ampere kernels. This one is confirmed to.
+#
+# ---------------------------------------------------------------------------
+# THE 256K MEMORY BUDGET -- why this fits, with very little to spare
+#
+# Qwen3.8-27B is HYBRID: 64 layers = 48 Gated DeltaNet + 16 full attention
+# (full_attention_interval=4). Only the 16 full-attention layers hold a KV cache
+# that grows with sequence length. That is the ONLY reason 256K is reachable on
+# 48 GB -- a 64-layer all-attention model would need 4x this.
+#
+#   KV bytes/token = 16 layers x 4 KV heads x 256 head_dim x 2 (K+V) x dtype
+#                  = 32,768 elements/token
+#     fp16 KV: 64 KiB/token -> 262,144 tokens = 16 GiB
+#     fp8  KV: 32 KiB/token -> 262,144 tokens =  8 GiB   <-- what we use
+#
+#   Per GPU at --gpu-memory-utilization 0.95 (~22.8 GiB of 24 GiB):
+#     FP8 weights, TP2-sharded    ~13.5 GiB
+#     fp8 KV for 256K, TP2-shard   ~4.0 GiB
+#     activations + CUDA graphs    ~4-5 GiB
+#                                 ----------
+#                                  ~22 GiB   fits, barely
+#
+# fp16 KV would need 8 GiB/GPU instead of 4 and blows the budget -- 256K on this
+# host REQUIRES --kv-cache-dtype fp8. This is also the official recipe's choice
+# (https://recipes.vllm.ai/Qwen/Qwen3.8-27B).
+#
+# !! fp8 KV on this model has a KNOWN SILENT-CORRUPTION HISTORY. On Qwen3.6's
+# hybrid DeltaNet it produced wrong output with no error
+# (vllm-project/vllm#26646) and every compose in ../qwen3.6/ forbids it. Qwen
+# and the vLLM recipe ship it as the default for 3.8, and here it is not
+# optional -- it is what buys the 256K. Because the failure mode is bad answers
+# rather than a crash, VERIFY OUTPUT QUALITY, not just that it serves.
+#
+# --gpu-memory-utilization 0.95 (not vLLM's 0.90 default) is deliberate: both
+# cards are headless and idle (30 MiB / 11 MiB used at launch), and 0.90 does not
+# leave enough room for 256K after weights. If anything else is put on these
+# GPUs, this WILL OOM.
+#
+# --max-num-seqs 32 (not the 1024 default) bounds the DeltaNet recurrent-state
+# cache, which vLLM allocates per sequence slot on hybrid models. At 1024 slots
+# that pool competes with the KV cache we need for 256K. 32 is ample for
+# benchmarking and matches the concurrency ceiling used in README.md.
+#
+# --language-model-only drops the vision tower. This is a genuinely multimodal
+# checkpoint, so the flag COSTS YOU IMAGES -- it is here because the 256K budget
+# above has no room for a tower we are not benchmarking. Remove it for
+# multimodal serving, and drop max-model-len when you do.
+#
+# restart: "no" -- DELIBERATELY not `unless-stopped` like the rest of this
+# directory. The memory budget above is tight enough that a bad flag OOMs at
+# load, and `unless-stopped` turns that into a silent crash-loop that reports
+# State.Running=true forever (see ../../CLAUDE.md). Switch to unless-stopped
+# once a config is proven and you want it served persistently.
+#
+# !! --disable-custom-all-reduce IS REQUIRED ON THIS HOST. Without it vLLM dies
+# during warm-up, AFTER the KV cache is successfully allocated, with:
+#     Failed: Cuda error csrc/custom_all_reduce.cuh:455 'invalid argument'
+#     Worker proc VllmWorker-1 died unexpectedly, shutting down executor
+# vLLM's hand-written custom all-reduce kernel does not work on these two
+# 3090s even though P2P is fine (torch.cuda.can_device_access_peer is True
+# both ways, and no iommu is on the kernel cmdline). The flag falls back to
+# NCCL all-reduce, which works. Note the related but SEPARATE warning
+# "SymmMemCommunicator: Device capability 8.6 not supported" -- symmetric
+# memory is also Hopper+, and is skipped harmlessly on its own.
+#
+# The misleading part: the traceback points at _initialize_kv_caches ->
+# compile_or_warm_up_model, which reads like an OOM or a KV sizing problem. It
+# is not. Confirm which one you have by looking for the CUDA error line above
+# the traceback, not the traceback itself.
+#
+# Usage: docker compose -f docker-compose.vllm-27b-fp8-tp2-3090.yml up -d
+# API endpoint: http://localhost:11485/v1   (11484 is the -rtx files' port)
+# Model name served as: qwen3.8-27b
+
+services:
+  qwen38-27b-fp8-tp2:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: qwen38-27b-fp8-tp2
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 32gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11485:8000"
+
+    # Bind-mount the HOST cache, not the qwen38_huggingface_cache named volume
+    # the -rtx files use, so the checkpoint downloaded with `hf download` is
+    # reused instead of pulled a second time.
+    volumes:
+      - /home/hordak/.cache/huggingface:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL:-INFO}
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_SAMPLER=0
+
+    command:
+      - Qwen/Qwen3.8-27B-FP8
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "2"
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
+      - --gpu-memory-utilization
+      - "0.95"
+      - --max-num-seqs
+      - "32"
+      # REQUIRED on 2x3090 -- see header. NCCL all-reduce instead of vLLM's
+      # custom kernel, which throws 'invalid argument' on SM 8.6.
+      - --disable-custom-all-reduce
+      - --language-model-only
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: qwen38-3090-network
