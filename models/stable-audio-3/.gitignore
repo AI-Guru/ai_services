@@ -1,0 +1,8 @@
+# Generated audio and uploaded source clips — both are host-mounted working dirs.
+outputs/
+inputs/
+# HF token. Never commit.
+.env
+# HF hub cache lives in a named volume, but keep a stray local one out of git.
+.hf/
+__pycache__/

@@ -1,0 +1,87 @@
+# Stable Audio 3 Small-SFX — text-to-SFX served as a resident FastAPI + Gradio service.
+#
+# BASE IMAGE — the one non-obvious choice in this file.
+#
+# stable-audio-3's pyproject pins `torch==2.7.1` and routes it through an explicit
+# `pytorch-cu126` index. cu126 predates Blackwell: its wheels carry no sm_120 kernels, so
+# on this card every kernel launch dies with "no kernel image is available for execution
+# on the device". The upstream README documents the escape hatch (install torch yourself
+# from another CUDA channel, then sync without reinstalling it) and lists cu128 as a
+# published variant for 2.7.1.
+#
+# Rather than fight uv's lockfile, we start from the image that already IS that
+# combination: pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime. Same torch version upstream
+# pins, built against CUDA 12.8, so sm_120 is present. The RUN below asserts that instead
+# of trusting the tag — get_arch_list() is compiled-in metadata and needs no GPU, so a
+# silently-wrong base image fails at build time rather than at first generation.
+#
+# NO FLASH-ATTENTION. Upstream requires flash-attn only for `medium`/`medium-base`, which
+# use the SAME-L autoencoder. Small-SFX uses SAME-S and never touches it. That is worth
+# stating plainly: flash-attn has no sm_120 prebuilt wheel in the community index the
+# README points at, so a Medium deployment on this card means a source build. Small-SFX
+# skips the whole problem.
+#
+# The package is installed --no-deps on purpose: its dependency list names torch==2.7.1,
+# and resolving that against plain PyPI would pull the cu126 build straight back over the
+# cu128 one already in the image.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+# Latest main as of 2026-08-20. Pinned, not tracked: this repo ships inference and
+# training in one package and moves fast.
+ARG SA3_COMMIT=a0b57f5483c4588f827f3552b7d5c6ca2a9687be
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl git ffmpeg libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Fail the build, not the first request, if this base image cannot address the card.
+#
+# NOTE the API: torch.cuda.get_arch_list() short-circuits to [] when is_available() is
+# False, and no GPU is visible during `docker build` — so it reports "no sm_120" for every
+# image, correct ones included. torch._C._cuda_getArchFlags() reads the same compiled-in
+# metadata without touching the driver, which is what makes this check usable here.
+RUN python3 -c "\
+import torch, sys; \
+flags = torch._C._cuda_getArchFlags(); \
+print('torch', torch.__version__, 'archs:', flags); \
+sys.exit(0) if 'sm_120' in flags.split() else \
+sys.exit('FATAL: this torch build has no sm_120 kernels — wrong CUDA channel for Blackwell')"
+
+# Runtime deps, minus torch/torchaudio (already in the image at the right CUDA level).
+# transformers>=5.8 is a hard floor: T5GemmaEncoderModel, the text conditioner Stable
+# Audio 3 uses, does not exist in transformers 4.x.
+RUN pip install --no-cache-dir \
+        "einops>=0.8.2" \
+        "einops-exts>=0.0.4" \
+        "numpy>=2.2.6" \
+        "packaging>=26.0" \
+        "safetensors>=0.7.0" \
+        "tqdm>=4.67.3" \
+        "huggingface-hub>=1.7.1" \
+        "transformers>=5.8.0" \
+        "soundfile>=0.13.1" \
+        "accelerate>=1.13.0" \
+        "gradio==6.3.0" \
+        "matplotlib>=3.10.8" \
+        "fastapi>=0.115" \
+        "uvicorn[standard]>=0.34" \
+        "pydantic>=2" \
+        "python-multipart>=0.0.9"
+
+RUN pip install --no-cache-dir --no-deps \
+        "git+https://github.com/Stability-AI/stable-audio-3@${SA3_COMMIT}"
+
+# Import check — catches a --no-deps install that is missing something before the image
+# is ever tagged. Does not touch the network or the GPU.
+RUN python3 -c "from stable_audio_3 import StableAudioModel, AutoencoderModel; print('stable_audio_3 import OK')"
+
+WORKDIR /app
+COPY server.py ui.py /app/
+
+EXPOSE 8400
+
+CMD ["python3", "-u", "/app/server.py"]

@@ -1,0 +1,129 @@
+# Stable Audio 3 Small-SFX (433M text-to-SFX) — resident FastAPI + Gradio service
+#
+# Text-to-sound-effect, audio-to-audio restyling, and inpainting/continuation over one
+# 433M latent-diffusion model. 44.1 kHz stereo, up to 120 s, 8 sampling steps.
+#
+#   http://localhost:8400/ui      interactive UI (ui.py, mounted on this same app)
+#   http://localhost:8400/v1/...  REST
+#
+# The UI is mounted onto the FastAPI app in-process rather than run as a second service,
+# the same arrangement as models/minimax-h3. It matters much less here — the model is
+# 2 GB, not 70 — but it still means one model, one gen lock, so a UI click and a scripted
+# /v1/audio job queue behind each other instead of interleaving.
+#
+# ###########################################################################
+# LICENSE — Stability AI Community License (https://stability.ai/license). Unlike the
+# MiniMax H3 stack in this repo there is NO territorial carve-out: Germany is fine.
+# It is free for research and for commercial use under an annual-revenue threshold;
+# above it, Stability wants an enterprise licence. The bundled T5Gemma text encoder is
+# redistributed under the Gemma Terms of Use, which carry their own prohibited-use
+# policy. Both apply to Outputs, not just to redistribution.
+# ###########################################################################
+#
+# WEIGHTS — first-party, unquantized, pulled at first start into a named volume. Nothing
+# to prepare: unlike models/minimax-h3 there is no local quantization pass. Two HF repos
+# are fetched and BOTH ARE GATED — see "Two gates, not one" in README.md:
+#
+#   stabilityai/stable-audio-3-small-sfx   ~1.7 GB   the DiT + SAME-S autoencoder
+#   google/t5gemma-b-b-ul2                 ~1.2 GB   the text conditioner
+#
+# Accept both licences on the Hub with the account that owns HF_TOKEN, or the first start
+# fails with a 401 that looks like a network error and is not one.
+#
+# VRAM — ~2 GB. This is the one model in this repo that does NOT need the card to itself:
+# upstream measures 1.69 GB peak at 5 s and 2.40 GB at 120 s. It will sit happily beside a
+# resident vLLM at --gpu-memory-utilization 0.90, which is why this compose does not tell
+# you to stop anything first. Keep an eye on it anyway if the LLM is throughput-sensitive:
+# sharing SMs is not free even when the memory fits.
+#
+# CHUNKED DECODE is off by default here (SA3_CHUNKED_DECODE=0), inverting the upstream
+# default. Chunking exists to cap peak VRAM during the autoencoder decode; the ceiling it
+# protects is 2.4 GB on a 96 GB card, and it costs compute plus possible stitching
+# artefacts at the seams. Set to 1 to restore upstream behaviour.
+#
+# Build + run:
+#   docker compose -f docker-compose.sa3-small-sfx-rtx.yml up -d --build
+# First start downloads ~3 GB; the healthcheck's start_period covers it.
+
+services:
+  sa3-sfx:
+    build:
+      context: .
+      dockerfile: Dockerfile.sa3-server-rtx
+    image: stable-audio-3-server:cu128
+    container_name: stable-audio-3-sfx
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    shm_size: 8gb
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "8400:8400"
+
+    volumes:
+      # Host-side working folders. Uploads from the UI are copied into ./inputs so they
+      # survive the browser session and stay addressable by name from the REST API;
+      # every generated clip lands in ./outputs. Both are plain host directories, not
+      # named volumes, so the files are there to inspect and delete.
+      - ./outputs:/outputs
+      - ./inputs:/inputs
+      - ./server.py:/app/server.py:ro
+      - ./ui.py:/app/ui.py:ro
+      # Checkpoints are small and shared between the sfx and music variants of this
+      # family, so they live in a named volume rather than a bind mount.
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      # Gated repos — see the header. Put HF_TOKEN in ./.env (gitignored).
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - HF_HOME=/root/.cache/huggingface
+      # Swap for small-music, medium, or any '-base' variant. The '-base' checkpoints are
+      # the only ones where cfg_scale and negative_prompt do anything; the server reports
+      # them as ignored otherwise. NOTE: 'medium'/'medium-base' additionally need
+      # flash-attn, which this image deliberately does not build — see the Dockerfile.
+      - SA3_MODEL=${SA3_MODEL:-small-sfx}
+      - SA3_PORT=8400
+      - SA3_OUTPUTS=/outputs
+      - SA3_INPUTS=/inputs
+      - SA3_HALF=1
+      - SA3_CHUNKED_DECODE=0
+      # Gradio phones home on startup for a version check and analytics. Off: this box
+      # serves models, and a blocked egress otherwise costs seconds of startup timeout.
+      - GRADIO_ANALYTICS_ENABLED=False
+      - HF_HUB_DISABLE_TELEMETRY=1
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys;sys.exit(0 if urllib.request.urlopen('http://localhost:8400/health',timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: stableaudio3_huggingface_cache
+
+networks:
+  default:
+    name: stable-audio-3-network
