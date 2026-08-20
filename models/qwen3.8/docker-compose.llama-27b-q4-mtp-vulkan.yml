@@ -1,0 +1,214 @@
+# Qwen3.8-27B GGUF Q4_K_M + MTP via llama.cpp Vulkan — AMD Radeon AI PRO R9700
+# (gfx1201, 32 GB board / 30576 MiB visible to RADV).
+#
+# MEASURED HERE, 2026-08-20 (test_chat.py --runs 3 --warmup, so decode tok/s
+# over a long thinking-heavy answer; single stream):
+#   41.6 tok/s   this config (MTP, --spec-draft-n-max 2). 3-run average.
+#   24.1 tok/s   identical but --spec-type none → MTP is worth 1.7x. Read off
+#                the server's own steady-state `tg =` timings, not a completed
+#                test_chat.py average — that run was cut short. Steady to
+#                within 0.2 tok/s over 1800+ tokens, so the 1.7x is sound, but
+#                it is not the same measurement as the line above.
+# Draft acceptance 0.55, mean accepted length 2.11.
+#
+# Published numbers, for calibration — we do NOT reach either:
+#   51.8 tok/s  AMD Day-0 blog, single R9700, MTP=2. Measured on WINDOWS with
+#               AMD's Vulkan driver; this host is Linux + Mesa RADV, which is
+#               not the same code and announces itself as non-conformant.
+#     https://www.amd.com/en/blogs/2026/run-qwen-3-8-27b-on-amd-ryzen-ai-max-and-radeon-graphics-cards-day-0.html
+#   64.95 tok/s llama.cpp discussion #21043, same card, ALSO Linux + Mesa RADV,
+#               Q8_0 + q4_0 KV. https://github.com/ggml-org/llama.cpp/discussions/21043
+#
+# His tuned settings were tried here and are SLOWER, so do not paste them in
+# expecting a win — measured, not assumed:
+#   -np 3 -ub 288 --spec-draft-n-max 7 --spec-draft-p-min 0, KV q4_0 → 31.1 tok/s
+#   same but --spec-draft-n-max 2                                   → 41.6 tok/s
+# n-max 7 raises mean accepted length (2.49 vs 2.11) but drops acceptance to
+# 0.21, and the extra draft+verify work more than eats the gain. Judge n-max by
+# throughput, never by acceptance rate alone — both metrics move, in opposite
+# directions.
+#
+# The gap to 64.95 is UNEXPLAINED. Untested suspects, cheapest first:
+#   1. GGML_VK_ALLOW_GRAPHICS_QUEUE — #21043 measures +4.7% on MoE but -8% on
+#      DENSE models, and this model is dense.
+#   2. PCIe ASPM policy=performance (+10.8% claimed on dense decode).
+#   3. Shader toolchain. #21043 reports a "severe performance regression" from
+#      building shaders with an old glslc, fixed by Vulkan SDK 1.4.357.1. This
+#      compose uses the prebuilt ghcr.io image whose shaders are baked in at
+#      image-build time and cannot be inspected from here. Settling this means
+#      building the Vulkan image locally.
+# Also note he benchmarked 30 mixed requests and saw a 53-79 tok/s spread,
+# while test_chat.py sends one prose prompt with a very long thinking phase.
+# Some of the gap may be workload, not configuration.
+#
+# CHECKPOINT: ggml-org/Qwen3.8-27B-GGUF — first-party (the llama.cpp org's own
+# auto-conversion of Qwen/Qwen3.8-27B), so no community-quant caveat applies
+# here, unlike docker-compose.llama-27b-q4-rtx.yml which uses the Unsloth repo.
+#
+# unsloth/Qwen3.8-27B-GGUF UD-Q4_K_XL was benchmarked head-to-head and is a
+# wash on speed (40.0-41.6 tok/s, same as here), so this stays on the
+# first-party repo per repo policy. Swap to Unsloth if you want the MTP head
+# self-contained — it drops the --spec-draft-hf line entirely and with it the
+# quant-substring fragility described below:
+#   --hf-repo unsloth/Qwen3.8-27B-GGUF --hf-file Qwen3.8-27B-UD-Q4_K_XL.gguf
+# (17.56 GB vs 18.97, and llama.cpp logs "creating MTP draft context against
+# the target model" instead of loading a separate draft.)
+#
+# WHETHER MTP NEEDS A SEPARATE FILE DEPENDS ON THE REPO — check before copying
+# these flags anywhere. Verified by grepping the tensor tables of the actual
+# files (not just the first few MB — on this family the 248320-token tokenizer
+# pushes the tensor table tens of MB into the file, so a short header read
+# silently finds nothing and looks like a negative result):
+#   ggml-org/Qwen3.8-27B-GGUF  — NO `blk.*.nextn.*`; head split into
+#                                `mtp-Qwen3.8-27B-*.gguf`, must be loaded as a
+#                                draft model or `--spec-type draft-mtp` is a no-op.
+#   unsloth/Qwen3.8-27B-GGUF   — HAS `blk.64.nextn.*` embedded in the main file
+#                                (blk.64 = the MTP layer past the 64 real ones).
+#                                Self-contained; no draft model needed.
+# The `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` sitting in the Unsloth repo is a
+# standalone copy of that head, not evidence the main file lacks it.
+#
+# `-hfd <repo>:<quant>` picks the draft by quant substring. Inside
+# ggml-org/Qwen3.8-27B-GGUF only `mtp-Qwen3.8-27B-Q4_0.gguf` matches `Q4_0`
+# (the main file is `Q4_K_M`), so this resolves unambiguously. If ggml-org ever
+# adds a plain `Qwen3.8-27B-Q4_0.gguf` the match becomes ambiguous — pin the
+# draft with an explicit `-md /path/to/mtp-*.gguf` instead.
+#
+# VRAM: 18.97 GB main + 1.68 GB MTP head = ~20.6 GB of weights, leaving ~9 GB
+# for KV + compute buffers on the 30576 MiB the card exposes. AMD's "roughly
+# 24 GB" figure is for weights + a modest context.
+#
+# FULL 262144 CONTEXT FITS — this file just does not use it, because prefill,
+# not VRAM, is the binding constraint. Only 16 of the 64 layers are
+# full_attention (the other 48 are Gated DeltaNet, whose recurrent state does
+# not grow with context), so KV is far cheaper than a dense 27B suggests:
+#   f16 64 KB/token = 16.8 GB | q8_0 34.8 KB = 9.1 GB | q4_0 18.4 KB = 4.8 GB
+# Verified on this host with unsloth UD-Q4_K_XL, -c 262144 -np 1, q4_0 KV:
+# loads at n_ctx_slot=262144, 24.1 GB of 30576 MiB in use during a live
+# 250,033-token prompt, and a needle planted at 10% depth was retrieved
+# correctly (994 s wall). PARTIAL: needles at 55% and 92% depth were queued but
+# the run was stopped before they finished, so retrieval is confirmed only at
+# shallow depth. Deep-context recall is the thing q4_0 KV is most likely to
+# degrade — finish that sweep before trusting this at 250K.
+# Prefill ran at only ~250-400 tok/s and degraded with depth, i.e. ~15 MINUTES
+# to first token on a 250K prompt. That is the binding limit at full context,
+# not memory. #21043 measures +29% prefill from `-ub 2048 -b 16384`, untested
+# here — try it before using this model at long context in anger.
+#
+# For a full-context run, override: -c 262144 -np 1 --cache-type-k q4_0
+# --cache-type-v q4_0. Note -np N splits the context into N slots, so the
+# throughput-tuned and long-context configs are different operating points and
+# one server cannot be both.
+#
+# Vulkan needs /dev/dri only — /dev/kfd is the ROCm path and is not mounted.
+# group_add 44 (video) / 992 (render) are this host's GIDs; check `getent group
+# render video` before porting this file elsewhere.
+#
+# Thinking cannot be disabled on this family, so do NOT pass --no-think to
+# test_chat.py — it is ignored and the measured tok/s includes reasoning
+# tokens. Pass reasoning_effort (low|medium|xhigh) via chat_template_kwargs to
+# control length. See README.md.
+#
+# Vision comes along for free and is NOT suppressed here. `--hf-repo` auto-pulls
+# and loads `mmproj-Qwen3.8-27B-Q8_0.gguf` (629 MB) without being asked for it,
+# and unlike Qwen3.6 it coexists with MTP — the server reports capabilities
+# ["completion","multimodal"] with the draft head active. Pass --no-mmproj if
+# you want to reclaim the 629 MB.
+#
+# Usage: docker compose -f docker-compose.llama-27b-q4-mtp-vulkan.yml up -d
+# API endpoint: http://localhost:11486/v1
+# Model name served as: qwen3.8-27b
+#
+# Shares port 11486 and the served name with docker-compose.llama-27b-q4-rtx.yml
+# — both are "llama.cpp 27B" and only one can hold the GPU at a time.
+
+services:
+  qwen38-27b-q4-mtp-vulkan:
+    image: ghcr.io/ggml-org/llama.cpp:server-vulkan
+    container_name: qwen38-27b-q4-mtp-vulkan
+    # "no", not unless-stopped: if the draft/quant resolution or the Vulkan
+    # allocation fails this exits at load, and unless-stopped would crash-loop
+    # on it forever while re-reading 20 GB of weights each time.
+    restart: "no"
+
+    devices:
+      - /dev/dri
+
+    group_add:
+      - "44"
+      - "992"
+
+    ports:
+      - "11486:11486"
+
+    volumes:
+      - model_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - LLAMA_CACHE=/root/.cache/huggingface/llama.cpp
+      # Pin to the discrete card. `--list-devices` on this host reports exactly
+      # one Vulkan device (Vulkan0 = RADV GFX1201); set explicitly so an added
+      # iGPU or llvmpipe fallback can never silently win.
+      - GGML_VK_VISIBLE_DEVICES=0
+
+    command:
+      - --hf-repo
+      - ggml-org/Qwen3.8-27B-GGUF
+      - --hf-file
+      - Qwen3.8-27B-Q4_K_M.gguf
+      # MTP head, loaded as the speculative draft model (see header).
+      - --spec-draft-hf
+      - ggml-org/Qwen3.8-27B-GGUF:Q4_0
+      - --spec-type
+      - draft-mtp
+      # AMD's published figure is MTP=2. n-max is card-dependent; sweep 2-4
+      # and keep whichever wins on this box.
+      - --spec-draft-n-max
+      - "2"
+      - -ngl
+      - "99"
+      # Draft head is tiny — keep all of it on the GPU too.
+      - -ngld
+      - "99"
+      - -c
+      - "65536"
+      # MTP requires a single slot.
+      - -np
+      - "1"
+      - -fa
+      - "on"
+      - --cache-type-k
+      - q8_0
+      - --cache-type-v
+      - q8_0
+      # --jinja uses the template baked into the GGUF.
+      - --jinja
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11486"
+      - -a
+      - qwen3.8-27b
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11486/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # First start downloads ~20.6 GB before it serves anything.
+      start_period: 1800s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  model_cache:
+    name: qwen38_llama_cache
+
+networks:
+  default:
+    name: qwen38-network
