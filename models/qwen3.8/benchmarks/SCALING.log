@@ -1,0 +1,5 @@
+SCALE|nvfp4-w4a4|boot=281s|GPU KV cache size: 1,605,632|start
+SCALE|nvfp4-w4a4|GPU KV cache size: 1,605,632|end_status=running|err_lines=0
+0|done
+SCALE|nvfp4-w4a4-lc2|end_status=running|done
+SCALE|nvfp4-w4a4-steady|end_status=running|done

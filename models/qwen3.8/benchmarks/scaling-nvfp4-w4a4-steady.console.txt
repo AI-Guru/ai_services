@@ -1,0 +1,14 @@
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-steady-pp10k
+
+### nvfp4-w4a4-steady / pp10k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 30 | 333.5 | 10.4 | 95.9 ms | 29.1 s | nan s | 3498 ms | 312 | 0 |
+| 57 | 324.2 | 5.1 | 197.2 ms | 60.2 s | nan s | 7510 ms | 282 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-steady-pp8k
+
+### nvfp4-w4a4-steady / pp8k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 31 | 409.0 | 13.1 | 76.5 ms | 23.0 s | nan s | 3379 ms | 392 | 0 |
+| 59 | 423.7 | 6.5 | 152.9 ms | 46.0 s | nan s | 5982 ms | 377 | 0 |

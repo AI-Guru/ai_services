@@ -1,0 +1,18 @@
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-lc2-lc100k
+
+### nvfp4-w4a4-lc2 / lc100k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 16.1 | 17.0 | 58.8 ms | 17.8 s | nan s | 1654 ms | 25 | 0 |
+| 4 | 19.9 | 4.5 | 221.1 ms | 65.1 s | nan s | 11655 ms | 24 | 0 |
+| 7 | 21.1 | 2.4 | 423.8 ms | 137.9 s | nan s | 0 ms | 20 | 0 |
+| 12 | 17.4 | 1.2 | 808.0 ms | 263.5 s | nan s | 11511 ms | 20 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-lc2-lc150k
+
+### nvfp4-w4a4-lc2 / lc150k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 9.7 | 10.1 | 99.4 ms | 32.6 s | nan s | 7895 ms | 13 | 0 |
+| 4 | 11.3 | 2.2 | 448.1 ms | 128.2 s | nan s | 48000 ms | 11 | 0 |
+| 6 | 12.5 | 1.1 | 879.0 ms | 273.6 s | nan s | 26423 ms | 8 | 0 |
+| 6 | 10.8 | 1.1 | 884.5 ms | 271.3 s | nan s | 31412 ms | 8 | 0 |

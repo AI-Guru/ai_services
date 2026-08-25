@@ -1,0 +1,646 @@
+<title>Qwen3.8 Concurrency Ceiling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --ground:#f6f8f7; --surface:#ffffff; --surface-2:#eef2f1; --surface-3:#e3eae8;
+  --ink:#111819; --ink-2:#4a585a; --ink-3:#7a878a;
+  --rule:#dce3e2; --rule-strong:#c2cdcb;
+  --accent:#0d7570; --accent-soft:#e2f0ee;
+  --s1:#0d7570; --s2:#3f7d3a; --s3:#a8791b; --s4:#c05a2a; --s5:#a33a4e;
+  --flat:#b03a2e; --good:#1f8a4c; --warn:#b9860b;
+  --shadow:0 1px 2px rgba(17,24,25,.06),0 8px 24px -12px rgba(17,24,25,.16);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --ground:#0c1213; --surface:#131b1c; --surface-2:#1a2425; --surface-3:#222d2f;
+    --ink:#e8efee; --ink-2:#a4b1b1; --ink-3:#778586;
+    --rule:#25302f; --rule-strong:#384646;
+    --accent:#2fa39c; --accent-soft:#0f2a29;
+    --s1:#2fa39c; --s2:#5aa04f; --s3:#c99a20; --s4:#dd7440; --s5:#c85a70;
+    --flat:#e0614f; --good:#3aa96a; --warn:#d3a22a;
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 28px -14px rgba(0,0,0,.75);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ground:#0c1213; --surface:#131b1c; --surface-2:#1a2425; --surface-3:#222d2f;
+  --ink:#e8efee; --ink-2:#a4b1b1; --ink-3:#778586;
+  --rule:#25302f; --rule-strong:#384646;
+  --accent:#2fa39c; --accent-soft:#0f2a29;
+  --s1:#2fa39c; --s2:#5aa04f; --s3:#c99a20; --s4:#dd7440; --s5:#c85a70;
+  --flat:#e0614f; --good:#3aa96a; --warn:#d3a22a;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 28px -14px rgba(0,0,0,.75);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:16.5px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+.col{max-width:68ch;margin-left:auto;margin-right:auto}
+h1,h2,h3{font-family:"IBM Plex Sans Condensed","IBM Plex Sans",sans-serif;text-wrap:balance;margin:0}
+h1{font-weight:700;font-size:clamp(2.4rem,6vw,4.1rem);line-height:1.03;letter-spacing:-.022em}
+h2{font-weight:700;font-size:clamp(1.55rem,3vw,2.05rem);line-height:1.14;letter-spacing:-.014em}
+h3{font-weight:600;font-size:1.14rem;line-height:1.32}
+p{margin:0 0 1.05em}
+a{color:var(--accent)}
+strong{font-weight:600}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:.86em}
+code{background:var(--surface-2);padding:.12em .38em;border-radius:3px;border:1px solid var(--rule)}
+.num{font-variant-numeric:tabular-nums}
+
+.masthead{border-bottom:1px solid var(--rule);background:var(--surface)}
+.mast-in{padding:62px 0 44px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-3);margin:0 0 20px}
+.lede{font-size:1.18rem;line-height:1.55;color:var(--ink-2);max-width:62ch;margin:22px 0 0}
+.lede strong{color:var(--ink);font-weight:600}
+.specline{display:flex;flex-wrap:wrap;gap:8px 30px;margin-top:32px;padding-top:20px;border-top:1px solid var(--rule);
+  font-family:"IBM Plex Mono",monospace;font-size:.745rem;color:var(--ink-3);letter-spacing:.02em}
+.specline b{color:var(--ink-2);font-weight:500}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin:44px 0 0}
+.tile{background:var(--surface);padding:20px 22px 18px}
+.tile .k{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:9px}
+.tile .v{font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:700;font-size:2.1rem;line-height:1;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.tile .u{font-size:.82rem;color:var(--ink-3);font-weight:500;margin-left:4px;font-family:"IBM Plex Sans",sans-serif}
+.tile .s{font-size:.79rem;color:var(--ink-2);margin-top:7px;line-height:1.35}
+
+section{padding:64px 0 8px}
+.sec-head{margin-bottom:28px}
+.sec-num{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.14em;color:var(--accent);text-transform:uppercase;display:block;margin-bottom:11px}
+.sec-head p{color:var(--ink-2);margin-top:12px;font-size:1.02rem}
+
+.panel{background:var(--surface);border:1px solid var(--rule);border-radius:10px;box-shadow:var(--shadow);
+  padding:26px 26px 20px;margin:0 0 26px}
+.panel-h{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px}
+.panel-h h3{margin:0}
+.panel-h .note{font-family:"IBM Plex Mono",monospace;font-size:.72rem;color:var(--ink-3);letter-spacing:.02em}
+.panel-sub{color:var(--ink-2);font-size:.93rem;margin:0 0 16px;max-width:74ch}
+.chartbox{width:100%;overflow-x:auto}
+svg{display:block;max-width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:14px;font-family:"IBM Plex Mono",monospace;font-size:.74rem;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.swatch{width:13px;height:3px;border-radius:2px;display:inline-block}
+
+.tablebox{overflow-x:auto;border:1px solid var(--rule);border-radius:9px;background:var(--surface);margin:0 0 26px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{padding:9px 14px;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-family:"IBM Plex Mono",monospace;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--surface-2)}
+td:first-child,th:first-child{text-align:left;font-family:"IBM Plex Mono",monospace;color:var(--ink-2)}
+tbody tr:last-child td{border-bottom:0}
+td.peak{color:var(--ink);font-weight:600;background:var(--accent-soft)}
+td.dim{color:var(--ink-3)}
+
+.callout{border-left:3px solid var(--accent);background:var(--surface);padding:18px 22px;border-radius:0 8px 8px 0;
+  margin:0 0 26px;border-top:1px solid var(--rule);border-right:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.callout.warn{border-left-color:var(--flat)}
+.callout p:last-child{margin-bottom:0}
+.callout .lbl{font-family:"IBM Plex Mono",monospace;font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:8px}
+
+.traps{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden}
+.trap{background:var(--surface);padding:22px 24px}
+.trap .n{font-family:"IBM Plex Mono",monospace;font-size:.7rem;color:var(--flat);letter-spacing:.1em;text-transform:uppercase;margin-bottom:9px}
+.trap h3{margin-bottom:8px}
+.trap p{font-size:.94rem;color:var(--ink-2);margin-bottom:0}
+.trap p + p{margin-top:.7em}
+.trap b{color:var(--ink)}
+
+pre{background:var(--surface-2);border:1px solid var(--rule);border-radius:8px;padding:16px 18px;overflow-x:auto;
+  font-family:"IBM Plex Mono",monospace;font-size:.8rem;line-height:1.6;color:var(--ink-2);margin:0 0 24px}
+
+footer{border-top:1px solid var(--rule);margin-top:70px;padding:34px 0 60px;color:var(--ink-3);font-size:.82rem}
+footer .mono{display:block;margin-top:8px}
+
+@media (max-width:640px){
+  .wrap{padding:0 18px}
+  .mast-in{padding:44px 0 34px}
+  section{padding:48px 0 6px}
+  .panel{padding:20px 16px 16px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<header class="masthead">
+  <div class="wrap mast-in">
+    <p class="eyebrow">Qwen3.8-27B &nbsp;·&nbsp; NVFP4 W4A4 + MTP-2 &nbsp;·&nbsp; RTX PRO 6000 Blackwell &nbsp;·&nbsp; 2026-08-22</p>
+    <h1>Where the air<br>runs out.</h1>
+    <p class="lede">How much concurrency does one 96&nbsp;GB Blackwell card actually take before it stops
+    giving anything back? There is no single number. The ceiling moves with <strong>prompt length</strong>,
+    and it moves fast: peak throughput varies <strong>7.1x</strong> across prompts from 512 to 10,000 tokens
+    on identical hardware, weights and flags — and the concurrency you can serve at interactive latency
+    <strong>halves every time the prompt doubles</strong>.</p>
+    <div class="specline">
+      <span><b>Config</b> W4A4 NVFP4 + MTP-2 + probabilistic</span>
+      <span><b>KV</b> fp8, pool 1,605,632 tok</span>
+      <span><b>Ctx</b> 262,144</span>
+      <span><b>Harness</b> GuideLLM 0.5.4</span>
+      <span><b>Output</b> 300 tok (132-500)</span>
+      <span><b>Errors</b> 0</span>
+    </div>
+    <div class="tiles">
+      <div class="tile">
+        <div class="k">Peak, 512-tok prompts</div>
+        <div class="v">2376<span class="u">tok/s</span></div>
+        <div class="s">At concurrency 64 — and still climbing when the sweep stopped.</div>
+      </div>
+      <div class="tile">
+        <div class="k">Peak, 10K-tok prompts</div>
+        <div class="v">334<span class="u">tok/s</span></div>
+        <div class="s">Same card, same weights. 7.1x less, purely from prompt length.</div>
+      </div>
+      <div class="tile">
+        <div class="k">Interactive budget</div>
+        <div class="v">32→2</div>
+        <div class="s">Concurrent streams under a 5&nbsp;s p50, from 512 to 10K prompts.</div>
+      </div>
+      <div class="tile">
+        <div class="k">At 100K context</div>
+        <div class="v">3.97<span class="u">req/min</span></div>
+        <div class="s">And concurrency does not raise it. It is a rate, not a headroom.</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">The answer</span>
+    <h2>Two ceilings, and they are not the same ceiling</h2>
+    <p>"Running out of air" means two different things, and the gap between them is where most
+    capacity planning goes wrong. The card stops feeling fast long before it stops getting faster.</p>
+  </div>
+  <div class="col">
+    <p><strong>The interactive limit</strong> is the highest concurrency that still answers in under
+    5&nbsp;seconds at the median. <strong>The throughput ceiling</strong> is where aggregate tok/s reaches
+    90&nbsp;% of its measured peak — past that, more concurrency buys queue, not work. Both are read
+    directly off the measurements below.</p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-h">
+      <h3>The breath gauge</h3>
+      <span class="note">concurrency, log scale</span>
+    </div>
+    <p class="panel-sub">One track per prompt length. The filled segment is where the card is both fast
+    and responsive; the hollow segment is throughput you can still buy if you accept the latency; past
+    the end, nothing is left to buy.</p>
+    <div class="chartbox"><svg id="gauge" viewBox="0 0 1080 300" role="img"
+      aria-label="Interactive limit and throughput ceiling per prompt length"></svg></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--accent)"></i>interactive — p50 under 5 s</span>
+      <span><i class="swatch" style="background:var(--rule-strong)"></i>throughput still growing</span>
+      <span><i class="swatch" style="background:var(--flat);height:9px;width:3px;border-radius:1px"></i>90 % of peak reached</span>
+    </div>
+  </div>
+
+  <div class="tablebox">
+    <table>
+      <thead><tr>
+        <th>Prompt</th><th>Interactive limit</th><th>p50 there</th><th>tok/s there</th>
+        <th>Throughput ceiling</th><th>Peak tok/s</th><th>p50 at peak</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>512</td><td>32</td><td>4.7 s</td><td>1881</td><td>64</td><td class="peak">2376</td><td>8.1 s</td></tr>
+        <tr><td>2K</td><td>16</td><td>5.0 s</td><td>956</td><td>32</td><td class="peak">1270</td><td>15.5 s</td></tr>
+        <tr><td>4K</td><td>8</td><td>4.7 s</td><td>524</td><td>32</td><td class="peak">766</td><td>13.2 s</td></tr>
+        <tr><td>8K</td><td>4</td><td>4.6 s</td><td>262</td><td>16</td><td class="peak">424</td><td>46.0 s</td></tr>
+        <tr><td>10K</td><td>2</td><td>3.8 s</td><td>167</td><td>16</td><td class="peak">334</td><td>29.1 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout col">
+    <span class="lbl">The pattern</span>
+    <p>Between 2K and 8K the interactive budget halves on every doubling of the prompt: <strong>16 → 8 → 4</strong>.
+    Prefill is quadratic in nothing here — it is simply linear work that concurrency multiplies, and the
+    decode time it steals is time no stream gets back.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">Aggregate</span>
+    <h2>What the card delivers in total</h2>
+    <p>Every curve is the same GPU. The only thing that changes between them is how many tokens each
+    request brings with it.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-h">
+      <h3>Aggregate output tok/s vs concurrency</h3>
+      <span class="note">output tokens only — prefill not counted</span>
+    </div>
+    <p class="panel-sub">Short prompts keep rewarding concurrency all the way to 64. Long prompts flatten
+    at 16-32 and then simply stop. Nothing in this range actually turns over — the curves plateau, they
+    do not collapse.</p>
+    <div class="chartbox"><svg id="agg" viewBox="0 0 1080 470" role="img"
+      aria-label="Aggregate output tokens per second against concurrency for five prompt lengths"></svg></div>
+    <div class="legend" id="leg-agg"></div>
+  </div>
+
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>PP \ conc</th><th>1</th><th>2</th><th>4</th><th>8</th><th>16</th><th>32</th><th>64</th></tr></thead>
+      <tbody>
+        <tr><td>512</td><td>145.2</td><td>287.1</td><td>539.6</td><td>949.2</td><td>1454.7</td><td>1880.8</td><td class="peak">2375.6</td></tr>
+        <tr><td>2K</td><td>129.5</td><td>239.1</td><td>422.5</td><td>690.0</td><td>955.8</td><td>1199.8</td><td class="peak">1270.2</td></tr>
+        <tr><td>4K</td><td>121.6</td><td>214.5</td><td>356.0</td><td>524.1</td><td>661.9</td><td class="peak">765.6</td><td>752.6</td></tr>
+        <tr><td>8K</td><td>106.1</td><td>175.8</td><td>261.5</td><td>334.2</td><td>391.7</td><td>409.0</td><td class="peak">423.7</td></tr>
+        <tr><td>10K</td><td>101.5</td><td>167.4</td><td>236.5</td><td>284.3</td><td>311.9</td><td class="peak">333.5</td><td>324.2</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">Per stream</span>
+    <h2>What one user feels</h2>
+    <p>The aggregate curve is the operator's view. Nobody experiences it. A user experiences their own
+    stream, and that number only ever goes down.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-h">
+      <h3>Per-stream output tok/s</h3>
+      <span class="note">1000 / TPOT median</span>
+    </div>
+    <p class="panel-sub">Only the very first step is free: at 512 tokens, going from one stream to two
+    costs nothing at all (143.5 → 150.2, inside noise). Everything after that is paid for by the people
+    already on the card.</p>
+    <div class="chartbox"><svg id="per" viewBox="0 0 1080 470" role="img"
+      aria-label="Per-stream output tokens per second against concurrency"></svg></div>
+    <div class="legend" id="leg-per"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-h">
+      <h3>Request latency, median</h3>
+      <span class="note">log scale — dashed line is the 5 s budget</span>
+    </div>
+    <p class="panel-sub">The same data as a service-level question. Where a curve crosses the dashed
+    line is the interactive limit in the table above.</p>
+    <div class="chartbox"><svg id="lat" viewBox="0 0 1080 470" role="img"
+      aria-label="Median request latency against concurrency, log scale"></svg></div>
+    <div class="legend" id="leg-lat"></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">Long context</span>
+    <h2>At 100K the question stops making sense</h2>
+    <p>Asked whether the card would hold 15-20 parallel streams at 100-150K context, the honest answer
+    is that it will hold them and they will not help.</p>
+  </div>
+  <div class="col">
+    <p>The KV pool is 1,605,632 tokens, so sixteen 100K streams (1.6M) physically fit, and ten 150K
+    streams (1.5M) fit comfortably. Memory is not the constraint. <strong>Prefill throughput is</strong>,
+    and it saturates at concurrency one.</p>
+  </div>
+  <div class="panel">
+    <div class="panel-h">
+      <h3>Total throughput vs latency at long context</h3>
+      <span class="note">total = prompt + output tokens</span>
+    </div>
+    <p class="panel-sub">The left panel is flat. The right panel is not. That is the entire finding:
+    adding concurrency at 100K moves total throughput by less than 12&nbsp;% while multiplying request
+    latency by 15x.</p>
+    <div class="chartbox"><svg id="lc" viewBox="0 0 1080 400" role="img"
+      aria-label="Total throughput stays flat while latency explodes as concurrency rises at 100K and 150K context"></svg></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--s1)"></i>100K context</span>
+      <span><i class="swatch" style="background:var(--s5)"></i>150K context</span>
+    </div>
+  </div>
+
+  <div class="tablebox">
+    <table>
+      <thead><tr>
+        <th>Context</th><th>Concurrency</th><th>Total tok/s</th><th>Output tok/s</th>
+        <th>Per-stream tok/s</th><th>Latency p50</th><th>Completed req/min</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>100K</td><td>1</td><td>5903</td><td>16.1</td><td>17.0</td><td>17.8 s</td><td class="peak">3.97</td></tr>
+        <tr><td>100K</td><td>4</td><td>6466</td><td>19.9</td><td>4.5</td><td>65.1 s</td><td>3.81</td></tr>
+        <tr><td>100K</td><td>8</td><td>6609</td><td>21.1</td><td>2.4</td><td>137.9 s</td><td>3.17</td></tr>
+        <tr><td>100K</td><td class="dim">16 &nbsp;(12.2 achieved)</td><td>6049</td><td>17.4</td><td>1.2</td><td>263.5 s</td><td>3.17</td></tr>
+        <tr><td>150K</td><td>1</td><td>5041</td><td>9.7</td><td>10.1</td><td>32.6 s</td><td class="peak">2.06</td></tr>
+        <tr><td>150K</td><td>4</td><td>5300</td><td>11.3</td><td>2.2</td><td>128.2 s</td><td>1.75</td></tr>
+        <tr><td>150K</td><td>8</td><td>5519</td><td>12.5</td><td>1.1</td><td>273.6 s</td><td>1.27</td></tr>
+        <tr><td>150K</td><td class="dim">10 &nbsp;(5.6 achieved)</td><td>5533</td><td>10.8</td><td>1.1</td><td>271.3 s</td><td>1.27</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout col">
+    <span class="lbl">Capacity, stated honestly</span>
+    <p>For long context, one RTX PRO 6000 is a <strong>rate, not a concurrency</strong>: about
+    <strong>4 completed requests per minute at 100K</strong> and <strong>2 per minute at 150K</strong>.
+    Running twelve in parallel instead of one does not raise that — it lowers it, from 3.97 to 3.17
+    req/min, while the median wait goes from 18&nbsp;seconds to over four minutes.</p>
+    <p>Read the "output tok/s" column with care: at 100K prompts the 300 generated tokens are 0.3&nbsp;%
+    of the work, which is why it reads 16-21 while the card is genuinely moving 6,000+ tokens a second.</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">Corrections</span>
+    <h2>Three ways this measurement lied first</h2>
+    <p>All three produced numbers that looked entirely plausible. All three were the harness, not the
+    engine — which is exactly why they are worth writing down.</p>
+  </div>
+  <div class="traps">
+    <div class="trap">
+      <div class="n">Trap 01 — reported as an engine failure</div>
+      <h3>A 60-second client timeout books slow requests as errors</h3>
+      <p>GuideLLM aborts a request after its backend timeout — 60&nbsp;s by default — and records it as an
+      <b>ERROR</b>, not as slow. The first 100K run returned <b>33 errored / 4 ok</b> at concurrency 16,
+      with a latency curve that looked like the server falling over.</p>
+      <p>The server was fine. Every request simply took longer than the harness permitted. The long-context
+      levels were re-run at a 1800&nbsp;s timeout and came back with <b>zero</b> errors.</p>
+    </div>
+    <div class="trap">
+      <div class="n">Trap 02 — a 52 % collapse that was not there</div>
+      <h3>A 60-second window is not a measurement at high concurrency</h3>
+      <p>With 64 concurrent 10K-token prompts, vLLM logs <code>Running: 6 reqs, Waiting: 58</code>. The
+      window closes while the engine is still draining the prefill backlog, and because only
+      <em>completed</em> requests are averaged, the level reads far too low.</p>
+      <p>The same cell measured <b>166.9 tok/s at 60&nbsp;s</b> and <b>324.2 tok/s at 300&nbsp;s</b>. The
+      dramatic collapse of the longest curve at concurrency 64 was entirely this artifact. There is no
+      collapse — there is a plateau. The 8K and 10K cells at concurrency 32-64 above are the 300&nbsp;s
+      numbers.</p>
+    </div>
+    <div class="trap">
+      <div class="n">Trap 03 — zero requests sent</div>
+      <h3>A fixed prompt length is rejected outright</h3>
+      <p>Asking for an exact prompt size means <code>prompt_tokens_stdev=0</code>, which GuideLLM's
+      pydantic config refuses (<code>Input should be greater than 0</code>). The run dies during data
+      deserialization, before a single request reaches the server, and the failure reads like a
+      connection problem.</p>
+      <p>Fixed lengths have to be expressed as a tight band instead: <code>stdev=1</code> with min/max at
+      &plusmn;1&nbsp;%.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head col">
+    <span class="sec-num">Method</span>
+    <h2>How to reproduce it, and what it does not cover</h2>
+  </div>
+  <div class="col">
+    <p>One boot, one checkpoint, one harness. Output length is pinned at 300 tokens (132-500) across every
+    scenario so that prompt length is the only variable. Prefix caching is on — vLLM's default — but the
+    hit rate was <strong>0.0&nbsp;% throughout</strong>, because GuideLLM's synthetic prompts are unique.
+    The prompt-length axis measures real prefill, not cache hits.</p>
+    <pre>./scaling.sh nvfp4-w4a4 gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090   # prompt-length grid
+./lc_rerun.sh        # 100K / 150K, GLLM_TIMEOUT=1800
+./recheck_run.sh     # 300 s steady-state cells for 8K/10K at conc 32-64
+python3 scaling_table.py &gt; benchmarks/SCALING-GRID.md</pre>
+    <p>Engine build <code>v0.1.dev19754+g3a0914114</code>, image
+    <code>vllm/vllm-openai:qwen38-x86_64-cu130</code>, <code>--gpu-memory-utilization 0.88</code>,
+    <code>--kv-cache-dtype fp8</code>, speculation
+    <code>{"method":"mtp","num_speculative_tokens":2,"draft_sample_method":"probabilistic"}</code>.
+    Across roughly 2.5 hours of load the server log contains zero out-of-memory, engine-death or
+    assertion lines.</p>
+  </div>
+
+  <div class="callout warn col">
+    <span class="lbl">Two limits on these numbers</span>
+    <p><strong>FP8 is not measured here.</strong> This grid is 4-bit only. The single-stream FP8 datapoint
+    — 45.6 tok/s, 2.45x slower than W4A4 — remains the only fp8 figure, so no fp4-versus-fp8 scaling
+    comparison exists yet. The harness takes a checkpoint id as its argument and the FP8 checkpoint ships
+    MTP weights, so the identical grid can be run against it unchanged.</p>
+    <p><strong>Do not splice these rows against the 2026-08-18 concurrency table.</strong> Same image, same
+    flags, same checkpoint — but this grid's 2K row reads 129.5 tok/s at concurrency 1 where the earlier
+    chat row reads 111.3, on a slightly narrower prompt distribution. MTP acceptance is prompt-sensitive
+    and that gap is larger than the ~3&nbsp;% cross-boot spread on this card. Each table is internally
+    consistent; across tables, compare shapes rather than absolute numbers.</p>
+  </div>
+</section>
+
+<footer class="wrap">
+  <div class="col">
+    Measured 2026-08-22 on one RTX PRO 6000 Blackwell, 96 GB GDDR7, SM_120.
+    <span class="mono">models/qwen3.8/README.md &nbsp;·&nbsp; benchmarks/SCALING-GRID.md &nbsp;·&nbsp; benchmarks/SCALING.log</span>
+  </div>
+</footer>
+
+</div>
+
+<script>
+(function(){
+"use strict";
+const CONC = [1,2,4,8,16,32,64];
+const SERIES = [
+  {k:"512", v:"--s1", agg:[145.2,287.1,539.6,949.2,1454.7,1880.8,2375.6],
+   per:[143.5,150.2,138.0,122.6,93.2,65.4,37.6], lat:[2.1,2.1,2.3,2.5,3.3,4.7,8.1],
+   inter:32, ceil:64},
+  {k:"2K", v:"--s2", agg:[129.5,239.1,422.5,690.0,955.8,1199.8,1270.2],
+   per:[119.3,114.4,105.3,85.2,58.6,36.7,19.0], lat:[2.2,2.6,2.8,3.5,5.0,8.4,15.5],
+   inter:16, ceil:32},
+  {k:"4K", v:"--s3", agg:[121.6,214.5,356.0,524.1,661.9,765.6,752.6],
+   per:[114.7,107.0,87.0,65.1,40.4,22.9,9.9], lat:[2.5,2.7,3.6,4.7,7.3,13.2,28.2],
+   inter:8, ceil:32},
+  {k:"8K", v:"--s4", agg:[106.1,175.8,261.5,334.2,391.7,409.0,423.7],
+   per:[100.7,87.4,66.3,41.6,22.0,13.1,6.5], lat:[2.9,3.4,4.6,7.1,12.3,23.0,46.0],
+   inter:4, ceil:16},
+  {k:"10K", v:"--s5", agg:[101.5,167.4,236.5,284.3,311.9,333.5,324.2],
+   per:[96.7,83.4,56.9,35.6,18.1,10.4,5.1], lat:[3.0,3.8,5.5,8.1,14.6,29.1,60.2],
+   inter:2, ceil:16}
+];
+const LC = [
+  {k:"100K", v:"--s1", x:[1,4,8,16], tot:[5903,6466,6609,6049], lat:[17.8,65.1,137.9,263.5]},
+  {k:"150K", v:"--s5", x:[1,4,8,10], tot:[5041,5300,5519,5533], lat:[32.6,128.2,273.6,271.3]}
+];
+
+const NS = "http://www.w3.org/2000/svg";
+function cvar(n){ return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function el(tag, attrs, parent){
+  const e = document.createElementNS(NS, tag);
+  for (const a in attrs) e.setAttribute(a, attrs[a]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function clear(s){ while (s.firstChild) s.removeChild(s.firstChild); }
+function txt(parent, x, y, s, o){
+  o = o || {};
+  const t = el("text", {x:x, y:y, fill:o.fill||cvar("--ink-3"),
+    "font-family":'"IBM Plex Mono", monospace', "font-size":o.size||12,
+    "text-anchor":o.anchor||"start", "font-weight":o.weight||400}, parent);
+  t.textContent = s;
+  return t;
+}
+// Concurrency is plotted on equal steps, which is a log2 axis for 1..64.
+function xpos(i, L, R){ return L + (R - L) * i / (CONC.length - 1); }
+
+function lineChart(id, field, opts){
+  const svg = document.getElementById(id);
+  if (!svg) return;
+  clear(svg);
+  const W = 1080, H = 470, L = 66, R = W - 116, T = 26, B = H - 46;
+  const log = !!opts.log;
+  let max = 0, min = Infinity;
+  SERIES.forEach(s => s[field].forEach(v => { if (v > max) max = v; if (v < min) min = v; }));
+  const top = log ? Math.log10(max * 1.35) : max * 1.08;
+  const bot = log ? Math.log10(min / 1.35) : 0;
+  const yv = v => log ? Math.log10(v) : v;
+  const Y = v => B - (yv(v) - bot) / (top - bot) * (B - T);
+
+  const ticks = opts.ticks;
+  ticks.forEach(t => {
+    const y = Y(t);
+    if (y < T - 1 || y > B + 1) return;
+    el("line", {x1:L, y1:y, x2:R, y2:y, stroke:cvar("--rule"), "stroke-width":1}, svg);
+    txt(svg, L - 10, y + 4, opts.fmt ? opts.fmt(t) : String(t), {anchor:"end"});
+  });
+  el("line", {x1:L, y1:B, x2:R, y2:B, stroke:cvar("--rule-strong"), "stroke-width":1}, svg);
+  CONC.forEach((c, i) => {
+    const x = xpos(i, L, R);
+    txt(svg, x, B + 24, String(c), {anchor:"middle"});
+  });
+  txt(svg, L, H - 8, "concurrent requests", {size:11});
+  txt(svg, L - 10, T - 10, opts.unit, {anchor:"end", size:11});
+
+  if (opts.budget){
+    const y = Y(opts.budget);
+    el("line", {x1:L, y1:y, x2:R, y2:y, stroke:cvar("--flat"), "stroke-width":1.5,
+      "stroke-dasharray":"5 4"}, svg);
+    txt(svg, R + 8, y + 4, "5 s", {fill:cvar("--flat"), size:11, weight:600});
+  }
+
+  SERIES.forEach(s => {
+    const col = cvar(s.v);
+    let d = "";
+    s[field].forEach((v, i) => { d += (i ? " L " : "M ") + xpos(i, L, R).toFixed(1) + " " + Y(v).toFixed(1); });
+    el("path", {d:d, fill:"none", stroke:col, "stroke-width":2.4,
+      "stroke-linejoin":"round", "stroke-linecap":"round"}, svg);
+    s[field].forEach((v, i) => {
+      el("circle", {cx:xpos(i, L, R), cy:Y(v), r:3.1, fill:cvar("--surface"),
+        stroke:col, "stroke-width":1.8}, svg);
+    });
+    const last = s[field].length - 1;
+    txt(svg, R + 10, Y(s[field][last]) + 4, s.k, {fill:col, size:12.5, weight:600});
+  });
+}
+
+function legend(id, note){
+  const box = document.getElementById(id);
+  if (!box) return;
+  box.innerHTML = "";
+  SERIES.forEach(s => {
+    const w = document.createElement("span");
+    w.innerHTML = '<i class="swatch" style="background:' + cvar(s.v) + '"></i>' + s.k + " prompt";
+    box.appendChild(w);
+  });
+  if (note){
+    const n = document.createElement("span");
+    n.style.color = cvar("--ink-3");
+    n.textContent = note;
+    box.appendChild(n);
+  }
+}
+
+function gauge(){
+  const svg = document.getElementById("gauge");
+  if (!svg) return;
+  clear(svg);
+  const W = 1080, H = 300, L = 92, R = W - 150, T = 40;
+  const rowH = 44;
+  CONC.forEach((c, i) => {
+    const x = xpos(i, L, R);
+    el("line", {x1:x, y1:T - 14, x2:x, y2:T - 14 + rowH * SERIES.length + 4,
+      stroke:cvar("--rule"), "stroke-width":1}, svg);
+    txt(svg, x, T - 22, String(c), {anchor:"middle", size:11.5});
+  });
+  txt(svg, L - 12, T - 22, "conc", {anchor:"end", size:11});
+
+  SERIES.forEach((s, r) => {
+    const y = T + r * rowH + 8;
+    const iIdx = CONC.indexOf(s.inter);
+    const cIdx = CONC.indexOf(s.ceil);
+    const col = cvar(s.v);
+    txt(svg, L - 12, y + 5, s.k, {anchor:"end", size:13, weight:600, fill:cvar("--ink-2")});
+    // full track
+    el("line", {x1:xpos(0, L, R), y1:y, x2:xpos(cIdx, L, R), y2:y,
+      stroke:cvar("--rule-strong"), "stroke-width":7, "stroke-linecap":"round"}, svg);
+    // interactive segment
+    el("line", {x1:xpos(0, L, R), y1:y, x2:xpos(iIdx, L, R), y2:y,
+      stroke:col, "stroke-width":7, "stroke-linecap":"round"}, svg);
+    // ceiling marker
+    el("line", {x1:xpos(cIdx, L, R), y1:y - 9, x2:xpos(cIdx, L, R), y2:y + 9,
+      stroke:cvar("--flat"), "stroke-width":3, "stroke-linecap":"round"}, svg);
+    txt(svg, R + 14, y + 5, s.inter + " / " + s.ceil,
+      {size:12, fill:cvar("--ink-3")});
+  });
+  txt(svg, R + 14, T + 8 - 18, "int / ceil", {size:10.5});
+}
+
+function lcChart(){
+  const svg = document.getElementById("lc");
+  if (!svg) return;
+  clear(svg);
+  const W = 1080, H = 400, T = 30, B = H - 54;
+  const panels = [
+    {x0:64, x1:498, key:"tot", title:"total tok/s (prompt + output)", max:7200, ticks:[0,2000,4000,6000], log:false},
+    {x0:610, x1:1044, key:"lat", title:"request latency p50, seconds", max:300, ticks:[10,30,100,300], log:true}
+  ];
+  panels.forEach(p => {
+    const bot = p.log ? Math.log10(8) : 0;
+    const top = p.log ? Math.log10(p.max * 1.15) : p.max;
+    const yv = v => p.log ? Math.log10(v) : v;
+    const Y = v => B - (yv(v) - bot) / (top - bot) * (B - T);
+    const X = i => p.x0 + (p.x1 - p.x0) * i / 3;
+
+    p.ticks.forEach(t => {
+      const y = Y(t);
+      el("line", {x1:p.x0, y1:y, x2:p.x1, y2:y, stroke:cvar("--rule"), "stroke-width":1}, svg);
+      txt(svg, p.x0 - 9, y + 4, String(t), {anchor:"end", size:11.5});
+    });
+    el("line", {x1:p.x0, y1:B, x2:p.x1, y2:B, stroke:cvar("--rule-strong"), "stroke-width":1}, svg);
+    ["1", "4", "8", "max"].forEach((lab, i) => txt(svg, X(i), B + 22, lab, {anchor:"middle", size:11.5}));
+    txt(svg, p.x0, T - 12, p.title, {size:12, fill:cvar("--ink-2"), weight:600});
+    txt(svg, p.x0, H - 10, "concurrency", {size:11});
+
+    LC.forEach(s => {
+      const col = cvar(s.v);
+      let d = "";
+      s[p.key].forEach((v, i) => { d += (i ? " L " : "M ") + X(i).toFixed(1) + " " + Y(v).toFixed(1); });
+      el("path", {d:d, fill:"none", stroke:col, "stroke-width":2.6,
+        "stroke-linejoin":"round", "stroke-linecap":"round"}, svg);
+      s[p.key].forEach((v, i) => {
+        el("circle", {cx:X(i), cy:Y(v), r:3.4, fill:cvar("--surface"), stroke:col, "stroke-width":1.9}, svg);
+      });
+      txt(svg, X(3) + 9, Y(s[p.key][3]) + 4, s.k, {fill:col, size:12, weight:600});
+    });
+  });
+}
+
+function drawAll(){
+  gauge();
+  lineChart("agg", "agg", {ticks:[0,500,1000,1500,2000,2500], unit:"tok/s"});
+  legend("leg-agg");
+  lineChart("per", "per", {ticks:[0,25,50,75,100,125,150], unit:"tok/s"});
+  legend("leg-per");
+  lineChart("lat", "lat", {ticks:[2,5,10,20,40,60], unit:"seconds", log:true, budget:5,
+    fmt:function(t){ return t + "s"; }});
+  legend("leg-lat", "log scale");
+  lcChart();
+}
+
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+drawAll();
+addEventListener("resize", function(){ clearTimeout(window.__rt); window.__rt = setTimeout(drawAll, 120); });
+const mq = matchMedia("(prefers-color-scheme: dark)");
+mq.addEventListener && mq.addEventListener("change", function(){ setTimeout(drawAll, 60); });
+new MutationObserver(function(){ setTimeout(drawAll, 60); })
+  .observe(document.documentElement, {attributes:true, attributeFilter:["data-theme"]});
+})();
+</script>

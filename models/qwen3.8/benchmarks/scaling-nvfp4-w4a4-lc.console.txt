@@ -1,0 +1,13 @@
+== nvfp4-w4a4-lc booted in 200s | GPU KV cache size: 1,605,632 ==
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-lc100k
+
+### nvfp4-w4a4 / lc100k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 17.4 | 17.9 | 55.8 ms | 18.2 s | nan s | 8160 ms | 14 | 0 |
+| 3 | 11.8 | 1.8 | 569.5 ms | 157.7 s | nan s | 0 ms | 4 | 33 |
+| 4 | 20.9 | 4.5 | 221.7 ms | 67.6 s | nan s | 18354 ms | 12 | 1 |
+| 5 | 24.6 | 2.0 | 509.6 ms | 157.0 s | nan s | 19544 ms | 8 | 7 |
+./gllm.sh: line 36: 26356 Killed                  timeout 5400 guidellm benchmark run --target http://localhost:11484 --model qwen3.8-27b --processor Qwen/Qwen3.8-27B --request-type chat_completions --profile concurrent --rate "$RATES" --data "$D" --max-seconds "$MAXSEC" --warmup 0.1 --disable-progress --output-dir "$O" --outputs json > "$O/console.txt" 2>&1
+exit=137 -> benchmarks/guidellm/nvfp4-w4a4-lc150k
+  !! no json at benchmarks/guidellm/nvfp4-w4a4-lc150k/benchmarks.json

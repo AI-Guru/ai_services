@@ -1,0 +1,65 @@
+== nvfp4-w4a4 booted in 281s | GPU KV cache size: 1,605,632 ==
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-pp512
+
+### nvfp4-w4a4 / pp512
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 145.2 | 143.5 | 7.0 ms | 2.1 s | nan s | 42 ms | 29 | 0 |
+| 2 | 287.1 | 150.2 | 6.7 ms | 2.1 s | nan s | 0 ms | 56 | 0 |
+| 4 | 539.6 | 138.0 | 7.2 ms | 2.3 s | nan s | 102 ms | 97 | 0 |
+| 8 | 949.2 | 122.6 | 8.2 ms | 2.5 s | nan s | 70 ms | 184 | 0 |
+| 16 | 1454.7 | 93.2 | 10.7 ms | 3.3 s | nan s | 160 ms | 285 | 0 |
+| 31 | 1880.8 | 65.4 | 15.3 ms | 4.7 s | nan s | 191 ms | 386 | 0 |
+| 59 | 2375.6 | 37.6 | 26.6 ms | 8.1 s | nan s | 361 ms | 437 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-pp2k
+
+### nvfp4-w4a4 / pp2k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 129.5 | 119.3 | 8.4 ms | 2.2 s | nan s | 91 ms | 26 | 0 |
+| 2 | 239.1 | 114.4 | 8.7 ms | 2.6 s | nan s | 83 ms | 48 | 0 |
+| 4 | 422.5 | 105.3 | 9.5 ms | 2.8 s | nan s | 99 ms | 82 | 0 |
+| 8 | 690.0 | 85.2 | 11.7 ms | 3.5 s | nan s | 317 ms | 131 | 0 |
+| 15 | 955.8 | 58.6 | 17.1 ms | 5.0 s | nan s | 329 ms | 185 | 0 |
+| 29 | 1199.8 | 36.7 | 27.3 ms | 8.4 s | nan s | 571 ms | 212 | 0 |
+| 55 | 1270.2 | 19.0 | 52.6 ms | 15.5 s | nan s | 960 ms | 209 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-pp4k
+
+### nvfp4-w4a4 / pp4k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 121.6 | 114.7 | 8.7 ms | 2.5 s | nan s | 139 ms | 25 | 0 |
+| 2 | 214.5 | 107.0 | 9.3 ms | 2.7 s | nan s | 463 ms | 43 | 0 |
+| 4 | 356.0 | 87.0 | 11.5 ms | 3.6 s | nan s | 321 ms | 66 | 0 |
+| 8 | 524.1 | 65.1 | 15.4 ms | 4.7 s | nan s | 296 ms | 98 | 0 |
+| 15 | 661.9 | 40.4 | 24.7 ms | 7.3 s | nan s | 807 ms | 124 | 0 |
+| 28 | 765.6 | 22.9 | 43.7 ms | 13.2 s | nan s | 1111 ms | 127 | 0 |
+| 50 | 752.6 | 9.9 | 100.6 ms | 28.2 s | nan s | 4400 ms | 107 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-pp8k
+
+### nvfp4-w4a4 / pp8k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 106.1 | 100.7 | 9.9 ms | 2.9 s | nan s | 387 ms | 21 | 0 |
+| 2 | 175.8 | 87.4 | 11.4 ms | 3.4 s | nan s | 822 ms | 34 | 0 |
+| 4 | 261.5 | 66.3 | 15.1 ms | 4.6 s | nan s | 831 ms | 49 | 0 |
+| 7 | 334.2 | 41.6 | 24.1 ms | 7.1 s | nan s | 1104 ms | 61 | 0 |
+| 14 | 391.7 | 22.0 | 45.5 ms | 12.3 s | nan s | 1325 ms | 68 | 0 |
+| 25 | 383.7 | 5.3 | 190.1 ms | 50.5 s | nan s | 4301 ms | 31 | 0 |
+| 26 | 462.9 | 11.4 | 87.7 ms | 25.9 s | nan s | 1676 ms | 61 | 0 |
+exit=0 -> benchmarks/guidellm/nvfp4-w4a4-pp10k
+
+### nvfp4-w4a4 / pp10k
+| conc | out tok/s | per-stream tok/s | TPOT | lat p50 | lat p95 | TTFT mean | ok | err |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 101.5 | 96.7 | 10.3 ms | 3.0 s | nan s | 356 ms | 20 | 0 |
+| 2 | 167.4 | 83.4 | 12.0 ms | 3.8 s | nan s | 827 ms | 31 | 0 |
+| 4 | 236.5 | 56.9 | 17.6 ms | 5.5 s | nan s | 379 ms | 43 | 0 |
+| 7 | 284.3 | 35.6 | 28.1 ms | 8.1 s | nan s | 1417 ms | 50 | 0 |
+| 12 | 166.9 | 4.6 | 219.3 ms | 54.6 s | nan s | 6622 ms | 14 | 0 |
+| 14 | 311.9 | 18.1 | 55.2 ms | 14.6 s | nan s | 1932 ms | 54 | 0 |
+| 23 | 351.4 | 8.2 | 121.6 ms | 34.3 s | nan s | 6378 ms | 42 | 0 |
+exit=1 -> benchmarks/guidellm/nvfp4-w4a4-lc100k
+  !! no json at benchmarks/guidellm/nvfp4-w4a4-lc100k/benchmarks.json
+exit=1 -> benchmarks/guidellm/nvfp4-w4a4-lc150k
+  !! no json at benchmarks/guidellm/nvfp4-w4a4-lc150k/benchmarks.json

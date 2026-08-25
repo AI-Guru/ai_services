@@ -1,0 +1,116 @@
+✔ OpenAIHTTPBackend backend validated with model qwen3.8-27b
+  {'target': 'http://localhost:11484', 'model': 'qwen3.8-27b', 'timeout': 60.0, 
+  'http2': True, 'follow_redirects': True, 'verify': False, 'openai_paths':     
+  {'health': 'health', 'models': 'v1/models', 'text_completions':               
+  'v1/completions', 'chat_completions': 'v1/chat/completions',                  
+  'audio_transcriptions': 'v1/audio/transcriptions', 'audio_translations':      
+  'v1/audio/translations'}, 'validate_backend': {'method': 'GET', 'url':        
+  'http://localhost:11484/health'}}                                             
+✔ Processor resolved
+  Using processor 'Qwen/Qwen3.8-27B'                                            
+✔ Request loader initialized with inf unique requests
+  {'data':                                                                      
+  "['prompt_tokens=100000,prompt_tokens_stdev=1,prompt_tokens_min=99000,prompt_t
+  okens_max=101000,output_tokens=300,output_tokens_stdev=75,output_tokens_min=13
+  2,output_tokens_max=500']", 'data_args': '[]', 'data_samples': -1,            
+  'preprocessors': ['GenerativeColumnMapper',                                   
+  'GenerativeChatCompletionsRequestFormatter'], 'collator':                     
+  'GenerativeRequestCollator', 'sampler': 'None', 'num_workers': 1,             
+  'random_seed': 42}                                                            
+✔ Resolved transient phase configurations
+  Warmup: percent=0.1 value=None mode='prefer_duration'                         
+  Cooldown: percent=None value=None mode='prefer_duration'                      
+  Rampup (Throughput/Concurrent): 0.0                                           
+✔ ConcurrentProfile profile resolved
+  {'str': "type_='concurrent' completed_strategies=[]                           
+  constraints={'max_seconds': 240.0} rampup_duration=0.0 streams=[1, 4, 8, 16]  
+  strategy_types=['concurrent', 'concurrent', 'concurrent', 'concurrent']",     
+  'type': 'ConcurrentProfile', 'class': 'ConcurrentProfile', 'module':          
+  'guidellm.benchmark.profiles', 'attributes': {'type_': 'concurrent',          
+  'completed_strategies': [], 'constraints': {'max_seconds': 240.0},            
+  'rampup_duration': 0.0, 'streams': [1, 4, 8, 16]}}                            
+✔ Output formats resolved
+  {'json': "output_path=PosixPath('benchmarks/guidellm/nvfp4-w4a4-lc100k')"}    
+✔ Setup complete, starting benchmarks...
+
+
+
+
+
+ℹ Run Summary Info
+|============|==========|==========|=======|======|======|===========|===========|===========|========|========|=====|
+| Benchmark  | Timings                               ||||| Input Tokens                    ||| Output Tokens       |||
+| Strategy   | Start    | End      | Dur   | Warm | Cool | Comp      | Inc       | Err       | Comp   | Inc    | Err |
+|            |          |          | Sec   | Sec  | Sec  | Tot       | Tot       | Tot       | Tot    | Tot    | Tot |
+|------------|----------|----------|-------|------|------|-----------|-----------|-----------|--------|--------|-----|
+| concurrent | 18:38:16 | 18:41:52 | 216.0 | 24.0 | 0.0  | 1300677.0 | 0.0       | 0.0       | 3743.0 | 0.0    | 0.0 |
+| concurrent | 18:42:30 | 18:46:06 | 216.0 | 24.0 | 0.0  | 1200624.0 | 300156.0  | 99998.0   | 3760.0 | 380.0  | 0.0 |
+| concurrent | 18:46:51 | 18:50:27 | 216.0 | 24.0 | 0.0  | 800418.0  | 700259.0  | 700003.0  | 2266.0 | 448.0  | 0.0 |
+| concurrent | 18:51:01 | 18:54:37 | 216.0 | 24.0 | 0.0  | 400210.0  | 1500314.0 | 3299996.0 | 1052.0 | 1123.0 | 0.0 |
+|============|==========|==========|=======|======|======|===========|===========|===========|========|========|=====|
+
+
+ℹ Text Metrics Statistics (Completed Requests)
+|============|==========|==========|========|========|=========|=========|========|========|==========|==========|=========|=========|
+| Benchmark  | Input Tokens                       |||| Input Words                      |||| Input Characters                     ||||
+| Strategy   | Per Request        || Per Second     || Per Request      || Per Second     || Per Request        || Per Second       ||
+|            | Mdn      | p95      | Mdn    | Mean   | Mdn     | p95     | Mdn    | Mean   | Mdn      | p95      | Mdn     | Mean    |
+|------------|----------|----------|--------|--------|---------|---------|--------|--------|----------|----------|---------|---------|
+| concurrent | 100052.0 | 100053.0 | 5602.1 | 6069.4 | 78880.0 | 78951.0 | 4412.9 | 4784.5 | 530134.0 | 531430.0 | 29726.0 | 32166.0 |
+| concurrent | 100052.0 | 100053.0 | 6218.1 | 6715.6 | 78897.0 | 79037.0 | 4905.7 | 5295.9 | 530182.0 | 530705.0 | 32966.7 | 35578.7 |
+| concurrent | 100052.0 | 100054.0 | 8924.9 | 8743.8 | 78888.0 | 78968.0 | 7039.2 | 6895.1 | 530532.0 | 531060.0 | 47324.8 | 46354.7 |
+| concurrent | 100052.0 | 100053.0 | 3370.5 | 4485.0 | 78861.0 | 78888.0 | 2657.5 | 3535.0 | 530049.0 | 530698.0 | 17877.8 | 23771.2 |
+|============|==========|==========|========|========|=========|=========|========|========|==========|==========|=========|=========|
+| Benchmark  | Output Tokens                      |||| Output Words                     |||| Output Characters                    ||||
+| Strategy   | Per Request        || Per Second     || Per Request      || Per Second     || Per Request        || Per Second       ||
+|            | Mdn      | p95      | Mdn    | Mean   | Mdn     | p95     | Mdn    | Mean   | Mdn      | p95      | Mdn     | Mean    |
+|------------|----------|----------|--------|--------|---------|---------|--------|--------|----------|----------|---------|---------|
+| concurrent | 310.0    | 405.0    | 17.7   | 17.5   | 0.0     | 108.0   | 0.0    | 1.5    | 0.0      | 617.0    | 0.0     | 7.9     |
+| concurrent | 307.0    | 415.0    | 19.5   | 21.0   | 0.0     | 184.0   | 0.0    | 2.3    | 0.0      | 1080.0   | 0.0     | 14.4    |
+| concurrent | 254.0    | 386.0    | 22.1   | 24.8   | 0.0     | 89.0    | 0.0    | 1.0    | 0.0      | 559.0    | 0.0     | 6.1     |
+| concurrent | 222.0    | 358.0    | 9.6    | 11.8   | 0.0     | 0.0     | 0.0    | 0.0    | 0.0      | 0.0      | 0.0     | 0.0     |
+|============|==========|==========|========|========|=========|=========|========|========|==========|==========|=========|=========|
+
+
+ℹ Request Token Statistics (Completed Requests)
+|============|==========|==========|=======|=======|==========|==========|=======|=======|=========|========|
+| Benchmark  | Input Tok          || Output Tok   || Total Tok          || Stream Iter  || Output Tok      ||
+| Strategy   | Per Req            || Per Req      || Per Req            || Per Req      || Per Stream Iter ||
+|            | Mdn      | p95      | Mdn   | p95   | Mdn      | p95      | Mdn   | p95   | Mdn     | p95    |
+|------------|----------|----------|-------|-------|----------|----------|-------|-------|---------|--------|
+| concurrent | 100052.0 | 100053.0 | 310.0 | 405.0 | 100362.0 | 100458.0 | 280.0 | 344.0 | 7.1     | 30.7   |
+| concurrent | 100052.0 | 100053.0 | 307.0 | 415.0 | 100359.0 | 100466.0 | 280.0 | 366.0 | 4.0     | 9.1    |
+| concurrent | 100052.0 | 100054.0 | 254.0 | 386.0 | 100307.0 | 100439.0 | 246.0 | 330.0 | 6.2     | 254.0  |
+| concurrent | 100052.0 | 100053.0 | 222.0 | 358.0 | 100275.0 | 100410.0 | 210.0 | 304.0 | 222.0   | 358.0  |
+|============|==========|==========|=======|=======|==========|==========|=======|=======|=========|========|
+
+
+ℹ Request Latency Statistics (Completed Requests)
+|============|=========|========|=====|==========|=====|=======|=======|=======|
+| Benchmark  | Request Latency || TTFT          || ITL        || TPOT         ||
+| Strategy   | Sec             || ms            || ms         || ms           ||
+|            | Mdn     | p95    | Mdn | p95      | Mdn | p95   | Mdn   | p95   |
+|------------|---------|--------|-----|----------|-----|-------|-------|-------|
+| concurrent | 18.2    | 18.8   | 0.0 | 18357.9  | 0.7 | 3.0   | 55.8  | 93.1  |
+| concurrent | 67.6    | 100.1  | 0.0 | 79505.3  | 0.0 | 118.9 | 221.7 | 366.4 |
+| concurrent | 157.0   | 197.9  | 0.0 | 156350.6 | 0.0 | 124.7 | 509.6 | 648.6 |
+| concurrent | 157.7   | 202.3  | 0.0 | 0.0      | 0.0 | 0.0   | 569.5 | 772.1 |
+|============|=========|========|=====|==========|=====|=======|=======|=======|
+
+
+ℹ Server Throughput Statistics (All Requests)
+|============|=====|======|=======|======|========|=========|========|=======|========|=========|
+| Benchmark  | Requests               |||| Input Tokens    || Output Tokens || Total Tokens    ||
+| Strategy   | Per Sec   || Concurrency || Per Sec         || Per Sec       || Per Sec         ||
+|            | Mdn | Mean | Mdn   | Mean | Mdn    | Mean    | Mdn    | Mean  | Mdn    | Mean    |
+|------------|-----|------|-------|------|--------|---------|--------|-------|--------|---------|
+| concurrent | 0.1 | 0.1  | 1.0   | 1.0  | 5608.4 | 6041.6  | 10.5   | 17.4  | 5769.0 | 6059.0  |
+| concurrent | 0.1 | 0.1  | 4.0   | 4.0  | 4462.7 | 8043.7  | 16.1   | 20.8  | 5208.3 | 8064.5  |
+| concurrent | 0.1 | 0.1  | 8.0   | 8.0  | 5038.4 | 11703.3 | 0.1    | 14.4  | 3323.2 | 11717.7 |
+| concurrent | 0.1 | 0.2  | 16.0  | 16.0 | 6202.5 | 28465.1 | 0.0    | 11.9  | 6218.1 | 28477.0 |
+|============|=====|======|=======|======|========|=========|========|=======|========|=========|
+
+
+
+✔ Benchmarking complete, generated 4 benchmark(s)
+…   json    : benchmarks/guidellm/nvfp4-w4a4-lc100k/benchmarks.json

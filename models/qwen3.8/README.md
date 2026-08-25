@@ -713,6 +713,149 @@ production config:
 
 ---
 
+## Scaling grid: prompt length x concurrency (2026-08-22)
+
+The section above sweeps concurrency at one prompt shape. This one sweeps
+**prompt length as well**, because that is the axis that decides where the card
+runs out of breath — and it moves the answer by more than 5x. Production config
+(W4A4 NVFP4 + MTP-2 + `probabilistic`, fp8 KV, `--max-model-len 262144`,
+util 0.88), one boot, GuideLLM 0.5.4, output pinned to 300 tokens (132-500) so
+prompt length is the only variable. Zero errored requests anywhere in this grid.
+
+### Aggregate output tok/s
+
+| PP \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| **512** | 145.2 | 287.1 | 539.6 | 949.2 | 1454.7 | 1880.8 | **2375.6** |
+| **2K** | 129.5 | 239.1 | 422.5 | 690.0 | 955.8 | 1199.8 | **1270.2** |
+| **4K** | 121.6 | 214.5 | 356.0 | 524.1 | 661.9 | **765.6** | 752.6 |
+| **8K** | 106.1 | 175.8 | 261.5 | 334.2 | 391.7 | 409.0 | **423.7** |
+| **10K** | 101.5 | 167.4 | 236.5 | 284.3 | 311.9 | **333.5** | 324.2 |
+
+**The card's peak aggregate throughput varies 5.6x with prompt length alone**
+(2375.6 at 512 vs 423.7 at 10K), on identical hardware, weights and flags. Every
+"tokens per second" number for this GPU is meaningless without the prompt length
+attached.
+
+Nothing in this grid actually turns over inside the tested range — the curves
+*flatten*, and they flatten earlier the longer the prompt: 512 and 2K are still
+climbing at 64, 4K/8K/10K are flat from 32 on. Decode-bound work keeps rewarding
+concurrency; prefill-bound work stops.
+
+### Per-stream output tok/s — what one user feels
+
+| PP \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| **512** | 143.5 | 150.2 | 138.0 | 122.6 | 93.2 | 65.4 | 37.6 |
+| **2K** | 119.3 | 114.4 | 105.3 | 85.2 | 58.6 | 36.7 | 19.0 |
+| **4K** | 114.7 | 107.0 | 87.0 | 65.1 | 40.4 | 22.9 | 9.9 |
+| **8K** | 100.7 | 87.4 | 66.3 | 41.6 | 22.0 | 13.1 | 6.5 |
+| **10K** | 96.7 | 83.4 | 56.9 | 35.6 | 18.1 | 10.4 | 5.1 |
+
+### Request latency p50 (s)
+
+| PP \ conc | 1 | 2 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|---|
+| **512** | 2.1 | 2.1 | 2.3 | 2.5 | 3.3 | 4.7 | 8.1 |
+| **2K** | 2.2 | 2.6 | 2.8 | 3.5 | 5.0 | 8.4 | 15.5 |
+| **4K** | 2.5 | 2.7 | 3.6 | 4.7 | 7.3 | 13.2 | 28.2 |
+| **8K** | 2.9 | 3.4 | 4.6 | 7.1 | 12.3 | 23.0 | 46.0 |
+| **10K** | 3.0 | 3.8 | 5.5 | 8.1 | 14.6 | 29.1 | 60.2 |
+
+### Long context: 100K and 150K
+
+The interesting question is not whether the KV pool holds N long-context streams
+— it does — but whether running them concurrently buys anything. It does not.
+
+| PP | conc | total tok/s (prompt+output) | output tok/s | per-stream tok/s | lat p50 | req/min |
+|---|---|---|---|---|---|---|
+| **100K** | 1 | 5903 | 16.1 | 17.0 | 17.8 s | **3.97** |
+| 100K | 4 | 6466 | 19.9 | 4.5 | 65.1 s | 3.81 |
+| 100K | 8 | 6609 | 21.1 | 2.4 | 137.9 s | 3.17 |
+| 100K | 16 (12.2 achieved) | 6049 | 17.4 | 1.2 | 263.5 s | 3.17 |
+| **150K** | 1 | 5041 | 9.7 | 10.1 | 32.6 s | **2.06** |
+| 150K | 4 | 5300 | 11.3 | 2.2 | 128.2 s | 1.75 |
+| 150K | 8 | 5519 | 12.5 | 1.1 | 273.6 s | 1.27 |
+| 150K | 10 (5.6 achieved) | 5533 | 10.8 | 1.1 | 271.3 s | 1.27 |
+
+**At 100K the card is prefill-saturated at ~6,000-6,600 total tok/s and at 150K
+at ~5,000-5,500, and concurrency does not move that number.** Going from 1 to 12
+concurrent 100K streams changes total throughput by less than 12% while
+multiplying request latency by 15x (17.8 s -> 263.5 s) — and *completed requests
+per minute goes down*, from 3.97 to 3.17. The queue is not buying throughput, it
+is only buying waiting.
+
+So the honest capacity statement for long context on one RTX PRO 6000 is a
+**rate, not a concurrency**: ~4 requests/min at 100K, ~2 requests/min at 150K.
+Read `output tok/s` here with care — at 100K prompts the 300 generated tokens are
+0.3% of the work, which is why that column reads 16-21 while the card is doing
+6,000+.
+
+KV is not the binding constraint at these lengths. The pool is 1,605,632 tokens,
+so 16 x 100K (1.6M) just fits and 10 x 150K (1.5M) fits — throughput saturates
+long before the pool does. That reverses the intuition from the 2K-prompt
+section, where the limit is compute and 55 streams use only ~127K of pool.
+
+### Two measurement traps this grid walked into
+
+Both produced plausible-looking numbers that were wrong, and both are
+client-side:
+
+1. **GuideLLM's request timeout is 60 s by default and an aborted request is
+   booked as an ERROR, not as slow.** At 100K the first run returned 33 errored
+   / 4 ok at conc 16 and a latency curve that looked like an engine failure. The
+   engine was fine — every request simply took longer than the harness allowed.
+   `gllm.sh` now exposes `GLLM_TIMEOUT` (`--backend-kwargs '{"timeout": N}'`) and
+   the long-context levels run at 1800.
+
+2. **A 60 s window is not a measurement at high concurrency with long prompts.**
+   At 10K x 64 vLLM logs `Running: 6 reqs, Waiting: 58` — the window closes while
+   the engine is still draining the prefill backlog, and because guidellm
+   averages only *completed* requests the level reads far too low. 10K x 64
+   measured **166.9** tok/s at 60 s and **324.2** at 300 s. The 8K and 10K cells
+   at conc 32/64 in the tables above are the 300 s numbers; everything else is
+   60 s, which was verified to be enough (those levels show `Waiting: 0`).
+
+   The apparent "collapse" of the longest-prompt curve at conc 64 was entirely
+   this artifact. There is no collapse — there is a plateau.
+
+3. **`prompt_tokens_stdev=0` is rejected by guidellm's pydantic config**
+   (`Input should be greater than 0`), which kills the run at data-deserialization
+   before a single request is sent. Fixed prompt lengths have to be expressed as
+   a tight band (`stdev=1`, min/max +-1%).
+
+### Reproducing
+
+```bash
+./scaling.sh nvfp4-w4a4 gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090  # PP grid
+./lc_rerun.sh          # 100K / 150K against an already-running container
+./recheck_run.sh       # 300s steady-state cells for 8K/10K at conc 32-64
+python3 scaling_table.py > benchmarks/SCALING-GRID.md
+```
+
+Prefix caching is on (vLLM default) but **hit rate was 0.0% throughout** —
+guidellm's synthetic prompts are unique, so the prompt-length axis measures real
+prefill and not cache hits.
+
+> ⚠️ Do not splice rows from this grid against the 2026-08-18 concurrency table.
+> Same image (`v0.1.dev19754+g3a0914114`), same flags, same checkpoint — but this
+> grid's 2K row reads 129.5 tok/s at conc 1 where the 08-18 chat row reads 111.3,
+> on a slightly narrower prompt distribution. MTP acceptance is prompt-sensitive
+> and that is more than the ~3% cross-boot spread. Each table is internally
+> consistent; across tables, only compare shapes, not absolute numbers.
+
+### Not covered
+
+**FP8 under concurrency is still not measured** — this grid is 4-bit only, by
+choice. The single-stream FP8 datapoint (45.6 tok/s, 2.45x slower than W4A4)
+remains the only fp8 number here, so no fp4-vs-fp8 scaling comparison exists.
+The `scaling.sh` harness takes a checkpoint id as its second argument and the
+FP8 checkpoint ships `mtp.*` weights, so the identical grid can be run against
+`Qwen/Qwen3.8-27B-FP8` whenever it is wanted.
+
+
+---
+
 ## Ports
 
 Fresh block — nothing in this repo used 11484+ before.
@@ -761,6 +904,22 @@ Sorted the same way as the throughput table: fastest first.
 | `prodtest.sh` | Boot a config, run the guidellm chat concurrency sweep, then mixed text+image load at 8 and 32, save the server log, tear down. |
 | `gllm.sh` | One guidellm concurrency sweep for a named scenario (chat/rag/agentic/codegen/summ). Redirects rather than pipes — guidellm SIGPIPE-deadlocks behind `head`/`tail`/`tee`. |
 | `summarize_gllm.py` | Flattens `benchmarks.json` into one row per concurrency level. |
+
+### Tooling added 2026-08-22
+
+| File | What it is |
+|---|---|
+| `scaling.sh` | Boots one checkpoint and runs the whole prompt-length grid (512 -> 10K at concurrency 1-64) plus long context. Takes the HF model id as its second argument, so the same grid runs against any checkpoint. |
+| `lc_rerun.sh` | The 100K/150K levels against an already-running container, with `GLLM_TIMEOUT=1800`. |
+| `recheck_run.sh` | 300 s steady-state re-measure of the 8K/10K cells at concurrency 32-64, where a 60 s window under-reports. |
+| `scaling_table.py` | Builds `benchmarks/SCALING-GRID.md` from every guidellm run: aggregate tok/s, per-stream tok/s, latency, and — for long context — total (prompt+output) tok/s and completed req/min. |
+| `benchmarks/SCALING-GRID.md` | The generated grid. |
+| `benchmarks/SCALING.log` | One line per scaling run (boot time, KV pool, end status, error count). |
+| `20260822-qwen38-27b-concurrency-ceiling.html` | The write-up: where the card runs out of air, as charts. Self-contained apart from Google Fonts. |
+
+`gllm.sh` gained the `pp512`/`pp2k`/`pp4k`/`pp8k`/`pp10k`/`lc100k`/`lc150k`
+scenarios and a `GLLM_TIMEOUT` env var. Its default is still 60 s to keep the
+older runs reproducible — raise it for anything above ~10K prompts.
 | `mixed_load.py` | Concurrent text+image load generator. guidellm is text-only and cannot build a mixed-modality batch, which is the case that actually decides a multimodal config. |
 | `benchmarks/PROD.log`, `benchmarks/serverlog-*.txt` | Per-config production run record and the engine log for each. |
 | `20260818-qwen38-27b-speculation-crossover.html` | The full write-up with interactive charts. Self-contained apart from Google Fonts; no build step. |
@@ -948,7 +1107,8 @@ predictor anyway: DSpark-5/6 variants (rows 2, 4, 7), DSpark-4 (row 8),
 DSpark-7 plain (row 10), `dspark_draft_topk` (row 6), Unsloth NVFP4 (rows 11,
 15) and FP8 (row 16). The two checkpoint rows are the real gap — Unsloth W4A16
 and first-party FP8 might batch differently from W4A4, and nothing here rules
-that out.
+that out. Still true after the 2026-08-22 scaling grid, which is
+4-bit only.
 
 Closed on 2026-08-18: correctness under speculation (tools, vision, 43K needle,
 temp-0 determinism — all ✅); the W4A4-vs-W4A16 question; MTP depth on a second
@@ -968,10 +1128,14 @@ last under load). What remains:
    each worth about the same and currently cannot be combined. Re-test on the
    next image repin.
 
-3. **Long context beyond ~52K.** Needle recall is exact at 43,247 tokens under
-   speculation, but the 262K ceiling is still unprobed, as is YaRN-extended 1M.
-   Note the production config's KV pool is 967,870 tokens (3.69x full context) —
-   DSpark's draft slots cost about half the pool vs no speculation.
+3. **Long context beyond ~52K.** Needle *recall* is exact at 43,247 tokens
+   under speculation, but the 262K ceiling is still unprobed for correctness, as
+   is YaRN-extended 1M. Note the production config's KV pool is 967,870 tokens
+   (3.69x full context) — DSpark's draft slots cost about half the pool vs no
+   speculation. Long-context *throughput* is no longer open: the 2026-08-22
+   scaling grid measures 100K and 150K at concurrency 1-16 and finds the card
+   prefill-saturated at ~6,000 / ~5,000 total tok/s, with concurrency buying
+   latency rather than throughput (~4 req/min at 100K, ~2 at 150K).
 
 4. **SGLang.** Untested here, and it is the one stack with numbers that might
    beat ours: `gittensor` reports 147.9 tok/s on a **5090** with SGLang + their
