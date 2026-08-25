@@ -1,0 +1,5 @@
+GSM8K bf16ssm + fp8 KV: 281/300 = 93.7%
+GSM8K fp32ssm + fp8 KV (published recipe): 288/300 = 96.0%
+GSM8K bf16ssm + bf16 KV (KV control): 284/300 = 94.7%
+GSM8K fp32ssm + fp8 KV [n=1319]: 1245/1319 = 94.4%
+GSM8K bf16ssm + fp8 KV [n=1319]: 1242/1319 = 94.2%

@@ -137,7 +137,7 @@ hazard this repo has been burned by.
 | Engine | Tag | Notes |
 |---|---|---|
 | vLLM | `vllm/vllm-openai:qwen38-x86_64-cu130` | ✅ verified — 22.9 GB image, reports `v0.1.dev19754+g3a0914114`. Also `qwen38-cu129`, `qwen38-arm64-*` for Spark |
-| SGLang | `lmsysorg/sglang:qwen38-27b` | untested here, but **pulled and ready** (17.9 GB, cut 2026-08-14 once the 27B was public). This is the one stack with a published number that could beat ours — see "Still open". The older `:qwen38` tag predates the 27B. |
+| SGLang | `lmsysorg/sglang:dev-qwen38-27b-dflash2` | ✅ **verified 2026-08-25, and it beats vLLM on single stream** — 151.3 sampled / 187.8 greedy with the bf16-GDN-state tuning. See "Measured: SGLang + DFlash2" and "Tuning SGLang against the LMSYS cookbook" below. `:qwen38-27b` (17.9 GB) is also pulled but untested; the older `:qwen38` tag predates the 27B. Note `dev-` is a moving tag. |
 | llama.cpp | — | GGUF conversion exists (`unsloth/Qwen3.8-27B-GGUF`, full Q2→Q8 ladder), so the new tokenizer is handled upstream. Serving untested. |
 
 Latest stable vLLM release is `v0.27.1` (2026-08-11), which predates the qwen38
@@ -692,7 +692,7 @@ production config:
 | If your endpoint is… | Use | Why |
 |---|---|---|
 | **Multi-user / multimodal / agentic (the default)** | `docker-compose.vllm-27b-nvfp4-gittensor-mtp-prob-rtx.yml` | Best from concurrency 8 up, +61% KV pool, images don't pay double |
-| Single user, latency above all (one dev, one IDE) | `docker-compose.vllm-27b-nvfp4-gittensor-dspark-rtx.yml` | +14% at concurrency 1 (127 vs 111), and nothing else is in flight to lose |
+| **Single user, latency above all** (one dev, one IDE) | `docker-compose.sglang-27b-nvfp4-dflash2-bf16ssm-rtx.yml` | Fastest anything here: 151.3 sampled / 187.8 greedy, 157 tok/s at concurrency 1. Still the wrong choice above ~8 concurrent — 949 vs vLLM's 1,159 |
 | Batch/offline throughput, no latency target | MTP-1 | Highest measured aggregate, 1233.6 tok/s at concurrency 55 |
 
 ### Benchmarking notes, so these numbers can be reproduced or challenged
@@ -710,6 +710,291 @@ production config:
   batch that actually matters here: text-only and image-bearing requests
   in flight simultaneously.
 
+
+---
+
+## Measured: SGLang + DFlash2 on RTX PRO 6000 (2026-08-25)
+
+`RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead` + drafter `incoai/Qwen3.8-27B-DFlash2`
+via `lmsysorg/sglang:dev-qwen38-27b-dflash2`, from the recipe LMSYS published
+with that image. File: `docker-compose.sglang-27b-nvfp4-dflash2-rtx.yml`.
+**Booted first try**, 94 s on a warm cache. Both checkpoints are **community**
+uploads and `dev-` is a moving tag.
+
+**This is the fastest single stream measured in this family, by a wide margin —
+and the slowest above concurrency 8.** It is a single-user config.
+
+| Metric | SGLang + DFlash2 | Best vLLM here | Delta |
+|---|---|---|---|
+| sampled (`test_chat.py`, 7 runs) | **147.3** | 111.8 (dspark7-prob) | **+32%** |
+| fixedlen (temp 1.0, 512 out) | **126.0** | 92.3 (dspark7-prob-mnbt16k) | **+37%** |
+| greedy (temp 0, 256 out) | **173.4** | 122.1 (MTP-2 prob) | **+42%** |
+| warm TTFT | 920 ms | — | — |
+
+The greedy 173.4 is also the number to compare against gittensor's published
+147.9 on a 5090 (their protocol is greedy/thinking-off) — **we are 17% above it**.
+
+### Where it wins and where it collapses
+
+`GLLM_PORT=11485 ./gllm.sh sglang-dflash2 chat "1,4,8,16,28"`, 60 s per level,
+**zero errors at every level**. Against the vLLM production config:
+
+| conc | SGLang + DFlash2 | vLLM W4A4 + MTP-2 + `probabilistic` | winner |
+|---|---|---|---|
+| 1 | **153.9** | 111.3 | SGLang **+38%** |
+| 4 | **424.6** | 388.9 | SGLang +9% |
+| 8 | 618.8 | **639.5** | vLLM +3% |
+| 15 | 731.2 | **913.3** | vLLM **+25%** |
+| 26–30 | 820.0 | **1158.6** | vLLM **+41%** |
+
+Same crossover shape as DSpark-7 vs MTP-2 *within* vLLM, for the same reason
+(see "Why: speculation is free when memory-bound and expensive when
+compute-bound") — DFlash2 drafts a block of 8, and above concurrency 8 every
+rejected token is stolen compute. Acceptance ran **~3.3–3.9 of 8** (accept rate
+~0.35) and did not degrade with batch size; the loss is draft cost, not
+acceptance.
+
+Per-stream tok/s falls 138.2 → 27.6 across the sweep, and p50 latency rises
+1.9 s → 10.0 s.
+
+### The 28-request ceiling is the real cost, and it is `--mamba-ssm-dtype float32`
+
+> **Resolved the same day** — flipping that one flag to `bfloat16` lifts the
+> ceiling to 48, nearly doubles the KV pool, and costs nothing on GSM8K. See
+> "Tuning SGLang against the LMSYS cookbook" below and
+> `docker-compose.sglang-27b-nvfp4-dflash2-bf16ssm-rtx.yml`. The rest of this
+> section documents the recipe's behaviour, which is still what the unsuffixed
+> file does.
+
+SGLang first announces `max_running_requests = 48` for speculative decoding,
+then immediately overrides it:
+
+```
+max_running_requests is capped to 28 by the mamba state cache
+  (max_mamba_cache_size=113, 4 state slots per request)
+```
+
+The recipe's `--mamba-full-memory-ratio 11.01` plus `float32` SSM states hands
+the mamba pool **~49 GB** (ssm 16.03 + intermediate_ssm 32.62 + conv), leaving
+only **3.9 GB / 127,839 tokens** of actual KV cache. For comparison the vLLM
+W4A4 configs run a KV pool an order of magnitude larger and were benchmarked at
+concurrency 30–55.
+
+SGLang names the fix in the same log line: `--mamba-ssm-dtype bfloat16` halves
+the state, or lower `--mamba-full-memory-ratio`. **Untested** — and worth
+testing, because it is the one change that might keep the single-stream win
+while lifting the fleet ceiling. The 3.6 SGLang configs used `bfloat16` here;
+`float32` is the recipe's choice, presumably because a drifting SSM state
+poisons speculative acceptance.
+
+### Usable context is 127,833 tokens, not the advertised 262,144
+
+`context_len=262144` but `max_total_num_tokens=127839`. Verified behaviour:
+
+- 26.4K-token needle: found ✅
+- 100.8K-token needle: found ✅
+- 129.6K tokens: clean **HTTP 400**, not a crash and not a silent truncation —
+  `Input length (129646 tokens) exceeds the maximum allowed length (127833
+  tokens). Use a shorter input or enable --allow-auto-truncate.`
+
+Do **not** add `--allow-auto-truncate` to make that go away; it converts a loud
+failure into silently dropped context.
+
+### Correctness
+
+- Tools **4/4** (`../shared/test_tools.py`), including a 3-call parallel batch.
+- Arithmetic and factual recall correct at temperature 0 despite the FP8-KV
+  warning below.
+- **`fp8_e4m3` KV runs with no scaling factors on this checkpoint** and SGLang
+  says so: `Using FP8 KV cache but no scaling factors provided. Defaulting to
+  scaling factors of 1.0. This may lead to less accurate results!` Spot checks
+  passed, but the failure mode here is silent wrong answers on harder inputs,
+  not a crash. Treat the KV dtype as **unproven** on this checkpoint and A/B it
+  against `bf16` before trusting it for anything that matters.
+
+### Two flags from the 3.6 era that changed
+
+- **`SGLANG_ENABLE_SPEC_V2=1` is gone.** This build prints `SGLANG_ENABLE_SPEC_V2
+  has been removed: speculative decoding always runs the V2 worker`. Use
+  `--disable-overlap-schedule` for the non-overlap path. The compose does not
+  set it.
+- **`--mamba-scheduler-strategy extra_buffer` → `--mamba-radix-cache-strategy
+  extra_buffer_lazy`.**
+
+`cap_add: SYS_PTRACE` + `seccomp:unconfined` are still required and still absent
+from the upstream `docker run` line. Without them the server loads perfectly and
+then fails every request with `pidfd_getfd: Operation not permitted`.
+
+---
+
+## Tuning SGLang against the LMSYS cookbook (2026-08-25)
+
+Source: <https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.8-27B>. The
+page is a live command generator, not prose — the recipes are in a JS `config`
+object, so `curl` the page and read `cells:` rather than trusting a
+markdown-converted fetch, which drops them entirely.
+
+**First finding: our config already WAS the published recipe.** The cookbook's
+`rtx6000` x `nvfp4-bf16-head` cell is exactly:
+
+```
+--trust-remote-code --model-path RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+--kv-cache-dtype fp8_e4m3 --mem-fraction-static 0.85
+--attention-backend flashinfer --chunked-prefill-size 2048
+--reasoning-parser qwen3 --tool-call-parser qwen3_coder
+```
+
+plus the DFLASH2 overlay (`--speculative-algorithm DFLASH
+--speculative-draft-model-path incoai/Qwen3.8-27B-DFlash2
+--speculative-num-draft-tokens 8`). No `--mem-fraction-static` override applies
+to this card — only the 32 GB RTX 5090 gets those. So the gains below come from
+*departing* from the recipe, not from correcting a mistake in ours.
+
+Useful vocabulary the page supplies: the **Serving Strategy** toggle is nothing
+but `--mamba-radix-cache-strategy` — `extra_buffer` (S=5) is "Low-Latency",
+`extra_buffer_lazy` (S=4) is "High-Throughput". We were already on lazy.
+
+### The sizing model, which is the whole game on a hybrid GDN model
+
+Post-weight memory splits into a worst-case-reserved **GDN state pool** and a
+paged **KV pool**, divided by `--mamba-full-memory-ratio`. The cookbook's
+balanced value is the per-request cost ratio:
+
+```
+ratio = (S + D) x state_bytes / (L x kv_bytes_per_token)
+```
+
+- `S` — state slots per running request: `extra_buffer`=5, `extra_buffer_lazy`=4,
+  `no_buffer`=3, `--disable-radix-cache`=1.
+- `D` — verify intermediates under speculation: **8** for DFLASH (the block
+  size), 4 for EAGLE/MTP at 3/1/4, 0 with speculation off **or with
+  `--enable-linear-replayssm-spec`**.
+- `state_bytes` — **153.9 MB at float32, 78.4 MB at bfloat16**.
+- `kv_bytes_per_token` — 32.8 KB at fp8, 65.5 KB at bf16.
+- `L` — average total request length (input + output).
+
+`--max-mamba-cache-size = target_concurrency x S` is the equivalent explicit pin
+and overrides the ratio. Solving the formula backwards, the recipe's
+`--mamba-full-memory-ratio 11.01` is the balanced value for **L ~ 5,100 tokens**
+at fp32 state — longer than a chat turn, which is why it over-reserves state
+relative to KV on our workload.
+
+**Where the memory actually goes**, from the boot log rather than the formula —
+the verify buffer, not the base state pool, is what dominates:
+
+```
+total = max_mamba_cache_size x state_bytes  +  max_running_requests x D x state_bytes
+```
+
+At fp32 that is 113 x 145 MB + 28 x 8 x 145 MB = 16.4 + 32.5 = **~49 GB**, which
+is why only 3.9 GB of KV was left. Concurrency 48 at fp32 would need ~84 GB of
+pools and simply does not fit on this card.
+
+### `--mamba-ssm-dtype bfloat16` — the one flag that moves everything
+
+Halving `state_bytes` halves both terms. Measured, one flag changed, everything
+else identical:
+
+| | float32 (recipe) | bfloat16 |
+|---|---|---|
+| `max_running_requests` | **28** (mamba-capped) | **48** (uncapped) |
+| KV pool | 127,839 tok | **239,089 tok** (+87%) |
+| longest needle found | 100K | **192K** |
+| sampled tok/s | 147.3 | 151.3 |
+| fixedlen tok/s | 126.0 | 123.1 |
+| greedy tok/s | 173.4 | **187.8** (+8.3%) |
+| aggregate @ conc 8 | 618.8 | **675.9** |
+| aggregate @ conc 15 | 731.2 | **880.1** (+20%) |
+| aggregate @ conc 26 | 820.0 | **927.9** (+13%) |
+| aggregate @ conc 41 | *(capped out)* | **948.9** |
+
+The three single-stream rows are inside this card's ~3% cross-boot spread —
+read them as "bf16 does not cost single-stream speed", not as a win, except
+greedy which is outside it. Zero errors at every concurrency level in both
+sweeps.
+
+The cookbook predicted the direction but not the sign: it says with speculative
+decoding fp32 *sometimes* wins and *sometimes* loses on tok/s and to measure per
+quantization. On NVFP4 + DFLASH on this card, bf16 wins or ties on speed, wins
+decisively on capacity, and (see below) costs nothing on accuracy. **The
+recipe's `--mamba-ssm-dtype float32` is simply the wrong choice here.**
+
+### The accuracy gate: bf16 GDN state costs nothing measurable
+
+The cookbook says to "treat `bfloat16` as an accuracy gate and validate it for
+your workload". Doing so is what makes this a straight upgrade — but **only the
+full test set says so, and a 300-question sample actively lied.**
+`benchmarks/ACCURACY.log`, temperature 0, thinking off:
+
+| config | GSM8K @ n=300 | GSM8K @ n=1319 (full) |
+|---|---|---|
+| fp32 state + fp8 KV (**the recipe**) | 96.0% | **94.4%** (1245/1319) |
+| bf16 state + fp8 KV (**this file's change**) | 93.7% | **94.2%** (1242/1319) |
+| bf16 state + bf16 KV | 94.7% | not run |
+
+At n=1319 the gap is **3 questions out of 1319 — 0.2 points**, against a
+standard error of ~0.9. bf16 GDN state does not cost accuracy on this workload.
+
+**The n=300 column is a trap and is kept here as one.** It showed a 2.3-point
+gap in the opposite direction of the truth, and 96.0% for a config that scores
+94.4% on the full set. At n=300 the standard error is ~1.3 points, so a 2.3-point
+gap is under 2 SE — exactly the kind of difference that reads as real, gets
+written into a recommendation, and evaporates. Do not gate a precision decision
+on a few-hundred-question GSM8K sample.
+
+The KV-dtype row (bf16 KV, +1.0 at n=300) is inside the same noise and was not
+re-run at full size; treat the fp8-vs-bf16 KV question as **open**, not answered.
+
+**The image's own GSM8K harness does not work against these composes.**
+`python3 -m sglang.test.run_eval --eval-name gsm8k` targets `/v1/completions`
+and returns `Score: 0.000` with "All retry attempts exhausted for request" on a
+server that answers `/v1/chat/completions` perfectly. `gsm8k_eval.py` in this
+directory hits the chat endpoint instead. Do not report a 0.000 from the
+built-in harness as a model result.
+
+### `--kv-cache-dtype auto` does not do what the cookbook says here
+
+The page claims both NVFP4 exports declare `kv_cache_quant_algo: FP8` so `auto`
+"runs the KV pool in fp8_e4m3 with the checkpoint's calibration scales
+automatically". On `RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead` that is only half
+right. The checkpoint does declare `kv_cache_scheme: {dynamic: false,
+num_bits: 8, type: float}` — but its 2,191 tensors carry only FP8 **GEMM**
+scales (`self_attn.{q,k,v,o}_proj.{input,weight}_scale`) and **no `k_scale` /
+`v_scale` KV-cache scales at all**. Hence the honest warning under explicit
+`fp8_e4m3`:
+
+```
+Using FP8 KV cache but no scaling factors provided. Defaulting to scaling
+factors of 1.0. This may lead to less accurate results!
+```
+
+Measured difference between the two settings:
+
+| `--kv-cache-dtype` | target KV | draft KV | KV pool | warning |
+|---|---|---|---|---|
+| `fp8_e4m3` (recipe) | fp8_e4m3 | fp8_e4m3 | 127,839 tok | yes |
+| `auto` | fp8_e4m3 | **bf16** | 97,875 tok | no |
+
+`auto` silences the warning by leaving the *draft* model's KV in bf16, at a 24%
+smaller KV pool. It is not a free accuracy win, and the composes here keep the
+explicit flag.
+
+### Other cookbook levers, noted but not taken
+
+- **`--enable-linear-replayssm-spec`** moves draft intermediates onto a fixed
+  ring so `D = 0`, which would cut the state cost per request from 12 slots to
+  4. The Deploy panel applies it to **EAGLE only**, not DFLASH/DSPARK, so it is
+  not obviously valid here — but it is the highest-leverage untested flag on
+  this page. Note it auto-selects fp32 state when `--mamba-ssm-dtype` is unset,
+  and an explicit non-fp32 value logs a state-drift warning.
+- **`SGLANG_OPT_MAMBA_SKIP_DECODE_LOCK=1`** frees one state slot (S: 4 -> 3).
+- **`RadixArk/Qwen3.8-27B-NVFP4`** (FP4 head) is ~3.2 GB smaller at runtime than
+  the BF16-head export we serve, freeing headroom for the pools.
+- **`RadixArk/Qwen3.8-27B-DSpark`** is the other trained drafter (gamma 7, so
+  D=8 as well) — the direct A/B against DFlash2 and the combination behind
+  gittensor's published 5090 number.
+- **`--chunked-prefill-size 2048`** is deliberate and worth keeping: the page
+  says 8192-token chunks stall decode ~600 ms at a time on hybrid GDN models.
 
 ---
 
@@ -863,7 +1148,7 @@ Fresh block — nothing in this repo used 11484+ before.
 | Port | File |
 |---|---|
 | 11484 | vLLM 27B: BF16 / FP8 / FP8+MTP (one at a time) |
-| 11485 | SGLang 27B |
+| 11485 | SGLang 27B (both SGLang files share it — only one can run) |
 | 11486 | llama.cpp 27B |
 All vLLM variants share **11484** and the served name `qwen3.8-27b`, so any of
 them is a drop-in swap for an existing harness. Only one can run at a time on
@@ -881,6 +1166,8 @@ Sorted the same way as the throughput table: fastest first.
 
 | File | Checkpoint | Status |
 |---|---|---|
+| `docker-compose.sglang-27b-nvfp4-dflash2-bf16ssm-rtx.yml` | `RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead` + `incoai/Qwen3.8-27B-DFlash2` (both **community**) | ✅ **VERIFIED — FASTEST SINGLE STREAM OF ANYTHING HERE, 151.3 tok/s** (187.8 greedy). The LMSYS recipe with `--mamba-ssm-dtype bfloat16`: **48 concurrent** (vs 28), **239K KV tokens** (vs 128K), 192K needle, 949 tok/s at concurrency 41, tools 4/4, zero errors. GSM8K 94.2% vs the recipe's 94.4% — that flag costs nothing. Still loses to vLLM above ~8 concurrent. |
+| `docker-compose.sglang-27b-nvfp4-dflash2-rtx.yml` | `RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead` + `incoai/Qwen3.8-27B-DFlash2` (both **community**) | ✅ VERIFIED. 147.3 sampled / 173.4 greedy. **The LMSYS recipe verbatim, superseded by the `-bf16ssm-` file above** — its `--mamba-ssm-dtype float32` caps concurrency at 28 and the KV pool at 128K for no accuracy benefit. Kept as the controlled one-flag A/B. |
 | `docker-compose.vllm-27b-nvfp4-gittensor-mtp-prob-rtx.yml` | `gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090` (**community**) | ✅ **VERIFIED — PRODUCTION.** 108.7 tok/s single stream (122.1 greedy, best here) but **1,159 at concurrency 30**, +61% KV pool, images decode at full speed. Tools 4/4, 43K needle, temp-0 deterministic, zero errors under load. |
 | `docker-compose.vllm-27b-nvfp4-gittensor-dspark-rtx.yml` | `gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090` + `Doopeworld/Qwen3.8-27B-DSpark-vLLM` (both **community**) | ✅ **VERIFIED — FASTEST SINGLE STREAM, 111.8 tok/s.** Correct choice ONLY for a one-user endpoint: collapses to 891 tok/s at concurrency 30 and halves image decode rate. |
 | `docker-compose.vllm-27b-nvfp4-gittensor-mtp-rtx.yml` | `gittensor-model-hub/Qwen3.8-27B-NVFP4-RTX5090` (**community**) | ✅ VERIFIED. 95.9 tok/s single stream (no `probabilistic`). Kept as the controlled A/B for what that flag is worth. |
@@ -890,7 +1177,7 @@ Sorted the same way as the throughput table: fastest first.
 | `docker-compose.vllm-27b-fp8-rtx.yml` | `Qwen/Qwen3.8-27B-FP8` (first-party) | ✅ VERIFIED. 45.6 tok/s, tracks the official recipe. The **quality/first-party** option, not the fast one. |
 | `docker-compose.vllm-27b-bf16-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified. ~54 GB. Only worth it as a quality reference vs FP8. |
 | `docker-compose.vllm-27b-fp8-mtp-rtx.yml` | `Qwen/Qwen3.8-27B-FP8` (first-party) | Unverified. Matched drafter/target precision, but on a 45.6 tok/s base — no longer interesting now that DSpark exists. |
-| `docker-compose.sglang-27b-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified scaffold. |
+| `docker-compose.sglang-27b-rtx.yml` | `Qwen/Qwen3.8-27B` (first-party) | Unverified scaffold, written before the 27B was public. Superseded by the DFlash2 file above — keep only as the BF16/NEXTN control. |
 | `docker-compose.llama-27b-q4-rtx.yml` | `unsloth/Qwen3.8-27B-GGUF` (**community**) | Unverified scaffold. |
 
 ### Tooling added 2026-08-18
@@ -928,6 +1215,22 @@ older runs reproducible — raise it for anything above ~10K prompts.
 **Do not use `docker rm -f` on a loaded model.** All three scripts stop with
 `docker stop -t 90`. SIGKILL mid-CUDA-op is what wedges this card badly enough
 to need a cold power cycle (`GPU-INCIDENT-RUNBOOK.md`).
+
+### Tooling added 2026-08-25
+
+| File | What it is |
+|---|---|
+| `sglang_dflash_bench.sh` | Boots `docker-compose.sglang-27b-nvfp4-dflash2-rtx.yml` and runs the same three-metric protocol as `final.sh` (7 sampled + 5 fixedlen + 5 greedy) against port 11485, appending one `FINAL\|` line to `benchmarks/RESULTS.log`. Boot wait is crash-loop aware. |
+| `benchmarks/guidellm/sglang-dflash2-chat/` | The concurrency sweep behind the crossover table above, plus `summary.md`. |
+| `benchmarks/serverlog-sglang-dflash2.txt` | The full SGLang engine log for that run — this is where the `max_running_requests is capped to 28` and mamba pool sizing lines come from. |
+| `docker-compose.sglang-27b-nvfp4-dflash2-bf16ssm-rtx.yml` | The tuned SGLang config — the recipe with `--mamba-ssm-dtype bfloat16`. See "Tuning SGLang against the LMSYS cookbook". |
+| `gsm8k_eval.py` | GSM8K against `/v1/chat/completions`, temperature 0, thinking off. Exists because the image's own `sglang.test.run_eval --eval-name gsm8k` targets `/v1/completions` and scores 0.000 against these composes. |
+| `acc_ab.sh` | Boots one ad-hoc SGLang variant on port 11488, runs `gsm8k_eval.py`, tears down. `ACC_N` sets the question count (default 300; use 1319 for anything you intend to act on). |
+| `benchmarks/ACCURACY.log` | One line per accuracy run. Keeps the n=300 rows next to the n=1319 rows deliberately — they disagree, and the short ones are wrong. |
+
+`gllm.sh` gained a **`GLLM_PORT`** env var (default `11484`, so every run
+recorded before 2026-08-25 reproduces unchanged). The SGLang configs serve on
+11485, so their sweeps need `GLLM_PORT=11485`.
 
 ### Updating a checkpoint — and why you may want to pin one
 
@@ -1137,11 +1440,18 @@ last under load). What remains:
    prefill-saturated at ~6,000 / ~5,000 total tok/s, with concurrency buying
    latency rather than throughput (~4 req/min at 100K, ~2 at 150K).
 
-4. **SGLang.** Untested here, and it is the one stack with numbers that might
-   beat ours: `gittensor` reports 147.9 tok/s on a **5090** with SGLang + their
-   DSpark-NVFP4 drafter — the same drafter that will not load in vLLM. Their
-   number is greedy/thinking-off, so compare it against our 112.2 greedy, not
-   our 111.8 sampled. `lmsysorg/sglang:qwen38-27b` is pulled and ready.
+4. **SGLang.** ~~Untested~~ — **answered 2026-08-25**: SGLang + DFlash2 with
+   `--mamba-ssm-dtype bfloat16` does 151.3 sampled / 187.8 greedy, beating every
+   vLLM config here on single stream by ~35%, at 48 concurrent and a 239K KV
+   pool, with no GSM8K cost. It still loses above concurrency ~8 (949 vs 1,159).
+   The `bfloat16` question from this entry is closed. Still open within SGLang:
+   - `--enable-linear-replayssm-spec` — sets D=0, cutting per-request state from
+     12 slots to 4. The cookbook's Deploy panel applies it to EAGLE only, so its
+     validity under DFLASH is unknown; highest-leverage untested flag.
+   - `RadixArk/Qwen3.8-27B-DSpark` as the drafter instead of DFlash2 — the
+     combination behind gittensor's published 147.9 on a 5090.
+   - `RadixArk/Qwen3.8-27B-NVFP4` (FP4 head), ~3.2 GB smaller at runtime.
+   - fp8 vs bf16 KV: only compared at n=300, which is not enough to decide.
 
 5. **The Inferact W4A4 checkpoint.** `Inferact/Qwen3.8-27B-NVFP4` is the
    official recipe's choice and is also W4A4 modelopt, but with a *different*

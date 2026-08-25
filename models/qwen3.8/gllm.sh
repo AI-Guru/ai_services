@@ -12,6 +12,9 @@ MAXSEC="${MAXSEC:-60}"
 # ERROR. Its default is 60s, which is fine up to ~10K prompts but silently
 # shreds every long-context level (100K at conc 16: 33 errored / 4 ok).
 GLLM_TIMEOUT="${GLLM_TIMEOUT:-60}"
+# Port override. Defaults to 11484 (the vLLM slot) so every run recorded before
+# 2026-08-25 reproduces unchanged; the SGLang configs serve on 11485.
+GLLM_PORT="${GLLM_PORT:-11484}"
 # The pp* / lc* family is the 2026-08-22 scaling grid: prompt length is the only
 # variable, output is pinned to 300 (132-500) so the rows are comparable.
 TG="output_tokens=300,output_tokens_stdev=75,output_tokens_min=132,output_tokens_max=500"
@@ -33,7 +36,7 @@ esac
 O="benchmarks/guidellm/${LABEL}-${SCEN}"
 mkdir -p "$O"
 timeout 5400 guidellm benchmark run \
-  --target http://localhost:11484 --model qwen3.8-27b \
+  --target http://localhost:${GLLM_PORT} --model qwen3.8-27b \
   --processor Qwen/Qwen3.8-27B --request-type chat_completions \
   --profile concurrent --rate "$RATES" --data "$D" \
   --backend-kwargs "{\"timeout\": $GLLM_TIMEOUT}" \

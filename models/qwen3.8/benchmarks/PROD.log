@@ -8,3 +8,4 @@ PROD|cfg-mtp1|GPU KV cache size: 1,610,313|end_status=running|err_lines=0
 0
 PROD|cfg-mtp3|GPU KV cache size: 1,557,969|end_status=running|err_lines=0
 0
+PROD|sglang-dflash2|KV pool: 127,839 tokens (max_running_requests=28, mamba-capped)|end_status=running|err_lines=1

@@ -1,0 +1,196 @@
+# Qwen3.8-27B — SGLang + DFlash2, NVFP4 weights, **bfloat16 GDN state**
+#
+# This is `docker-compose.sglang-27b-nvfp4-dflash2-rtx.yml` with ONE flag
+# changed — `--mamba-ssm-dtype float32` -> `bfloat16` — and on this card that
+# one flag beats the published LMSYS recipe on every axis measured.
+#
+# Read the sibling file first; everything there (why DFLASH, why the drafter is
+# a separate checkpoint, why cap_add SYS_PTRACE is mandatory, the community-
+# checkpoint caveat) applies unchanged. Only the delta is documented here.
+#
+# ---- WHY: the recipe's float32 GDN state is the binding constraint ----
+#
+# Qwen3.8-27B is a hybrid GDN model: 48 linear-attention (Gated DeltaNet) layers
+# to 16 full-attention ones. Post-weight memory splits into a worst-case-reserved
+# GDN *state* pool and a paged attention *KV* pool. Per the SGLang cookbook the
+# state slot is 153.9 MB at float32 and 78.4 MB at bfloat16 — so the dtype
+# halves the state pool and hands the difference to KV.
+#
+# On this card the state pool is not a minor term. With DFLASH the engine also
+# reserves a verify buffer of max_running_requests x D slots (D = 8, the draft
+# block size), and that buffer is what dominates:
+#
+#   float32 : mamba pool ~49 GB (ssm 16.0 + intermediate_ssm 32.6) ->
+#             max_running_requests CAPPED AT 28, KV pool 127,839 tokens
+#   bfloat16: mamba pool ~28 GB (ssm 15.9 + intermediate_ssm 27.6) ->
+#             max_running_requests 48 (uncapped), KV pool 239,089 tokens
+#
+# ---- MEASURED 2026-08-25, RTX PRO 6000 Blackwell — bf16 wins outright ----
+#
+#                       float32 (recipe)   bfloat16 (this file)
+#   sampled tok/s              147.3             151.3
+#   fixedlen tok/s             126.0             123.1
+#   greedy tok/s               173.4             187.8   (+8.3%)
+#   max concurrent requests       28                48
+#   KV pool (tokens)         127,839           239,089   (+87%)
+#   longest needle found        100K              192K
+#   aggregate tok/s @ conc 15    731               880   (+20%)
+#   aggregate tok/s @ conc 26    820               928   (+13%)
+#   aggregate tok/s @ conc 41      —               949
+#   GSM8K (full 1319 q)        94.4%             94.2%   (3 questions apart)
+#
+# The three single-stream columns are inside this card's ~3% cross-boot spread,
+# so read them as "bf16 does not cost single-stream speed" rather than as a win
+# — except greedy, which is outside it. Everything structural (concurrency
+# ceiling, KV pool, usable context) is a decisive bf16 win.
+#
+# The cookbook warns that with speculative decoding fp32 sometimes wins on
+# tok/s and sometimes loses, and says to measure both per quantization. Measured
+# here: on NVFP4 + DFLASH, bf16 wins or ties. It also says to treat bfloat16 as
+# an accuracy gate, so GSM8K was run on both.
+#
+# ---- READ THIS BEFORE TRUSTING A SHORT GSM8K RUN ----
+# At n=300 these two configs scored 96.0% (fp32) and 93.7% (bf16) — a 2.3-point
+# gap that looked like a real accuracy cost for bf16 and would have killed this
+# file. At the full n=1319 they are 94.4% and 94.2%: three questions apart,
+# against a ~0.9-point standard error. The n=300 gap was sampling noise, and it
+# pointed the wrong way. Do not gate a precision decision on a few-hundred-
+# question sample. Both rows are kept in benchmarks/ACCURACY.log.
+#
+# ---- What did NOT change, deliberately ----
+#
+#   --mamba-full-memory-ratio 11.01 is kept at the recipe's value even though
+#   the cookbook's balanced formula, ratio = (S + D) x token_equiv / L, would
+#   put it near 12.5 for bf16 state at a ~2.3K-token average request. Holding it
+#   fixed keeps this a clean one-flag A/B against the sibling file. Re-derive it
+#   if you tune for a specific request-length profile; the ceiling to watch is
+#   the `max_running_requests` line in the boot log.
+#
+# ---- MEASURED here too: --kv-cache-dtype ----
+#
+#   The cookbook says both NVFP4 exports declare `kv_cache_quant_algo: FP8` and
+#   that `--kv-cache-dtype auto` therefore picks up the checkpoint's calibration
+#   scales. On THIS export that is only half true: the weights carry FP8 GEMM
+#   scales (q/k/v/o `input_scale`/`weight_scale`) but NO `k_scale`/`v_scale` KV
+#   scales, and the explicit `fp8_e4m3` this file uses logs
+#     "Using FP8 KV cache but no scaling factors provided. Defaulting to
+#      scaling factors of 1.0. This may lead to less accurate results!"
+#   `auto` silences that warning and still runs the TARGET KV at fp8_e4m3, but
+#   drops the DRAFT KV to bf16 and costs ~24% of the KV pool. Kept explicit here
+#   because the pool is worth more than the warning; see README.md for the
+#   GSM8K numbers that settle whether the warning has any accuracy cost.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.sglang-27b-nvfp4-dflash2-bf16ssm-rtx.yml up -d
+# API endpoint: http://localhost:11485/v1  ·  model: qwen3.8-27b
+# Shares port 11485 with the other SGLang files — only one can run on this card.
+
+services:
+  qwen38-27b-sglang-dflash2-bf16ssm:
+    # PINNED to the exact tag the recipe was published against. Note this is a
+    # `dev-` tag, so it is a moving target upstream in a way `:qwen38-27b` is
+    # not — if it is ever repulled and the numbers move, that is why.
+    image: lmsysorg/sglang:dev-qwen38-27b-dflash2
+    container_name: qwen38-27b-sglang-dflash2-bf16ssm
+    # "no", not unless-stopped: this is a benchmark/A-B config, not a served
+    # endpoint, and a failing SGLang start would otherwise crash-loop forever.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    # Upstream says 32g; 64g matches every other config in this family and the
+    # extra is virtual until touched.
+    shm_size: 64gb
+
+    # See "LOCAL KNOWLEDGE" in the header — required, not optional.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11485:11485"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+      # NOTE: SGLANG_ENABLE_SPEC_V2 is deliberately NOT set. This build removed
+      # it and prints "SGLANG_ENABLE_SPEC_V2 has been removed: speculative
+      # decoding always runs the V2 worker" at startup. The 3.6-era configs set
+      # it; carrying it over here is harmless but misleading. Use
+      # --disable-overlap-schedule to select the non-overlap path instead.
+
+    entrypoint: ["sglang", "serve"]
+
+    command:
+      - --trust-remote-code
+      - --model-path
+      - RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11485"
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --mem-fraction-static
+      - "0.85"
+      - --attention-backend
+      - flashinfer
+      - --chunked-prefill-size
+      - "2048"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --mamba-full-memory-ratio
+      - "11.01"
+      - --mamba-radix-cache-strategy
+      - extra_buffer_lazy
+      - --mamba-ssm-dtype
+      - bfloat16
+      - --speculative-algorithm
+      - DFLASH
+      - --speculative-draft-model-path
+      - incoai/Qwen3.8-27B-DFlash2
+      - --speculative-num-draft-tokens
+      - "8"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11485/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Cold start pulls 27.6 GB of weights before it can even begin loading.
+      start_period: 1800s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

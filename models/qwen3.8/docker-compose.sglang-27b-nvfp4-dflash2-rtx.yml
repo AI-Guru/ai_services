@@ -1,0 +1,212 @@
+# Qwen3.8-27B — SGLang + DFlash2 speculative decoding, NVFP4 weights
+#
+# The first SGLang config in this family that is actually meant to be run.
+# `docker-compose.sglang-27b-rtx.yml` is a pre-release scaffold (BF16, NEXTN,
+# never booted); this one reproduces the recipe LMSYS published alongside the
+# `dev-qwen38-27b-dflash2` image, so it is the head-to-head against our fastest
+# vLLM config (`...-nvfp4-gittensor-dspark-rtx.yml`, 111.8 tok/s single stream).
+#
+# What is different from the vLLM speculation configs:
+#
+#   - DFLASH, not MTP/EAGLE. DFlash2 is a *block-diffusion* drafter: it proposes
+#     a block of tokens in one forward pass rather than a chain of N sequential
+#     draft steps. `--speculative-num-draft-tokens 8` is the block width, and
+#     there is deliberately no --speculative-num-steps / --speculative-eagle-topk
+#     here — those are chain-drafting knobs and do not apply.
+#   - The drafter is a separate 3.85 GB checkpoint (`incoai/Qwen3.8-27B-DFlash2`),
+#     not the target's own MTP head, so it costs VRAM on top of the target.
+#   - NVFP4 weights but a **BF16 LM head**. That is the point of the RadixArk
+#     checkpoint: quantizing the 152K-row output projection is where NVFP4 hurts
+#     acceptance rate most, and acceptance is the whole game for speculation.
+#
+# ---- BOTH CHECKPOINTS ARE COMMUNITY, NOT FIRST-PARTY ----
+# `RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead` (23.8 GB) and
+# `incoai/Qwen3.8-27B-DFlash2` (3.85 GB) are unvetted third-party uploads, as is
+# the `dev-` image tag serving them. Everything in this file is a vendor recipe
+# taken on trust until the numbers in README.md say otherwise.
+#
+# ---- LOCAL KNOWLEDGE, carried from the validated 3.6 SGLang configs ----
+#
+#   - cap_add SYS_PTRACE + seccomp:unconfined are REQUIRED, not optional.
+#     SGLang's CUDA IPC transport passes GPU memory-pool handles between the
+#     tokenizer-manager and scheduler processes via pidfd_getfd(2), which
+#     Docker's default seccomp profile denies. Without these the server starts,
+#     loads weights and captures CUDA graphs perfectly, then fails EVERY request
+#     with a 500 and:
+#       RuntimeError: pidfd_getfd: Operation not permitted
+#         in sglang/srt/utils/cuda_ipc_transport_utils.py
+#     It reads like a model failure and is purely a container privilege.
+#     The upstream `docker run` line omits these because it assumes a host with
+#     a permissive seccomp profile. Do not drop them.
+#
+#   - SGLANG_ENABLE_SPEC_V2=1 is OBSOLETE in this build and is not set here;
+#     the V2 speculative worker is now unconditional. The flag that replaced
+#     the 3.6-era `--mamba-scheduler-strategy extra_buffer` is
+#     `--mamba-radix-cache-strategy extra_buffer_lazy`, which this file sets.
+#
+#   - MEASURED 2026-08-25: max_running_requests lands at 28, NOT the 48 SGLang
+#     first announces for speculative decoding. The mamba state cache is what
+#     binds:
+#       "max_running_requests is capped to 28 by the mamba state cache
+#        (max_mamba_cache_size=113, 4 state slots per request)"
+#     --mamba-ssm-dtype float32 doubles the SSM state, and
+#     --mamba-full-memory-ratio 11.01 then hands the mamba pool ~49 GB
+#     (ssm 16.03 + intermediate_ssm 32.62), leaving only 3.9 GB / 127,839
+#     tokens of actual KV. To trade concurrency back: halve the state with
+#     --mamba-ssm-dtype bfloat16, or lower --mamba-full-memory-ratio.
+#     This ceiling is real and low — the vLLM configs in this family were
+#     benchmarked at concurrency 30+.
+#
+# ---- Flags taken verbatim from the upstream recipe, and why ----
+#
+#   --mem-fraction-static 0.85     lower than the 0.92 the 3.6 NVFP4 config
+#                                  used, because the drafter is resident too.
+#   --attention-backend flashinfer NOT trtllm_mha (SM100-only, fails on this
+#                                  SM120 card). flashinfer, not the triton
+#                                  backend the 3.6 scaffold used.
+#   --kv-cache-dtype fp8_e4m3      doubles the KV pool. Verified safe on the 3.6
+#                                  NVFP4 checkpoint; NOT re-verified on this
+#                                  one. Failure mode is silent wrong answers,
+#                                  not a crash — see the accuracy check in
+#                                  README.md before trusting it.
+#   --chunked-prefill-size 2048    small, which favours TTFT and interactivity
+#                                  over prefill throughput. The 3.6 config used
+#                                  16384. Expect weak long-prompt numbers.
+#   --mamba-full-memory-ratio 11.01  sizes the DeltaNet recurrent-state pool
+#                                  relative to the full-attention KV pool
+#                                  (16 full-attention layers vs the rest).
+#                                  The oddly precise value is upstream's.
+#   --mamba-ssm-dtype float32      NOT bfloat16 as the 3.6 config used. Higher
+#                                  recurrent-state precision; matters more with
+#                                  speculation because a drifting SSM state
+#                                  poisons acceptance.
+#
+# --served-model-name is the one addition to the upstream command line: the repo
+# benchmarks all address `qwen3.8-27b`, so this stays a drop-in swap.
+#
+# ---- MEASURED 2026-08-25, RTX PRO 6000 Blackwell (single stream) ----
+#   sampled  147.3 tok/s   (test_chat.py, 7 runs, warm TTFT 920 ms)
+#   fixedlen 126.0 tok/s   (temp 1.0, thinking on, ignore_eos 512)
+#   greedy   173.4 tok/s   (temp 0, thinking off, ignore_eos 256)
+#   accept len ~3.5 of a block of 8 (accept rate ~0.36); boot 94 s warm cache
+#   Tools 4/4. Arithmetic/recall spot checks correct despite the FP8-KV
+#   "no scaling factors provided" warning.
+# That is +32% sampled and +37% fixedlen over the fastest vLLM config in this
+# family (dspark7-prob: 111.8 / 92.3). The cost is the concurrency ceiling of
+# 28 documented above — this is a single-user config, not a fleet config.
+#
+# Usage: docker compose --env-file ../../.env -f docker-compose.sglang-27b-nvfp4-dflash2-rtx.yml up -d
+# API endpoint: http://localhost:11485/v1  ·  model: qwen3.8-27b
+# Port 11485 is the SGLang slot (see the Ports table in README.md) and is shared
+# with the BF16/NEXTN scaffold — only one SGLang can run on this card anyway.
+
+services:
+  qwen38-27b-sglang-dflash2:
+    # PINNED to the exact tag the recipe was published against. Note this is a
+    # `dev-` tag, so it is a moving target upstream in a way `:qwen38-27b` is
+    # not — if it is ever repulled and the numbers move, that is why.
+    image: lmsysorg/sglang:dev-qwen38-27b-dflash2
+    container_name: qwen38-27b-sglang-dflash2
+    # "no", not unless-stopped: this is a benchmark/A-B config, not a served
+    # endpoint, and a failing SGLang start would otherwise crash-loop forever.
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ipc: host
+    dns: ["8.8.8.8", "8.8.4.4"]
+    # Upstream says 32g; 64g matches every other config in this family and the
+    # extra is virtual until touched.
+    shm_size: 64gb
+
+    # See "LOCAL KNOWLEDGE" in the header — required, not optional.
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11485:11485"
+
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
+      - SGLANG_ENABLE_JIT_DEEPGEMM=0
+      # NOTE: SGLANG_ENABLE_SPEC_V2 is deliberately NOT set. This build removed
+      # it and prints "SGLANG_ENABLE_SPEC_V2 has been removed: speculative
+      # decoding always runs the V2 worker" at startup. The 3.6-era configs set
+      # it; carrying it over here is harmless but misleading. Use
+      # --disable-overlap-schedule to select the non-overlap path instead.
+
+    entrypoint: ["sglang", "serve"]
+
+    command:
+      - --trust-remote-code
+      - --model-path
+      - RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+      - --served-model-name
+      - qwen3.8-27b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11485"
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --mem-fraction-static
+      - "0.85"
+      - --attention-backend
+      - flashinfer
+      - --chunked-prefill-size
+      - "2048"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --mamba-full-memory-ratio
+      - "11.01"
+      - --mamba-radix-cache-strategy
+      - extra_buffer_lazy
+      - --mamba-ssm-dtype
+      - float32
+      - --speculative-algorithm
+      - DFLASH
+      - --speculative-draft-model-path
+      - incoai/Qwen3.8-27B-DFlash2
+      - --speculative-num-draft-tokens
+      - "8"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11485/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # Cold start pulls 27.6 GB of weights before it can even begin loading.
+      start_period: 1800s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+volumes:
+  huggingface_cache:
+    name: qwen38_huggingface_cache
+
+networks:
+  default:
+    name: qwen38-network

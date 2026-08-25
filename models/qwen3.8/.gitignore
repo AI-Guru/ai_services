@@ -18,3 +18,8 @@ benchmarks/guidellm/benchmarks.json
 # (including the runs that OOMed, hung or died).
 !benchmarks/RESULTS.log
 !benchmarks/PROD.log
+# Same reasoning: ACCURACY.log is the GSM8K record the SGLang tuning section
+# cites, including the n=300 rows that turned out to be wrong, and SCALING.log
+# is the per-run record the scaling-grid section cites.
+!benchmarks/ACCURACY.log
+!benchmarks/SCALING.log

@@ -28,3 +28,5 @@ FINAL|dspark7-prob|sampled=111.8|fixedlen=90.0|greedy=112.2
 FINAL|dspark5-prob|sampled=111.1|fixedlen=91.6|greedy=107.0
 FINAL|nospec|sampled=77.1|fixedlen=77.3|greedy=78.8
 FINAL|dspark7-prob-mnbt16k|sampled=110.0|fixedlen=92.3|greedy=110.6
+FINAL|sglang-dflash2|sampled=147.3|fixedlen=126.0|greedy=173.4|boot=94s
+FINAL|sglang-dflash2-bf16ssm|sampled=151.3|fixedlen=123.1|greedy=187.8|boot=94s
