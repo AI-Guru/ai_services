@@ -1,0 +1,120 @@
+# Qwen3.8-Flash-Next (qwen4exp) UD-Q4_K_XL via llama.cpp — RTX PRO 6000 Blackwell
+#
+# Qwen's Qwen4-architecture preview: 176.94B total params — 125B MoE (512
+# experts, top-10, ~6B active) + a 51.2B n-gram/PLE embedding table + a 4B MTP
+# head. Gated DeltaNet on 3 of every 4 layers, Qwen Sparse Attention on the 4th.
+#
+# WHY THIS FITS A 96 GiB CARD
+#   The GGUF is 111.3 GB on disk, which does not fit. It fits because the 26.8
+#   GiB n-gram table is NOT resident: --lazy-mode reads its rows from SSD on
+#   demand (llama.cpp PR #27794/#27837). Only ~75 GiB of weights land in VRAM.
+#   Measured footprint: 87.3 GiB of 95.6 at the full 262144 context.
+#
+#   --lazy-mode REQUIRES mmap. Do NOT add --no-mmap or -lm none here; that is
+#   what the Spark/qwen3.6 composes use and it would try to make the table
+#   resident and fail. `auto` would also enable it (>4 GiB tensors) but it is
+#   set explicitly so the config does not depend on that threshold.
+#
+#   Measured on this box, lazy ON beats lazy OFF at every context depth
+#   (+23% at 1.3K, +52% at 10.7K, +10% at 133K) because the table cannot fit
+#   in 30 GiB of host RAM anyway — forcing residency only buys page-cache
+#   thrash. This is the opposite of PR #27794's small-model (gemma-4) result.
+#
+# IMAGE — not on Docker Hub, build it locally:
+#   docker build -t llama.cpp-qwen4exp:master \
+#     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
+#     models/qwen3.8-flash-next/
+#   qwen4exp merged upstream 2026-08-27 (PR #27742), so the default
+#   LLAMA_REF=master is correct. Verified against build 10743 / 8887a48f0.
+#   An older build pinned to the PR head has a CUDA abort at n_kv 262144
+#   (issue #27901, fixed by #27941) — do not run this context on it.
+#
+# WEIGHTS — expected already on disk (111.3 GB, 4 shards):
+#   hf download unsloth/Qwen3.8-Flash-Next-GGUF \
+#     --local-dir /home/despara/models/qwen3.8-flash-next --include "*UD-Q4_K_XL*"
+#   Community quant (Unsloth Dynamic 3.0), not a first-party checkpoint.
+#   Q4_K_XL recovers 93.5% top-1 vs BF16, mean KLD 0.0447 (Unsloth's figures;
+#   they publish no task benchmarks for this model, and note top-1 is a weak
+#   proxy for real inference).
+#
+# MEASURED (build 10743, --lazy-mode on, this card):
+#   decode  95.8 tok/s sustained (2048 tok), 95.9-100.7 short-burst
+#   prefill 3467 tok/s at 16K; 2133 tok/s at 133K
+#   Decode still decays with depth (95.8 -> 46.1 at 133K). llama.cpp #27992
+#   (open) targets the O(n) n-gram predecessor lookup behind it.
+#
+# Usage: docker compose -f docker-compose.llama-177b-q4-rtx.yml up -d
+# API:   http://localhost:11480/v1     served as: qwen3.8-flash-next
+# NOTE:  one model at a time on this card — 87.3 of 95.6 GiB.
+
+services:
+  qwen38-flashnext-q4-rtx:
+    image: llama.cpp-qwen4exp:master
+    container_name: qwen38-flashnext-q4-rtx
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11480:11480"
+
+    # Bind-mounted, not an HF cache volume: the 111 GB checkpoint is already
+    # local and --hf-repo would re-fetch it. Read-only — llama.cpp only mmaps.
+    volumes:
+      - /home/despara/models/qwen3.8-flash-next:/models:ro
+
+    command:
+      - -m
+      - /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      # n-gram/PLE table streams from SSD instead of being resident.
+      - --lazy-mode
+      - "on"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11480"
+      - -a
+      - qwen3.8-flash-next
+
+    # 4 slots sharing one 262144-token pool (kv_unified) — the default, and
+    # what the numbers above were measured with. KV costs 33 KiB/token here
+    # (24 main + 9 QSA indexer), so the full context is only ~8.25 GiB.
+    #
+    # Deliberately NOT set:
+    #   --cache-type-k/v q8_0  untested against the QSA + GDN hybrid cache
+    #   -fa on                 left at auto; not benchmarked either way
+    #   --spec-type draft-mtp  MTP draft head exists (unsloth .../MTP) but the
+    #                          llama.cpp side is still open (#27836, #28097)
+    #   --jinja                already the default; the chat template is what
+    #                          parses chat_template_kwargs.reasoning_effort
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11480/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: qwen38-flashnext-network

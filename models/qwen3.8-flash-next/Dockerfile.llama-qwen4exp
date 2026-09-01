@@ -1,0 +1,82 @@
+# llama.cpp with Qwen4-Exp (Qwen3.8-Flash-Next) support — x86 / SM_120
+#
+# Qwen3.8-Flash-Next is `model_type: qwen4_exp` (GGUF arch `qwen4exp`), the
+# Qwen4 architecture preview: 125B MoE (512 experts, top-10) + a 51B n-gram
+# PLE table + a 4B MTP head, with Gated DeltaNet on 3 of every 4 layers and
+# Qwen Sparse Attention (QSA) on the 4th.
+#
+# NOT in llama.cpp master. Built from PR #27742 (danielhanchen / unslothai),
+# which is the PR Unsloth's own GGUFs are built against and the one their run
+# guide points at:
+#   https://github.com/ggml-org/llama.cpp/pull/27742
+#   https://unsloth.ai/docs/models/qwen3.8-next
+#
+# There is a second, independent implementation in PR #27739 (JJJYmmm). The
+# two use DIFFERENT tensor and metadata names for the n-gram table
+# (`blk.N.ple_ngram_embd` + `ple.ngram_*` vs. `per_layer_token_embd` +
+# `ple.layer_multipliers`/`head_vocab_sizes`), so they are NOT interchangeable
+# — the unsloth/Qwen3.8-Flash-Next-GGUF repo requires #27742. Do not switch
+# this to #27739 without re-checking the tensor names in the GGUF header.
+#
+# Host nvcc here is 12.0, which cannot target sm_120 (needs >= 12.8), which is
+# why this builds in a CUDA 13 container rather than on the host.
+#
+# Build once:
+#   docker build -t llama.cpp-qwen4exp:latest \
+#     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
+#     models/qwen3.8-flash-next/
+#
+# Exposes /app/llama-server as the entrypoint, drop-in compatible with
+# ggml-org/llama.cpp:server-cuda's command syntax.
+
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ninja-build curl ca-certificates \
+      libcurl4-openssl-dev libssl-dev libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+# blob:none keeps the clone small but still allows fetching the PR ref
+RUN git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git
+
+WORKDIR /src/llama.cpp
+# LLAMA_REF: a branch/tag (default master, where qwen4exp now lives), or
+# "pr/<N>" to build an unmerged PR (that is how this image was first built,
+# against PR #27742 before it merged on 2026-08-27).
+ARG LLAMA_REF=master
+RUN if [ "${LLAMA_REF#pr/}" != "${LLAMA_REF}" ]; then \
+      N="${LLAMA_REF#pr/}"; \
+      git fetch origin "pull/$N/head:pr-$N" && git checkout "pr-$N"; \
+    else \
+      git fetch origin "${LLAMA_REF}" && git checkout FETCH_HEAD; \
+    fi \
+    && git log -1 --format='built from %H %s'
+
+RUN cmake -B build -G Ninja \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DGGML_CUDA=ON \
+      -DCMAKE_CUDA_ARCHITECTURES="120" \
+      -DLLAMA_CURL=ON \
+      -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build build --config Release -j \
+       --target llama-server llama-cli llama-mtmd-cli llama-gguf-split
+
+
+FROM nvidia/cuda:13.0.0-runtime-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libcurl4 libgomp1 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=builder /src/llama.cpp/build/bin/llama-server     /app/llama-server
+COPY --from=builder /src/llama.cpp/build/bin/llama-cli        /app/llama-cli
+COPY --from=builder /src/llama.cpp/build/bin/llama-mtmd-cli   /app/llama-mtmd-cli
+COPY --from=builder /src/llama.cpp/build/bin/llama-gguf-split /app/llama-gguf-split
+
+ENV PATH="/app:${PATH}"
+EXPOSE 11480
+ENTRYPOINT ["/app/llama-server"]
