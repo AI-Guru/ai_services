@@ -5,10 +5,14 @@
 # head. Gated DeltaNet on 3 of every 4 layers, Qwen Sparse Attention on the 4th.
 #
 # WHY THIS FITS A 96 GiB CARD
-#   The GGUF is 111.3 GB on disk, which does not fit. It fits because the 26.8
-#   GiB n-gram table is NOT resident: --lazy-mode reads its rows from SSD on
-#   demand (llama.cpp PR #27794/#27837). Only ~75 GiB of weights land in VRAM.
+#   The GGUF is 111.3 GB on disk, which does not fit. It fits because llama.cpp
+#   keeps the 26.8 GiB n-gram table host-side rather than in VRAM -- that is the
+#   default since #27742, with no flag needed. Only ~75 GiB reaches the card.
 #   Measured footprint: 87.3 GiB of 95.6 at the full 262144 context.
+#
+#   --lazy-mode does NOT change that footprint (88,069 MiB without it vs 89,475
+#   with). It changes how the host-side table is READ: no prefetch, MADV_RANDOM,
+#   so rows stream from SSD instead of thrashing page cache. Speed, not capacity.
 #
 #   --lazy-mode REQUIRES mmap. Do NOT add --no-mmap or -lm none here; that is
 #   what the Spark/qwen3.6 composes use and it would try to make the table

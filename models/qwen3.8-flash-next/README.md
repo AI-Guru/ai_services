@@ -20,12 +20,20 @@ total, per llama.cpp:
 
 ## Why a 111 GB checkpoint fits a 96 GiB card
 
-The GGUF is **111.3 GB on disk** and does not fit. It runs because the **26.8
-GiB n-gram table is never resident** — llama.cpp's `--lazy-mode` reads its rows
-from SSD on demand (PRs
+The GGUF is **111.3 GB on disk** and does not fit. It runs because llama.cpp
+places the 26.8 GiB n-gram table **host-side, not in VRAM** — and it has done
+that since #27742, with no flag involved. Only ~75 GiB of weights reach the
+card. (Verified: a build predating `--lazy-mode` logged
+`CPU_Mapped model buffer size = 28110 MiB` and ran at 86.0 GiB.)
+
+**`--lazy-mode` is not what makes it fit.** VRAM is the same either way
+(88,069 MiB without it, 89,475 with). What it changes is *how the host-side
+table is read*: it skips the prefetch and marks the mapping `MADV_RANDOM`, so
+rows stream from SSD instead of the loader trying to cache 26.8 GiB in ~25 GiB
+of page cache (PRs
 [#27794](https://github.com/ggml-org/llama.cpp/pull/27794) /
 [#27837](https://github.com/ggml-org/llama.cpp/pull/27837), merged 2026-08-27
-and 08-30). Only ~75 GiB of weights land in VRAM.
+and 08-30). That is a decode-speed and stability win, not a capacity one.
 
 Qwen designed for this: *"Embeddings provide a unique axis for parameter scaling
 that requires less computation and is more amenable to offloading than MoE...
@@ -47,6 +55,23 @@ This is the **opposite** of PR #27794's own gemma-4 result (where lazy cost
 model's token, negligible next to this one's. With only 30 GiB of host RAM the
 26.8 GiB table cannot be cached anyway, so forcing residency buys page-cache
 thrash and nothing else.
+
+### Which change bought what
+
+Splitting the A/B three ways — old build, master with the flag off, master with
+it on — the two causes separate almost perfectly by metric:
+
+| | old build | master, lazy **off** | master, lazy **on** |
+|---|---:|---:|---:|
+| prefill @ 10,667 | 2,615 | 3,635 *(+39%)* | 3,651 *(+0.5%)* |
+| prefill @ 133,334 | 678 | 2,131 *(+214%)* | 2,133 *(+0.1%)* |
+| decode @ 1,333 | 68.61 | 74.49 *(+9%)* | 91.58 *(+23%)* |
+| decode @ 133,334 | 37.57 | 41.84 *(+11%)* | 46.11 *(+10%)* |
+
+**Prefill is entirely upstream code (#28023); `--lazy-mode` contributes nothing
+to it** — which is why #28136, targeting PLE reads during prefill, is still
+worth watching. **Decode is a mix**: ~10-20% from upstream, another ~10-23%
+from streaming the table.
 
 ### VRAM model
 
