@@ -38,8 +38,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
+# LLAMA_REPO: upstream by default. Set to unslothai/llama.cpp together with
+# LLAMA_REF=pr/144 to get the qwen4exp MTP draft-head graph, which upstream
+# does not have (mainline #27836/#28097 are still open, #28104 was dropped).
+ARG LLAMA_REPO=ggml-org/llama.cpp
 # blob:none keeps the clone small but still allows fetching the PR ref
-RUN git clone --filter=blob:none https://github.com/ggml-org/llama.cpp.git
+RUN git clone --filter=blob:none "https://github.com/${LLAMA_REPO}.git" llama.cpp
 
 WORKDIR /src/llama.cpp
 # LLAMA_REF: a branch/tag (default master, where qwen4exp now lives), or

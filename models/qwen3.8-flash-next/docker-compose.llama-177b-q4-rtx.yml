@@ -1,4 +1,4 @@
-# Qwen3.8-Flash-Next (qwen4exp) UD-Q4_K_XL via llama.cpp — RTX PRO 6000 Blackwell
+# Qwen3.8-Flash-Next (qwen4exp) UD-Q4_K_XL + Vision via llama.cpp — RTX PRO 6000
 #
 # Qwen's Qwen4-architecture preview: 176.94B total params — 125B MoE (512
 # experts, top-10, ~6B active) + a 51.2B n-gram/PLE embedding table + a 4B MTP
@@ -8,7 +8,8 @@
 #   The GGUF is 111.3 GB on disk, which does not fit. It fits because llama.cpp
 #   keeps the 26.8 GiB n-gram table host-side rather than in VRAM -- that is the
 #   default since #27742, with no flag needed. Only ~75 GiB reaches the card.
-#   Measured footprint: 87.3 GiB of 95.6 at the full 262144 context.
+#   Measured footprint: 88.4 GiB of 95.6 at the full 262144 context, with the
+#   vision projector loaded (87.3 GiB without it — the projector costs ~1.1 GiB).
 #
 #   --lazy-mode does NOT change that footprint (88,069 MiB without it vs 89,475
 #   with). It changes how the host-side table is READ: no prefetch, MADV_RANDOM,
@@ -40,6 +41,15 @@
 #   Q4_K_XL recovers 93.5% top-1 vs BF16, mean KLD 0.0447 (Unsloth's figures;
 #   they publish no task benchmarks for this model, and note top-1 is a weak
 #   proxy for real inference).
+#
+# VISION — the model is multimodal and the projector is cheap, so it is on by
+#   default here. Server reports modalities {vision: true, video: true,
+#   audio: false}; video is untested. A 720x720 JPEG costs ~580 prompt tokens
+#   and answered in ~5 s. Verified against the actual images, not just accepted:
+#   it read both a photo and a synthetic render correctly.
+#     hf download unsloth/Qwen3.8-Flash-Next-GGUF \
+#       --local-dir /home/despara/models/qwen3.8-flash-next --include "mmproj-F16.gguf"
+#   Drop the two --mmproj lines below to save 1.1 GiB if you only need text.
 #
 # MEASURED (build 10743, --lazy-mode on, this card):
 #   decode  95.8 tok/s sustained (2048 tok), 95.9-100.7 short-burst
@@ -80,6 +90,8 @@ services:
     command:
       - -m
       - /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+      - --mmproj
+      - /models/mmproj-F16.gguf
       - -ngl
       - "99"
       - -c

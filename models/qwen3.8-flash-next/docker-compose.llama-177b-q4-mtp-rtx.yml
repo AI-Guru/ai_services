@@ -1,0 +1,120 @@
+# Qwen3.8-Flash-Next (qwen4exp) UD-Q4_K_XL + MTP + Vision via llama.cpp — RTX PRO 6000
+#
+# Speculative decoding variant of docker-compose.llama-177b-q4-rtx.yml. Same
+# model, same --lazy-mode, plus the NextN/MTP draft head: the head guesses the
+# next few tokens and the main model verifies them in one pass. Verification is
+# exact, so output is unchanged — only speed.
+#
+# ⚠️ REQUIRES THE UNSLOTH FORK, NOT MAINLINE llama.cpp.
+#   As of upstream 8887a48f0 there is no MTP graph for qwen4exp: #27836 and
+#   #28097 are still open, #28104/#27842/#27956 were dropped. Mainline accepts
+#   --spec-type draft-mtp (it exists for other archs) and then SILENTLY IGNORES
+#   the head — you get baseline speed and no error. Always confirm speculation
+#   actually ran by looking for this line in the log:
+#     draft acceptance = 0.73939 (610 accepted / 825 generated), mean len = 2.48
+#   No acceptance line = no speculation.
+#
+#   docker build --build-arg LLAMA_REPO=unslothai/llama.cpp \
+#     --build-arg LLAMA_REF=pr/144 -t llama.cpp-qwen4exp:mtp \
+#     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
+#     models/qwen3.8-flash-next/
+#   Verified against unslothai/llama.cpp 586b15ef8 (PR #144).
+#
+# DRAFT HEAD (2.60 GiB) — the `shared-` variant borrows token embedding and
+# output projection from the main model, saving ~1.3 GB over the self-contained
+# file. Needs a build with borrowing support, which the fork has.
+#   hf download unsloth/Qwen3.8-Flash-Next-GGUF \
+#     --local-dir /home/despara/models/qwen3.8-flash-next --include "MTP/*shared-Q8_0*"
+#
+# MEASURED (this card, 1024-token generations, 2 runs each):
+#   temp 1.0 / top-p 0.95   97.7 -> 131.4 tok/s   (1.35x)  <- the real setting
+#   greedy (temp 0)        101.8 -> 148.1 tok/s   (1.46x)
+#   draft acceptance 66-74%, mean draft length 2.3-2.5
+#   Two runs per cell is thin and the spread was wide (133.6 vs 162.6 greedy);
+#   treat the ratio as solid and the absolute figure as approximate.
+#
+# COST: 92.8 GiB of 95.6 with the vision projector, 91.7 without it. The draft
+# head is 2.6 GiB and its own KV cache another ~1.7; the projector adds ~1.1.
+# That leaves only ~2.8 GiB of headroom — by far the tightest config here, and
+# the per-image buffers under CONCURRENT vision requests were never measured.
+# If you do not need images, drop the two --mmproj lines and get 3.9 GiB back.
+#
+# Verified working: vision and MTP do not disable each other — an image request
+# answered correctly while the log still showed draft acceptance = 0.58743.
+#
+# ⚠️ SINGLE STREAM ONLY. Unsloth measure MTP as a net LOSS (~0.81-0.87x) at
+#   concurrency 8: a busy model has no idle capacity for a draft to exploit.
+#   Use the non-MTP compose for multi-user serving.
+#
+# Serves on the SAME port as docker-compose.llama-177b-q4-rtx.yml — only one
+# model fits this card, so the two are mutually exclusive. Run one at a time.
+#
+# Usage: docker compose -f docker-compose.llama-177b-q4-mtp-rtx.yml up -d
+# API:   http://localhost:11480/v1     served as: qwen3.8-flash-next
+
+services:
+  qwen38-flashnext-q4-mtp-rtx:
+    image: llama.cpp-qwen4exp:mtp
+    container_name: qwen38-flashnext-q4-mtp-rtx
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    ports:
+      - "11480:11480"
+
+    volumes:
+      - /home/despara/models/qwen3.8-flash-next:/models:ro
+
+    command:
+      - -m
+      - /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
+      - --mmproj
+      - /models/mmproj-F16.gguf
+      - -md
+      - /models/MTP/mtp-Qwen3.8-Flash-Next-shared-Q8_0.gguf
+      - --spec-type
+      - draft-mtp
+      # 2 is Unsloth's recommended default: higher drafts more tokens but each
+      # guess is accepted less often. Measured mean accepted length was 2.3-2.5.
+      - --spec-draft-n-max
+      - "2"
+      - -ngl
+      - "99"
+      - -c
+      - "262144"
+      - --lazy-mode
+      - "on"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "11480"
+      - -a
+      - qwen3.8-flash-next
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11480/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+networks:
+  default:
+    name: qwen38-flashnext-network
