@@ -65,7 +65,19 @@ services:
   qwen38-flashnext-q4-rtx:
     image: llama.cpp-qwen4exp:master
     container_name: qwen38-flashnext-q4-rtx
-    restart: unless-stopped
+    # `always`, NOT `unless-stopped` — deliberate, and the same choice the vLLM
+    # composes here make. gpu-safe-shutdown.service `docker stop`s every GPU
+    # container before poweroff (to avoid the RTX PRO 6000 Xid 154 wedge), and
+    # `docker stop` cancels an `unless-stopped` policy for good: the container
+    # then stays down across the reboot. `always` restarts it on daemon start
+    # regardless of how it was stopped. This bit us on 2026-09-01: safe-shutdown
+    # stopped it at 21:19, the box came back at 06:45, and the model never
+    # returned.
+    #
+    # The MTP compose deliberately keeps `unless-stopped` — both files bind
+    # 11480, so two `always` policies would fight over the port on boot. Net
+    # effect: a reboot always lands on this (production) config.
+    restart: always
 
     deploy:
       resources:

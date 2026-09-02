@@ -56,6 +56,11 @@ services:
   qwen38-flashnext-q4-mtp-rtx:
     image: llama.cpp-qwen4exp:mtp
     container_name: qwen38-flashnext-q4-mtp-rtx
+    # `unless-stopped`, NOT `always` — deliberate. The non-MTP compose uses
+    # `always` so it comes back after a reboot; this one binds the same port
+    # 11480, so giving it `always` too would have the two fight on boot. A
+    # reboot therefore always returns to the production (non-MTP) config, and
+    # MTP has to be brought up by hand again.
     restart: unless-stopped
 
     deploy:
