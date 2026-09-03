@@ -28,6 +28,27 @@ services:
       - /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:/usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1:ro
     command:
       - --query-field-names=name,uuid,fan.speed,pstate,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit,clocks.current.graphics,clocks.current.sm,clocks.current.memory,clocks.current.video,pcie.link.gen.current,pcie.link.width.current
+
+    # Checks the thing that actually breaks. On 2026-09-03 this container ran
+    # "Up 11 hours" and its Prometheus target read "up" while every scrape
+    # failed with `Failed to initialize NVML: Unknown Error` — the container had
+    # lost its device handles, nvidia-smi on the HOST was fine the whole time.
+    # 7520 failed scrapes, 10.5 h with no power data, and nothing flagged it,
+    # because the exporter answers HTTP perfectly well with no metrics in it.
+    #
+    # So do not probe the HTTP endpoint: run nvidia-smi INSIDE the container,
+    # which is exactly what the exporter does on every scrape. Exec form, no
+    # shell needed.
+    #
+    # NOTE: an unhealthy container is NOT restarted by `restart: always` —
+    # Docker restart policies ignore health state. This healthcheck only makes
+    # the failure visible; exporter-watchdog.sh is what acts on it.
+    healthcheck:
+      test: ["CMD", "nvidia-smi", "--query-gpu=power.draw", "--format=csv,noheader"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         reservations:
@@ -79,6 +100,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml

@@ -1,0 +1,44 @@
+# Alarmregeln fuer die GPU-Telemetrie.
+#
+# Es laeuft kein Alertmanager, diese Regeln feuern also nirgends hin — sie sind
+# in der Prometheus-UI unter /alerts sichtbar und koennen in Grafana als
+# Bedingung verwendet werden. Der eigentliche Schutz gegen ein stilles Ausfallen
+# ist exporter-watchdog.sh; diese Regeln machen eine Messluecke im Nachhinein
+# auffindbar, statt sie erst zu bemerken, wenn jemand nach dem Verbrauch fragt.
+groups:
+  - name: gpu-telemetry
+    interval: 30s
+    rules:
+      # Der Fall vom 2026-09-03: Container "Up", Target "up", HTTP 200 — aber
+      # keine einzige GPU-Metrik im Body. Nur `absent()` faengt das.
+      - alert: GpuMetricsAbsent
+        expr: absent(nvidia_smi_power_draw_watts)
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU-Telemetrie liefert keine Werte"
+          description: >-
+            nvidia_smi_power_draw_watts fehlt seit 3 Minuten, obwohl das Target
+            erreichbar ist. Typisch fuer verlorene Device-Handles im Exporter
+            (Failed to initialize NVML). Pruefen:
+            docker exec nvidia-gpu-exporter nvidia-smi
+
+      - alert: GpuExporterScrapesFailing
+        expr: increase(nvidia_smi_failed_scrapes_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "nvidia-smi-Scrapes schlagen fehl"
+          description: >-
+            Der Zaehler nvidia_smi_failed_scrapes_total steigt. Der Exporter
+            antwortet, kann die GPU aber nicht abfragen.
+
+      - alert: GpuExporterDown
+        expr: up{job="nvidia_gpu"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "GPU-Exporter nicht erreichbar"
