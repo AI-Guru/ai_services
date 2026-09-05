@@ -25,12 +25,13 @@
 #   in 30 GiB of host RAM anyway — forcing residency only buys page-cache
 #   thrash. This is the opposite of PR #27794's small-model (gemma-4) result.
 #
-# IMAGE — not on Docker Hub, build it locally:
-#   docker build -t llama.cpp-qwen4exp:master \
+# IMAGE — not on Docker Hub, build it locally. Pin the tag to the commit so a
+#   rebuild of `master` months from now cannot silently change what runs here:
+#   docker build --build-arg LLAMA_REF=<sha> -t llama.cpp-qwen4exp:<sha12> \
 #     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
 #     models/qwen3.8-flash-next/
-#   qwen4exp merged upstream 2026-08-27 (PR #27742), so the default
-#   LLAMA_REF=master is correct. Verified against build 10743 / 8887a48f0.
+#   qwen4exp merged upstream 2026-08-27 (PR #27742), so plain LLAMA_REF=master
+#   also works. Current pin: 6a1a922d2 (master @ 2026-09-05).
 #   An older build pinned to the PR head has a CUDA abort at n_kv 262144
 #   (issue #27901, fixed by #27941) — do not run this context on it.
 #
@@ -51,11 +52,49 @@
 #       --local-dir /home/despara/models/qwen3.8-flash-next --include "mmproj-F16.gguf"
 #   Drop the two --mmproj lines below to save 1.1 GiB if you only need text.
 #
-# MEASURED (build 10743, --lazy-mode on, this card):
+#   --image-min-tokens 1024 is set below because llama.cpp warns at load that
+#   Qwen-VL needs >= 1024 image tokens for grounding, and the default (read from
+#   the model) put that 720x720 JPEG at ~580 — under the floor. It only affects
+#   dynamic-resolution vision models, so text requests are unaffected; images
+#   below the floor are upsampled to it, costing ~450 extra prompt tokens on
+#   that case in exchange for grounding/OCR/pointing accuracy. Plain
+#   describe-the-image worked at the default, so drop this if prefill on image
+#   requests matters more than grounding. See ggml-org/llama.cpp#16842.
+#
+# MEASURED (build 10743 / 8887a48f0, --lazy-mode on, this card):
 #   decode  95.8 tok/s sustained (2048 tok), 95.9-100.7 short-burst
 #   prefill 3467 tok/s at 16K; 2133 tok/s at 133K
-#   Decode still decays with depth (95.8 -> 46.1 at 133K). llama.cpp #27992
-#   (open) targets the O(n) n-gram predecessor lookup behind it.
+#   Decode decayed with depth (95.8 -> 46.1 at 133K) because get_prev_tokens
+#   scanned every used KV cell once per ubatch to recover the n-gram
+#   predecessors — O(n) in context.
+#
+#   MEASURED AGAIN on 6a1a922d2 (build 10819) 2026-09-05, varied-text filler,
+#   reasoning_effort=low, 128 gen tokens:
+#     depth      before (10743)      after (10819, warm)
+#       1K       98.9 tok/s          98.5 - 106.9
+#      16K       84.4 tok/s          83.3 -  92.8
+#     131K       49.0 tok/s          53.6 / 55.3 / 55.4
+#   So ~+13% decode at 131K from #28040, NOT the 2.72x its ancestor #27992
+#   reported at 240K on 2xL40S. Two caveats on that +13%, both real:
+#     - the before-run was a single sample and it warmed the host page cache
+#       for the after-run, so part of the gain is mmap warmth, not algorithm.
+#       A clean A/B needs the old image re-run with the cache already warm.
+#     - the remaining decay is probably QSA, not the n-gram lookup: #28213
+#       (open) shows attention still runs over the full context under a mask.
+#
+#   PREFILL IS NOT COMPARABLE ACROSS THESE RUNS and the old 3467 tok/s figure
+#   should not be trusted. On identical input it swings 512 -> 2557 tok/s
+#   depending only on host page-cache state for the PLE table. This is exactly
+#   what #28136 describes. Quote prefill only with the cache state stated.
+#
+#   Not yet available (open upstream, all targeting this model):
+#     #28136  direct reads for the lazy PLE table, >2x prefill on GB10 — aimed
+#             squarely at the --lazy-mode path below. Note its finding that
+#             repeated-token microbenchmarks understate the mmap cost, which
+#             may mean the 3467 tok/s at 16K above is a flattering case.
+#     #28213  gather-based QSA decode: the indexer picks top-2048 KV entries but
+#             attention still runs masked over the full context.
+#     #28330  stop allocating the unused V cache for the indexer (VRAM).
 #
 # Usage: docker compose -f docker-compose.llama-177b-q4-rtx.yml up -d
 # API:   http://localhost:11480/v1     served as: qwen3.8-flash-next
@@ -63,7 +102,7 @@
 
 services:
   qwen38-flashnext-q4-rtx:
-    image: llama.cpp-qwen4exp:master
+    image: llama.cpp-qwen4exp:6a1a922d2
     container_name: qwen38-flashnext-q4-rtx
     # `always`, NOT `unless-stopped` — deliberate, and the same choice the vLLM
     # composes here make. gpu-safe-shutdown.service `docker stop`s every GPU
@@ -104,6 +143,9 @@ services:
       - /models/UD-Q4_K_XL/Qwen3.8-Flash-Next-UD-Q4_K_XL-00001-of-00004.gguf
       - --mmproj
       - /models/mmproj-F16.gguf
+      # Grounding floor — see the VISION note in the header.
+      - --image-min-tokens
+      - "1024"
       - -ngl
       - "99"
       - -c
