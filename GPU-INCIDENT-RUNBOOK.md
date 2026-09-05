@@ -6,6 +6,20 @@ nothing was set up to capture it. Everything here exists so that does not repeat
 
 **Read section 0 first during an incident. Everything after it is reference.**
 
+> ### ⚙ Non-stock configuration currently in force
+>
+> This machine is deliberately not at factory defaults. If something seems
+> slower or different than expected, check here first — full detail and the
+> release levers are in [section 8](#8-mitigations-in-force--and-how-to-release-them).
+>
+> | Mitigation | Since | One-line reason |
+> |---|---|---|
+> | **GPU power cap 450 W** (of 600 W) | 2026-09-05 | Suspect 12V-2x6 connector latch — halves contact heating |
+> | `pcie_aspm.policy=performance` | 2026-08-15 | Former Xid 79 mitigation; hypothesis since disproved, kept as harmless |
+>
+> Check what is actually applied:
+> `sudo gpu-ops/gpu-power-cap.sh --show` and `sudo gpu-ops/gpu-aspm-toggle.sh --verify`
+
 ---
 
 ## 0. The GPU is wedged RIGHT NOW
@@ -405,3 +419,69 @@ evidence points there.
 | Exporter crash-looping silently | Single-threaded `HTTPServer` died with `BrokenPipeError` when a scrape timed out mid-write (8 restarts). Now `ThreadingHTTPServer` with the write wrapped. |
 | "The soak was clean" | Both soaks peaked at 474.9 W; the fault happens at ~600 W. A clean run proves nothing if it never entered the regime where the fault lives. Check peak power against the real workload before trusting a negative result. |
 | ECC | **Disabled** on this card, so there is no memory-error visibility. Enabling costs ~6% VRAM (~5.8 GB of 96). |
+
+
+---
+
+## 8. Mitigations in force — and how to release them
+
+Everything here is a deliberate deviation from stock. Each has a **release
+lever** and, more importantly, **the conditions under which releasing is
+justified**. Do not release one just because things have been quiet: with a
+22-day gap between the two known faults, weeks of silence is weak evidence.
+
+### 8.1 GPU power cap — 450 W (default 600 W)
+
+| | |
+|---|---|
+| Applied | 2026-09-05, after white flaking was found at the 12V-2x6 retention latch (P1) |
+| Mechanism | `nvidia-smi -pl 450`, persisted by `gpu-power-cap.service` (the setting does **not** survive a reboot on its own) |
+| Effect | Connector current ~31.2 A instead of ~43.8 A — about **51 % of the I²R heating** at the contacts |
+| Cost | Throughput only on workloads that actually reach the ceiling. The vLLM soak never exceeded 475 W and is unaffected; the llama.cpp flash-next workload hit 603 W and will lose some |
+
+**Why 450 specifically:** it is below 475 W, the highest level we have soak-tested
+clean for an hour (E1/E4), and it is a defined 12V-2x6 sense-pin tier rather than
+an arbitrary number.
+
+**Release lever:**
+
+```bash
+sudo /home/despara/Development/ai_services/gpu-ops/gpu-power-cap.sh --remove   # back to 600 W
+sudo /home/despara/Development/ai_services/gpu-ops/gpu-power-cap.sh 300        # or tighten further
+```
+
+**Release only when at least one of these holds:**
+
+1. The 12V-2x6 cable has been **replaced**, and the new latch is intact and clicks
+   firmly with the plug fully seated; **or**
+2. The white flaking has been positively identified as debris (dust/paper/mould
+   release) rather than polymer, *and* does not recur after cleaning; **or**
+3. You have accepted the risk deliberately — releasing returns the card to
+   ~600 W, which is the regime **both** known faults occurred in.
+
+**Tighten to 300 W instead** if the latch is found cracked, until the cable is
+replaced. That is 18 % of the 600 W heating and the other defined sense tier.
+
+> A quiet period at 450 W is **not** evidence the hardware is sound. If this is
+> the connector, the fix is a new cable — the cap only reduces the stress on it.
+
+### 8.2 `pcie_aspm.policy=performance`
+
+Applied 2026-08-15 as a mitigation for H1 (ASPM L1 entry/exit failure). **H1 was
+subsequently disproved** — fault I2 happened with this active. Kept because the
+A/B soak showed it costs nothing measurable (throughput within 0.8 %, identical
+link behaviour, identical thermals).
+
+Release: `sudo gpu-ops/gpu-aspm-toggle.sh --revert`, then reboot. There is no
+particular reason to, and no particular reason not to.
+
+**Do not "fix" this by switching to `pcie_aspm=off`** — see the trap table in
+section 7. That silently hands AER back to firmware.
+
+### 8.3 Standing configuration (not mitigations, do not remove)
+
+| Item | Why |
+|---|---|
+| Exporters on `restart: always` | `unless-stopped` is defeated by `safe-shutdown.sh`, which is how monitoring went missing before the first fault |
+| `nct6775` via `/etc/modules-load.d/` | Board voltage rails; without it there is no rail telemetry at all |
+| `gpu-xid-watch.service` | The crash-dump capture chain — the only reason I2 is diagnosable |

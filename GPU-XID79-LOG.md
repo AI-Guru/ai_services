@@ -166,15 +166,23 @@ Throughput within 0.8 % of E1.
 **Result: statistically identical to E1.** Disabling ASPM changes nothing
 measurable — costs nothing to keep, proves nothing.
 
-### E5 — PENDING — power cap at 500 W
+### E5 — 2026-09-05 — power cap at 450 W
 
 ```bash
-sudo nvidia-smi -pl 500     # not persistent across reboot
+sudo gpu-ops/gpu-power-cap.sh 450
 ```
 
-Motivation: faults are observed at ~600 W; ~1 h of load at ≤475 W has never
-produced one. Success criterion is absence of recurrence over weeks, so this is
-slow evidence. Cost is throughput on workloads that reach the cap.
+Chosen over 500 W because 475 W is the highest level soak-tested clean (E1/E4) —
+500 W would be untested territory — and because 450 W is a defined 12V-2x6
+sense-pin tier. Takes connector current from ~43.8 A to ~31.2 A, i.e. **~51 % of
+the contact I²R heating**.
+
+Motivation strengthened by P1: this is now protecting a physically suspect
+connector, not just probing a hypothesis.
+
+Success criterion is absence of recurrence — **slow and weak evidence** given the
+22-day gap between I1 and I2. Release conditions and the lever are documented in
+[`GPU-INCIDENT-RUNBOOK.md` section 8](GPU-INCIDENT-RUNBOOK.md#8-mitigations-in-force--and-how-to-release-them).
 
 ---
 
@@ -219,7 +227,9 @@ believing the most likely cause was handled.
 
 ## Next actions
 
-- [ ] E5: `nvidia-smi -pl 500`, make persistent, watch for recurrence
+- [x] E5: capped to 450 W, persisted via `gpu-power-cap.service`
+- [ ] Identify the white flakes (P1) — highest-value open question
+- [ ] Replace the 12V-2x6 cable if the latch is compromised
 - [ ] Alerting — still none. `up{job="nvidia_gpu"} == 0` and
       `gpu_events_clock_counters_parsed == 0` are the two cheap ones
 - [x] ~~Re-run the soak at ~600 W to force a reproduction~~ — **WITHDRAWN 2026-09-05

@@ -46,6 +46,7 @@ done
 | `gpu-loadtest.py` | Instrumented soak: AER, power-brake and thermal counters, link speed, board rails. |
 | `gpu-aspm-toggle.sh` | Manage the PCIe ASPM kernel parameter. `--verify` / `--runtime` / `--revert`. |
 | `gpu-sensors-probe.sh` | Load `nct6775` for motherboard voltage rails; persists it. |
+| `gpu-power-cap.sh` | Set/persist the board power limit. **Currently 450 W** — see the release lever below. |
 | `systemd/` | Unit files. **Copies** — the live ones are in `/etc/systemd/system/`. |
 
 ## Installing / reinstalling
@@ -79,3 +80,22 @@ cat /proc/cmdline                             # pcie_aspm.policy=performance
 A pre-move tarball of all scripts and units is at
 `/home/despara/gpu-ops-backup-<timestamp>.tar.gz`. Git history is the real
 backup from here on.
+
+## Active mitigation: 450 W power cap
+
+The card is capped to **450 W of 600 W** since 2026-09-05, because white flaking
+was found at the 12V-2x6 retention latch and the second Xid 79 happened at ~600 W.
+It roughly halves the I²R heating at the connector contacts.
+
+```bash
+sudo ./gpu-power-cap.sh --show     # what is applied, and whether it persists
+sudo ./gpu-power-cap.sh 450        # (re)apply
+sudo ./gpu-power-cap.sh 300        # tighten, if the latch is found cracked
+sudo ./gpu-power-cap.sh --remove   # RELEASE back to 600 W
+```
+
+**Do not release just because it has been quiet.** The two known faults were
+22 days apart, so weeks of silence proves little. Release conditions are in
+[`../GPU-INCIDENT-RUNBOOK.md` §8](../GPU-INCIDENT-RUNBOOK.md#8-mitigations-in-force--and-how-to-release-them);
+in short: the cable has been replaced, or the flaking has been positively
+identified as debris.
