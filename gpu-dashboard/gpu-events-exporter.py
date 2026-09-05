@@ -28,7 +28,7 @@ import os
 import re
 import subprocess
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 GPU_BDF = os.environ.get("GPU_BDF", "0000:01:00.0")
 PORT = int(os.environ.get("PORT", "9836"))
@@ -46,12 +46,22 @@ def read_nvidia_events():
     """Parse the two 'Clocks Event Reasons' blocks out of nvidia-smi."""
     states, counters = {}, {}
     try:
-        out = subprocess.run(
+        proc = subprocess.run(
             ["nvidia-smi", "-q", "-d", "PERFORMANCE"],
             capture_output=True, text=True, timeout=20,
-        ).stdout
+        )
     except Exception:
         return states, counters, 1
+    # MUST check returncode. The 2026-09-05 Xid 79 was diagnosed blind because
+    # this did not: nvidia-smi was failing (very likely contention -- two
+    # exporters plus a saturated GPU), returncode was non-zero, stdout was empty,
+    # the parse produced nothing, and err stayed 0. The exporter reported
+    # gpu_events_exporter_up=1 for the whole hour before the fault while silently
+    # emitting no clock-event counters at all -- including hw_power_braking, the
+    # one metric that would have settled the power-delivery question.
+    if proc.returncode != 0:
+        return states, counters, 1
+    out = proc.stdout
 
     section = None
     for line in out.splitlines():
@@ -215,6 +225,12 @@ def render():
     add("# HELP gpu_events_exporter_up Whether the nvidia-smi query succeeded.")
     add("# TYPE gpu_events_exporter_up gauge")
     add(f"gpu_events_exporter_up {0 if err else 1}")
+    # Distinct from _up: the query can succeed and still yield nothing usable.
+    # Alert on this being 0, not just on _up.
+    add("# HELP gpu_events_clock_counters_parsed Number of clock-event counters "
+        "parsed. 0 means the counters are silently missing -- treat as an outage.")
+    add("# TYPE gpu_events_clock_counters_parsed gauge")
+    add(f"gpu_events_clock_counters_parsed {len(counters)}")
     add("# HELP gpu_events_exporter_scrape_seconds Time taken to build this response.")
     add("# TYPE gpu_events_exporter_scrape_seconds gauge")
     add(f"gpu_events_exporter_scrape_seconds {time.time() - started:.4f}")
@@ -235,7 +251,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; version=0.0.4")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Prometheus gave up mid-write. Harmless, but it used to propagate
+            # and take the whole (single-threaded) server down with it.
+            pass
 
     def log_message(self, *args):
         pass  # a scrape every 5s would otherwise flood the container log
@@ -243,4 +264,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"gpu-events-exporter listening on :{PORT} for {GPU_BDF}", flush=True)
-    HTTPServer(("", PORT), Handler).serve_forever()
+    ThreadingHTTPServer(("", PORT), Handler).serve_forever()

@@ -59,7 +59,7 @@ verifies the GPU drained, and only then reboots.
 
 ### 1.1 Xid 79 — GPU fell off the bus
 
-**Signature** (2026-08-14 18:36:05):
+**Signature** (seen 2026-08-14 and 2026-09-05):
 
 ```
 NVRM: Xid (PCI:0000:01:00): 79, GPU has fallen off the bus.
@@ -80,7 +80,7 @@ the device is simply gone. Expect a huge NVRM cascade (~250k lines in 6s).
 This card returns **"Not Supported"** for `nvidia-smi --gpu-reset` — there is no
 software reset path.
 
-**Cause: unknown.** See [section 6](#6-what-we-know-about-the-2026-08-14-event).
+**Cause: unknown.** See [section 6](#6-incident-history-and-what-we-know).
 
 ### 1.2 Xid 154 wedge after a SIGKILLed CUDA process
 
@@ -297,7 +297,69 @@ Gen1 are normal.
 
 ---
 
-## 6. What we know about the 2026-08-14 event
+## 6. Incident history and what we know
+
+### Occurrences
+
+| When | Uptime at fault | Engine | Peak power | ASPM | Dump captured |
+|---|---|---|---|---|---|
+| 2026-08-14 18:36:05 | 10.8 h | vLLM | not recorded (no telemetry) | **enabled** | no — lost to the reboot |
+| 2026-09-05 16:59:15 | 8.5 h | llama.cpp | **603 W** (cap 600 W) | **disabled** | yes, automatically |
+
+Exactly two in all retained journals, 22 days apart.
+
+### What the second event ruled OUT
+
+- **ASPM is not the cause.** The faulting boot ran with
+  `pcie_aspm.policy=performance` and `_OSC: OS now controls [... AER
+  PCIeCapability ...]`. The mitigation was active and the card fell off anyway.
+- **Not software-stack specific.** August was vLLM, September was llama.cpp.
+- **Not thermal.** 80 C at the fault — identical to the peak of a soak that ran
+  clean for 30 minutes.
+- **Not progressive link degradation.** Zero PCIe correctable errors in the hour
+  before, and the kernel log is completely silent for 1h44m before the Xid.
+
+### What it pointed TO: power
+
+The 90 seconds before the fault, from Prometheus:
+
+```
+16:57:15   17.5 W   (idle)
+16:57:30  282.7 W
+16:58:00  319.4 W
+16:58:15  388.1 W
+16:58:30  451.5 W
+16:58:45  594.8 W
+16:59:00  598.4 W
+16:59:15  541.0 W  <- Xid 79, link width 16 -> 63 within one 5s scrape
+peak in the preceding hour: 603.12 W
+```
+
+Idle to the 600 W cap in ~90 s, sustained ~598 W, then the bus drop. There is no
+precursor of any other kind.
+
+**Crucially, this is a regime our testing never entered.** Both 30-minute soaks
+peaked at **474.9 W** — about 125 W short — and both ran clean. That is the most
+likely reason the load test never reproduced the fault, and it means "the soak
+was clean" was never the reassurance it appeared to be.
+
+Still circumstantial: the `hw_power_braking` counter, which would have settled
+it, was silently absent for the whole hour (see the exporter trap in section 7).
+That is fixed, so a third occurrence should be decisive.
+
+### Next experiment
+
+Cap the board power and see whether faults stop:
+
+```bash
+sudo nvidia-smi -pl 500      # not persistent across reboot
+```
+
+This is now a well-motivated test rather than a guess: faults occur at ~600 W,
+and an hour of load at <=475 W has never produced one. The cost is throughput on
+the workloads that actually reach the cap.
+
+## 6b. Original notes on the 2026-08-14 event
 
 **Timeline.** Boot 07:48. At 18:04:19 a vLLM container started. At **18:36:05**
 — 32 minutes in — Xid 79, then Xid 154 with recovery action `0x2 (OS Reboot)`.
@@ -336,4 +398,7 @@ evidence points there.
 | `nvidia-bug-report.sh --output-file X` | Produces `X.gz`, **not** `X.log.gz`. |
 | Board voltage rails | Unlabelled, undivided, ~8 mV ADC steps (~53 mV referred to 12 V). The +12 V rail feeding the card appears unmonitored. `hw_power_braking` is the only real power-delivery probe. |
 | `grep -c … \|\| echo 0` | On zero matches grep prints `0` *then* exits 1, so the fallback appends a second line and arithmetic breaks. `grep -c` already prints 0. |
+| Exporter "healthy" but emitting nothing | `gpu-events-exporter` did not check `nvidia-smi`'s **return code**: a failing call left stdout empty, the parse produced nothing, and `err` stayed 0 — so `gpu_events_exporter_up` read 1 while no clock-event counters were emitted at all. It was dark for the entire hour before the 2026-09-05 fault, losing `hw_power_braking`. Fixed, plus `gpu_events_clock_counters_parsed` now exposes the condition. **Alert on that being 0, not just on `up`.** |
+| Exporter crash-looping silently | Single-threaded `HTTPServer` died with `BrokenPipeError` when a scrape timed out mid-write (8 restarts). Now `ThreadingHTTPServer` with the write wrapped. |
+| "The soak was clean" | Both soaks peaked at 474.9 W; the fault happens at ~600 W. A clean run proves nothing if it never entered the regime where the fault lives. Check peak power against the real workload before trusting a negative result. |
 | ECC | **Disabled** on this card, so there is no memory-error visibility. Enabling costs ~6% VRAM (~5.8 GB of 96). |
