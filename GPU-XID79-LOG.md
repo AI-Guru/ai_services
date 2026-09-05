@@ -186,6 +186,28 @@ Success criterion is absence of recurrence — **slow and weak evidence** given 
 
 ---
 
+### E6 — 2026-09-05 — throughput cost of the 450 W cap (single stream)
+
+`test_chat.py`, qwen3.8-flash-next (llama.cpp q4) on :11480, 3 runs + warmup:
+
+| | |
+|---|---|
+| Throughput | **96.5 tok/s** avg (95.3 / 96.8 / 97.3) |
+| TTFT | 3617 ms avg — dominated by reasoning (e.g. 2693 ms of a 2833 ms TTFT) |
+| Peak power | **348.0 W**, mean-busy 328.2 W, peak SM 2827 MHz, peak 63 C |
+| Samples within 5 % of the 450 W cap | **0** |
+
+**The cap is not binding for single-stream chat.** ~102 W of headroom to the
+limit, so this workload is unaffected and the cap costs nothing here.
+
+**This does NOT show the cap is free in general.** Single-stream inference peaks
+around 348 W; the fault regime is ~600 W, which is reached under concurrency. The
+cost lands entirely on high-concurrency/batch serving, and is unmeasured.
+
+Note: `--no-think` was a **no-op** — the model still emitted reasoning
+(`think 2693 ms (1231 chars)`), so the tok/s figure includes thinking tokens.
+Same pattern as other families in this repo.
+
 ## What the investigation itself got wrong
 
 Worth keeping, because these were process failures, not hardware ones.
