@@ -299,6 +299,9 @@ Gen1 are normal.
 
 ## 6. Incident history and what we know
 
+> Full investigation record — hypothesis ledger, experiments, what we got wrong —
+> is in [`GPU-XID79-LOG.md`](GPU-XID79-LOG.md). This section is the summary.
+
 ### Occurrences
 
 | When | Uptime at fault | Engine | Peak power | ASPM | Dump captured |
