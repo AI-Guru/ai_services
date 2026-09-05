@@ -22,7 +22,7 @@ hypothesis ledger is the one section that gets updated in place.
 | H2 | Software stack / vLLM bug | **DEAD** | Fault #1 was vLLM, fault #2 was llama.cpp (I2) |
 | H3 | Thermal | **DEAD** | 80 °C at fault #2 — identical to the peak of a soak that ran clean (E1, E4, I2) |
 | H4 | Progressive link degradation (signal integrity) | **DEAD** | Zero AER correctable errors before either fault; no precursor at all (I1, I2) |
-| H5 | **Power delivery** (PSU / 12V-2x6 / VRM under transient) | **ALIVE — leading** | Fault #2 at 598 W sustained, 603 W peak vs a 600 W cap; ~1h at ≤475 W has never faulted (I2, E1, E4) |
+| H5 | **Power delivery** (PSU / 12V-2x6 / VRM under transient) | **ALIVE — leading, now with physical evidence** | Fault #2 at 598 W sustained, 603 W peak vs a 600 W cap; ~1h at ≤475 W has never faulted (I2, E1, E4). White flaking at the 12V-2x6 retention latch (P1) — possible partial seating |
 | H6 | PCIe retimer / Gen5 marginality | **ALIVE — weak** | Link reports `Retimer+ 2Retimers+`, but H4's absence of AER argues against |
 | H7 | Driver / GSP firmware bug | **ALIVE — untested** | Both faults on driver 610.43.02; no way to test without a version change |
 | H8 | P-state link retraining (Gen5↔Gen1) | **ALIVE — untested** | 22 retrains per 30 min survive fine, but the fault could be a rare loss |
@@ -91,6 +91,45 @@ realistic sag. **Inconclusive, not negative.**
 > every 5 s, so it is very likely to be whatever is mid-call at any moment.
 
 ---
+
+## Physical inspection
+
+### P1 — 2026-09-05 — 12V-2x6 connector reseated
+
+Connector removed, inspected and reseated. **No discoloration or melting on the
+contacts** — so no evidence of the classic terminal-overheating failure yet.
+
+**But: small white flakes at the retention latch ("clicky lever"), described as
+white dust or paper.**
+
+This matters. The likeliest benign explanations are dust, paper fibre, or mould
+release residue. The concerning explanation is **stress whitening / crazing of
+the latch polymer** — the housings are typically glass-filled nylon or PBT, which
+whitens and can shed at flex points under mechanical fatigue or heat. The latch
+is precisely such a flex point.
+
+Why the distinction is critical: a weakened or cracked latch may not hold the
+plug **fully mated**. Partial seating on a 12V-2x6 carrying ~50 A at 600 W is the
+documented root cause of connector melting, and it produces exactly the fault
+signature seen here — an instantaneous power interruption with no AER, no thermal
+event, no software correlate, and nothing a driver could log.
+
+**This is the best physical evidence to date and it is consistent with H5.** It
+is not confirmation: nobody has yet established that the flakes are connector
+polymer rather than debris.
+
+Discriminating tests (pending):
+- Is there a matching whitened/crazed area on the latch hinge under bright light?
+- Does the flaking recur after cleaning? Recurrence implies shedding.
+- Does the latch still click firmly and resist a gentle tug?
+- Flake texture: paper/dust smears and disintegrates; polymer is harder, waxy.
+- Check the PSU-side connector and whether this is a native cable or an adapter
+  (adapters fail far more often).
+
+**Consequence for the plan:** deliberately driving the card to ~600 W to force a
+reproduction — previously listed as a way to shorten the feedback loop — is now
+**withdrawn as unsafe**. If the latch is compromised, that experiment risks an
+actual connector melt rather than a clean bus drop.
 
 ## Experiments
 
@@ -167,6 +206,8 @@ believing the most likely cause was handled.
 
 ## Open questions
 
+0. **Are the white flakes connector polymer or debris?** The single highest-value
+   open question — see P1. A photograph under good light would likely settle it.
 1. **Was the power brake ever asserted?** Unknown for both faults — the counter
    was dark. Now instrumented; a third occurrence should answer it.
 2. **Does the 12 V rail sag under load?** Unmeasurable at 8 mV ADC resolution.
@@ -181,8 +222,9 @@ believing the most likely cause was handled.
 - [ ] E5: `nvidia-smi -pl 500`, make persistent, watch for recurrence
 - [ ] Alerting — still none. `up{job="nvidia_gpu"} == 0` and
       `gpu_events_clock_counters_parsed == 0` are the two cheap ones
-- [ ] Re-run the soak at a power ceiling that actually reaches ~600 W, to see
-      whether the fault is reproducible on demand
+- [x] ~~Re-run the soak at ~600 W to force a reproduction~~ — **WITHDRAWN 2026-09-05
+      as unsafe** after P1. Do not drive this card to the cap until the latch is
+      cleared.
 - [ ] Check for a BIOS newer than 1402 (AGESA PCIe fixes)
 - [ ] Consider enabling ECC (~6 % VRAM) for memory-error visibility
 
