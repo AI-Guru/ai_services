@@ -1,9 +1,11 @@
 # Qwen3.8-Flash-Next (qwen4exp)
 
 **STATUS: serving on the RTX PRO 6000 at `localhost:11480` via
-[`docker-compose.llama-177b-q4-rtx.yml`](docker-compose.llama-177b-q4-rtx.yml)
-— UD-Q4_K_XL, llama.cpp master, **vision on**, MTP off. 95.8 tok/s sustained
-decode, 3,467 tok/s prefill at 16K, full 262,144 context, 88.4 of 95.6 GiB VRAM.**
+[`docker-compose.llama-177b-q4-mtp-rtx.yml`](docker-compose.llama-177b-q4-mtp-rtx.yml)
+— UD-Q4_K_XL, **vision and MTP both on**, full 262,144 context, 93.2 of 95.6 GiB
+VRAM. Measured on real traffic: **≈1.35–1.4x from MTP**, throughput 42–146 tok/s
+depending on workload. The non-MTP compose remains as the fallback and for
+multi-user serving.**
 
 [`Qwen/Qwen3.8-Flash-Next`](https://huggingface.co/Qwen/Qwen3.8-Flash-Next) is
 Qwen's **Qwen4 architecture preview** (`model_type: qwen4_exp`) — not a Qwen3.8
@@ -104,27 +106,84 @@ the curve; it does not flatten it. That is
 ## MTP (speculative decoding)
 
 [`docker-compose.llama-177b-q4-mtp-rtx.yml`](docker-compose.llama-177b-q4-mtp-rtx.yml)
+— **this is what production runs.**
 
-**Needs the Unsloth fork, not mainline.** Upstream has no MTP graph for qwen4exp
-— #27836/#28097 open, #28104/#27842/#27956 dropped. Mainline *accepts*
+**Needs a fork, not mainline.** Upstream has no MTP graph for qwen4exp —
+#27836/#28097 open, #28104/#27842/#27956 dropped. Mainline *accepts*
 `--spec-type draft-mtp` (it exists for other archs) and then **silently ignores
 the head**: baseline speed, no error. Always confirm with the log line
 `draft acceptance = 0.73939 (610 accepted / 825 generated), mean len = 2.48`.
 No acceptance line = no speculation.
 
-Built from `unslothai/llama.cpp` PR #144 (verified at `586b15ef8`) via
-`--build-arg LLAMA_REPO=unslothai/llama.cpp --build-arg LLAMA_REF=pr/144`.
+Built from `danielhanchen/llama.cpp` branch `qwen4exp/mtp` (verified at
+`d1a92352c`), which is what Unsloth's MTP guide points at. Worth +4 to +8 % over
+the older `unslothai` PR #144 build (`586b15ef8`), entirely inside the MTP path —
+the non-MTP baseline is unchanged at 96.07 vs 95.53 tok/s greedy.
 
-**Worth ~1.3x on decode at temp 1.0**, but the honest caveats matter:
+### It is lossless — verified in the source, not assumed
 
-- The factor **ranges 1.09x-1.42x with no trend over depth**, because draft
-  acceptance itself swings between **0.50 and 0.85** at temp 1.0. The mean is
-  solid; individual cells are not. Unsloth's headline 1.67x is greedy on a B200.
-- **MTP costs 7-12% prefill**, monotonically, at every depth. That is the clean
-  number in the table. The trade flips with the prompt-to-output ratio: long
-  generations win, short answers on huge context can lose.
-- **Single stream only.** Unsloth measure MTP as a net loss (~0.81-0.87x) at
-  concurrency 8. Not re-measured here.
+`common_sampler_sample_and_accept_n` in `common/sampling.cpp`:
+
+```c
+for (; i < draft.size(); i++) {
+    const llama_token id = common_sampler_sample(gsmpl, ctx, idxs[i], grammar_first);
+    result.push_back(id);        // ALWAYS the target model's own sample
+    if (draft[i] != id) break;   // the draft only decides whether to continue
+}
+```
+
+The emitted token is always the target's; the draft is never copied into the
+output. At temp 0 the result is bit-identical, and at temp 1.0 every token comes
+from the same distribution as unspeculated decoding. Acceptance changes only how
+many forward passes are saved. **Quality risk here is the quant, not MTP.**
+
+### `--spec-draft-n-max 3`, measured — not the 5 the vendor guide recommends
+
+| n-max | greedy | temp 1.0 | acceptance | factor vs no-MTP |
+|---|---:|---:|---:|---:|
+| 2 | 139.18 | 135.73 | 67.7 % | 1.38x |
+| **3** | **142.87** | **136.67** | 57.8 % | **1.39x** |
+| 5 | 116.64 | 117.50 | 43.9 % | 1.20x |
+| 8 | 96.31 | 93.33 | 31.6 % | **0.95x** |
+
+5 is slower than the 2 we started with; 8 is a net loss against no speculation at
+all. The older MTP README in the model repo ("2 is a good default") was closer
+than the newer guide. Note `mean len` tops out at 4.00 with n-max 3 — three
+drafted tokens plus the target's own.
+
+### Measured on real traffic — 178 requests, >70,000 drafts
+
+| | |
+|---|---|
+| **pooled factor** | **≈1.35–1.4x**, stable across everything |
+| pooled acceptance | ~58 % |
+| **throughput range** | **42 – 146 tok/s** |
+| acceptance range | 37.8 – 100 % |
+| context spanned | 632 – 230,000 |
+| errors / truncation / OOM | **none**, at 2.4 GiB headroom |
+
+**The factor is the number to plan with. The absolute figure is not.** Throughput
+varies by more than 3x under an unchanged configuration, and prefill varies in the
+same proportion (185 – 2,018 tok/s), which rules out content and acceptance as the
+cause. Eight explanations were tested and rejected: answer length, session
+duration, a "phase", context depth, KV-pool occupancy, concurrency, clock
+throttling, and page cache. The one surviving hypothesis — that under
+`kv_unified` a slot holding a large foreign context slows every other request,
+via the whole-cache scan in `get_prev_tokens()` that
+[#27992](https://github.com/ggml-org/llama.cpp/pull/27992) fixes — could not be
+checked without `-v` or `--slots`. If it holds, `--parallel 1` would be
+substantially faster for single-user work.
+
+**Do not benchmark speculation with `ignore_eos`.** It was introduced here to stop
+the EOS artifact (see Traps) from corrupting throughput cells, and it does that —
+but forcing generation past the natural end produces degenerate repetition that a
+draft head predicts perfectly. Acceptance read **94.5 % on filler text and 100 %
+on a truncated book, where the model emitted nothing but `0` characters**, which
+inflated MTP at 130K to ~110 tok/s and 2.3x. Both figures were artifacts. Real
+prompts without `ignore_eos` give 55–70 %.
+
+**Single stream only.** Unsloth measure MTP as a net loss (~0.81-0.87x) at
+concurrency 8. Not re-measured here.
 
 ---
 
@@ -227,9 +286,18 @@ params actually at IQ1_S.
    capped at exactly 16384 twice; the server had never truncated anything
    (`truncated = 0` on every request) and produced 17,000 on demand when asked.
    A one-file game like the platformer prompt needs 30-60K tokens.
-9. **Benchmark artifact:** at temp 1.0 on filler prompts the model sometimes
-   emits EOS immediately (`predicted_n = 1`), which silently corrupts an averaged
-   throughput cell. Use `ignore_eos` for throughput runs and assert `n_gen`.
+9. **Benchmark artifact, part one:** at temp 1.0 on filler prompts the model
+   sometimes emits EOS immediately (`predicted_n = 1`), which silently corrupts an
+   averaged throughput cell — `(75.08 + 0.00)/2` once read as 37.54 tok/s. Use
+   `ignore_eos` for throughput runs **and assert `n_gen`**.
+10. **Benchmark artifact, part two:** but `ignore_eos` then destroys any
+   *speculation* measurement — see the MTP section. Forced generation past the
+   natural end degenerates into repetition a draft head predicts perfectly.
+   Benchmark MTP on real prompts, without `ignore_eos`.
+11. **A single throughput number for this model is misleading.** Real traffic
+   spans 42–146 tok/s at identical configuration, prefill 185–2,018 tok/s, with
+   the cause unresolved after eight tested hypotheses. Quote the MTP *factor*
+   (stable) or a measured range, never a point value.
 
 ---
 
