@@ -82,6 +82,45 @@ so a second model won't fit alongside a running one. Before launching:
   its port). Stop it first (`docker stop <name>`), run your benchmark, then
   `docker start <name>` to restore it. Confirm before stopping a live-served model.
 
+## Currently serving: Qwen3.8-Flash-Next on port 11480
+
+`models/qwen3.8-flash-next/docker-compose.llama-177b-q4-mtp-rtx.yml` — UD-Q4_K_XL
++ vision + MTP, 262144 context, **93.2 of 95.6 GiB VRAM**. ~121 tok/s with MTP,
+~98 without. Served as `qwen3.8-flash-next`. Full detail in that family's README.
+
+This one is unlike the rest of the repo in several ways; read these before
+touching it.
+
+- **It only fits because llama.cpp keeps the 26.8 GiB n-gram/PLE table
+  host-side.** `--lazy-mode on` then streams its rows from SSD instead of trying
+  to cache them in 30 GiB of RAM. **Never add `--no-mmap` or `-lm none`** — the
+  qwen3.6 Spark composes use `--no-mmap`, and copying that here breaks the model.
+- **MTP needs a fork.** Mainline llama.cpp *accepts* `--spec-type draft-mtp` and
+  then silently ignores the draft head — baseline speed, no error. Build from
+  `danielhanchen/llama.cpp` branch `qwen4exp/mtp`. Always confirm speculation
+  actually ran: `docker logs … | grep 'draft acceptance'`. No line = no MTP.
+- **`--spec-draft-n-max 3`, measured — not the 5 Unsloth's guide recommends.**
+  5 is slower than 2 here and 8 is slower than no MTP at all.
+- **2.4 GiB of headroom.** The tightest config in the repo. Draft-head buffers
+  are not counted in llama.cpp's context-fit pass (it logs
+  `failed to measure the memory of the extra model, fitting without it`), so
+  projections run ~2 GiB light. Do not stack anything else on this card.
+
+### Two measurement traps this model sets
+
+Both cost real time here; both produce plausible-looking numbers rather than errors.
+
+- **At temp 1.0 the model sometimes emits EOS immediately** on synthetic prompts
+  (`predicted_n = 1`). Averaged into a throughput cell that silently becomes a
+  wrong number — `(75.08 + 0.00)/2` once read as 37.54 tok/s. Use `ignore_eos`
+  for throughput runs **and assert `n_gen`**.
+- **But `ignore_eos` destroys speculative-decoding measurements.** Forced
+  generation past the natural end degenerates into repetition, which a draft head
+  predicts perfectly: acceptance read 94.5 % on filler text and **100 % on a
+  truncated book, where the model emitted nothing but `0` characters**. Both
+  inflated MTP throughput at 130K to ~110 tok/s. Speculation must be benchmarked
+  on a real prompt without `ignore_eos`; realistic acceptance is 55-70 %.
+
 ## Benchmark convention
 
 Match the existing READMEs: `python3 test_chat.py --base-url http://localhost:<port>/v1
