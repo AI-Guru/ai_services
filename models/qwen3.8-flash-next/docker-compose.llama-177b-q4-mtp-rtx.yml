@@ -61,12 +61,18 @@ services:
   qwen38-flashnext-q4-mtp-rtx:
     image: llama.cpp-qwen4exp:mtp
     container_name: qwen38-flashnext-q4-mtp-rtx
-    # `unless-stopped`, NOT `always` — deliberate. The non-MTP compose uses
-    # `always` so it comes back after a reboot; this one binds the same port
-    # 11480, so giving it `always` too would have the two fight on boot. A
-    # reboot therefore always returns to the production (non-MTP) config, and
-    # MTP has to be brought up by hand again.
-    restart: unless-stopped
+    # `always` — this file IS production now, so it is the one that has to come
+    # back after a reboot. gpu-safe-shutdown.service `docker stop`s every GPU
+    # container before poweroff, and `docker stop` cancels an `unless-stopped`
+    # policy for good, leaving the model down across the reboot. Exactly that
+    # happened on 2026-09-06/07: this compose still carried `unless-stopped`
+    # from when the non-MTP file was production, and after the 11:35 reboot
+    # nothing came back.
+    #
+    # Only ONE of the two composes may carry `always` — both bind port 11480 and
+    # would otherwise fight on boot. Whichever is production owns `always`; the
+    # other must be `unless-stopped`. Swap BOTH when switching.
+    restart: always
 
     deploy:
       resources:
