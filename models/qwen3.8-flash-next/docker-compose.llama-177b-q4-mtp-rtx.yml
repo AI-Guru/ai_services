@@ -5,23 +5,35 @@
 # next few tokens and the main model verifies them in one pass. Verification is
 # exact, so output is unchanged — only speed.
 #
-# ⚠️ REQUIRES THE UNSLOTH FORK, NOT MAINLINE llama.cpp.
-#   As of upstream 8887a48f0 there is no MTP graph for qwen4exp: #27836 and
-#   #28097 are still open, #28104/#27842/#27956 were dropped. Mainline accepts
+# ⚠️ REQUIRES #28243, NOT PLAIN MAINLINE llama.cpp.
+#   As of 2026-09-13 master still has no MTP graph for qwen4exp: #28243 (the
+#   MTP PR this build carries) is an open draft, #27836/#28097 are open,
+#   #28104/#27842/#27956 were dropped. Mainline accepts
 #   --spec-type draft-mtp (it exists for other archs) and then SILENTLY IGNORES
 #   the head — you get baseline speed and no error. Always confirm speculation
 #   actually ran by looking for this line in the log:
 #     draft acceptance = 0.73939 (610 accepted / 825 generated), mean len = 2.48
 #   No acceptance line = no speculation.
 #
-#   docker build --build-arg LLAMA_REPO=danielhanchen/llama.cpp \
-#     --build-arg LLAMA_REF=qwen4exp/mtp -t llama.cpp-qwen4exp:mtp \
+#   docker build --build-arg LLAMA_REPO=ggml-org/llama.cpp \
+#     --build-arg LLAMA_REF=c83604f0b733092ffee9cbf5a5b7a8667530ab34 \
+#     -t llama.cpp-qwen4exp:mtp-c83604f0 \
 #     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
 #     models/qwen3.8-flash-next/
-#   Verified against danielhanchen/llama.cpp d1a92352c (branch qwen4exp/mtp),
-#   which is what Unsloth's MTP guide now points at. It is 93 commits ahead of
-#   the unslothai PR #144 build this file used to name (586b15ef8), and worth
-#   +4 to +8 % — entirely in the MTP path, the non-MTP baseline is unchanged
+#   c83604f0b is GitHub's own merge of #28243 (head d1a92352c) into master
+#   ae9afff8, dated 2026-09-12 — i.e. the MTP fork rebased onto current master,
+#   build 10945. Pinned by SHA: refs/pull/28243/merge moves whenever master does.
+#
+#   Build 10945 vs the fork's own d1a92352c (build 10802, still tagged
+#   llama.cpp-qwen4exp:mtp for rollback), A/B 2026-09-13, same flags:
+#     ms per forward pass    within -1.2 .. +3.3 % at every depth 2K-250K
+#     prefill                within -1.6 .. +1.0 %
+#     VRAM                   93,883 vs 95,419 MiB  -> 1.5 GiB freed
+#   Speed-neutral; the rebase is a VRAM win (#28330 stops the QSA indexer
+#   allocating a V cache it never reads). Details in the README.
+#
+#   d1a92352c itself was worth +4 to +8 % over the unslothai PR #144 build
+#   (586b15ef8) — entirely in the MTP path, the non-MTP baseline is unchanged
 #   (96.07 vs 95.53 tok/s greedy).
 #
 # DRAFT HEAD (2.60 GiB) — the `shared-` variant borrows token embedding and
@@ -38,11 +50,12 @@
 #   baseline". Our baseline matches theirs (96-99); the MTP figure does not —
 #   we are ~19 % short even greedy. What differs is not stated in their docs.
 #
-# COST: 92.8 GiB of 95.6 with the vision projector, 91.7 without it. The draft
-# head is 2.6 GiB and its own KV cache another ~1.7; the projector adds ~1.1.
-# That leaves only ~2.8 GiB of headroom — by far the tightest config here, and
-# the per-image buffers under CONCURRENT vision requests were never measured.
-# If you do not need images, drop the two --mmproj lines and get 3.9 GiB back.
+# COST (build 10945): 91.7 GiB of 95.6 with the vision projector — 3.9 GiB of
+# headroom, up from 2.4 on build 10802 (nvidia-smi 93,883 vs 95,419 MiB idle).
+# The draft head is 2.6 GiB and its own KV cache another ~1.7; the projector
+# adds ~1.1. Still the tightest config here, and the per-image buffers under
+# CONCURRENT vision requests were never measured.
+# If you do not need images, drop the two --mmproj lines to free another ~1.1 GiB.
 #
 # Verified working: vision and MTP do not disable each other — an image request
 # answered correctly while the log still showed draft acceptance = 0.58743.
@@ -59,7 +72,7 @@
 
 services:
   qwen38-flashnext-q4-mtp-rtx:
-    image: llama.cpp-qwen4exp:mtp
+    image: llama.cpp-qwen4exp:mtp-c83604f0
     container_name: qwen38-flashnext-q4-mtp-rtx
     # `always` — this file IS production now, so it is the one that has to come
     # back after a reboot. gpu-safe-shutdown.service `docker stop`s every GPU
