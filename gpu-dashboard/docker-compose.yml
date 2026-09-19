@@ -7,6 +7,7 @@
 # Dashboard: http://localhost:3000 (no login required)
 # Prometheus: http://localhost:9090
 # Exporter: http://localhost:9835/metrics
+# Host metrics (CPU/RAM/disk): http://localhost:9100/metrics
 
 services:
   nvidia-gpu-exporter:
@@ -86,6 +87,44 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Host CPU / RAM / disk. The GPU exporters above say nothing about the machine
+  # the card is in, which left "is the GPU idle because it is stalled, or because
+  # the host is the bottleneck?" unanswerable from this stack.
+  #
+  # `unless-stopped`, NOT `always` (the opposite of the two exporters above):
+  # this container requests no GPU devices, so safe-shutdown.sh does not sweep it
+  # up and there is no manual stop for the policy to remember across a reboot.
+  #
+  # Reads the host through bind mounts rather than `network_mode: host`, so that
+  # Prometheus can still reach it by service name. The one cost is that netdev
+  # metrics come from the container's network namespace — host CPU, memory,
+  # filesystem and load are all accurate, host network throughput is not.
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: node-exporter
+    restart: unless-stopped
+    pid: host
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      # Without this every overlay2 layer and container mount is reported as its
+      # own filesystem, all of them backed by the same underlying device, which
+      # makes "disk usage" a list of hundreds of identical duplicates.
+      - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|run|var/lib/docker/.+|host/root/var/lib/docker/.+)($$|/)
+      - --collector.filesystem.fs-types-exclude=^(autofs|binfmt_misc|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|procfs|pstore|securityfs|selinuxfs|squashfs|sysfs|tracefs)$$
     logging:
       driver: "json-file"
       options:

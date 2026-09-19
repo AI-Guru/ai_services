@@ -14,3 +14,10 @@ scrape_configs:
   - job_name: gpu_events
     static_configs:
       - targets: ["gpu-events-exporter:9836"]
+
+  # Host CPU / memory / filesystem. Not GPU telemetry, but the stack is the
+  # natural home for it: one Prometheus API now answers for both the card and
+  # the machine around it.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
