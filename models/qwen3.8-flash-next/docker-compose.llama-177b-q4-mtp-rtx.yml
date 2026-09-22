@@ -16,13 +16,22 @@
 #   No acceptance line = no speculation.
 #
 #   docker build --build-arg LLAMA_REPO=ggml-org/llama.cpp \
-#     --build-arg LLAMA_REF=c83604f0b733092ffee9cbf5a5b7a8667530ab34 \
-#     -t llama.cpp-qwen4exp:mtp-c83604f0 \
+#     --build-arg LLAMA_REF=127368d8fbf8d8d9ddbbbf8f5514e1c0db4a70d8 \
+#     -t llama.cpp-qwen4exp:mtp-127368d8 \
 #     -f models/qwen3.8-flash-next/Dockerfile.llama-qwen4exp \
 #     models/qwen3.8-flash-next/
-#   c83604f0b is GitHub's own merge of #28243 (head d1a92352c) into master
-#   ae9afff8, dated 2026-09-12 — i.e. the MTP fork rebased onto current master,
-#   build 10945. Pinned by SHA: refs/pull/28243/merge moves whenever master does.
+#   127368d8 is GitHub's own merge of #28243 (head 6fcaa16f, 2026-09-21) into
+#   master ec5a12b8 (2026-09-22) — build 11112. Pinned by SHA: the
+#   refs/pull/28243/merge ref moves whenever master does. Same recipe with
+#   c83604f0b gives the previous production build 10945 (tag :mtp-c83604f0).
+#
+#   Build 11112 vs 10945, A/B 2026-09-22, same flags, ms per forward pass
+#   (the acceptance-independent metric — see the README):
+#     decode   -3 % at 4K-64K, -4..-8 % at 128K-250K   (fused hc/norm ops)
+#     prefill  +21..+40 % at 128K-250K, ~flat below     (#28770 sparse FA —
+#              prefill batches reach its 8-column tiles; MTP's 4-token verify
+#              batches do not, so decode gets none of it)
+#     VRAM     93,861 vs 93,883 MiB — unchanged
 #
 #   Build 10945 vs the fork's own d1a92352c (build 10802, still tagged
 #   llama.cpp-qwen4exp:mtp for rollback), A/B 2026-09-13, same flags:
@@ -50,8 +59,8 @@
 #   baseline". Our baseline matches theirs (96-99); the MTP figure does not —
 #   we are ~19 % short even greedy. What differs is not stated in their docs.
 #
-# COST (build 10945): 91.7 GiB of 95.6 with the vision projector — 3.9 GiB of
-# headroom, up from 2.4 on build 10802 (nvidia-smi 93,883 vs 95,419 MiB idle).
+# COST (builds 10945/11112): 91.7 GiB of 95.6 with the vision projector — 3.9 GiB
+# of headroom, up from 2.4 on build 10802 (nvidia-smi 93,883 vs 95,419 MiB idle).
 # The draft head is 2.6 GiB and its own KV cache another ~1.7; the projector
 # adds ~1.1. Still the tightest config here, and the per-image buffers under
 # CONCURRENT vision requests were never measured.
@@ -72,7 +81,7 @@
 
 services:
   qwen38-flashnext-q4-mtp-rtx:
-    image: llama.cpp-qwen4exp:mtp-c83604f0
+    image: llama.cpp-qwen4exp:mtp-127368d8
     container_name: qwen38-flashnext-q4-mtp-rtx
     # `always` — this file IS production now, so it is the one that has to come
     # back after a reboot. gpu-safe-shutdown.service `docker stop`s every GPU

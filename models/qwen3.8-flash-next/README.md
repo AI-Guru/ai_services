@@ -3,7 +3,7 @@
 **STATUS: serving on the RTX PRO 6000 at `localhost:11480` via
 [`docker-compose.llama-177b-q4-mtp-rtx.yml`](docker-compose.llama-177b-q4-mtp-rtx.yml)
 — UD-Q4_K_XL, **vision and MTP both on**, full 262,144 context, 91.7 of 95.6 GiB
-VRAM on build 10945 (master + #28243, since 2026-09-13). Measured on real traffic: **≈1.35–1.4x from MTP**, throughput 42–146 tok/s
+VRAM on build 11112 (master + #28243, since 2026-09-22). Measured on real traffic: **≈1.35–1.4x from MTP**, throughput 42–146 tok/s
 depending on workload. The non-MTP compose remains as the fallback and for
 multi-user serving.**
 
@@ -63,7 +63,7 @@ UD-Q4_K_XL within 0.6%.
 | + vision | 88.4 GiB | 7.2 |
 | + MTP | 91.7 GiB | 3.9 |
 | + vision + MTP | 92.8 GiB | 2.8 |
-| **+ vision + MTP, build 10945** ← serving | **91.7 GiB** | **3.9** |
+| **+ vision + MTP, builds 10945 / 11112** ← serving | **91.7 GiB** | **3.9** |
 
 The last row is `nvidia-smi` at idle (93,883 MiB, against 95,419 MiB for the same
 config on build 10802) — a different method from the rows above, so compare it
@@ -149,6 +149,55 @@ does not transfer to this model.
 pass stays 2.6–3.0 at every depth, so MTP helps just as much at 250K; ms/pass is
 flat to 16K and then rises 2.6x by 250K.
 
+### Build 11112 vs 10945 — A/B on real text (2026-09-22)
+
+11112 is GitHub's merge of #28243 head `6fcaa16f` into master `ec5a12b8`
+(pinned `127368d8`); 10945 is the previous production build. Same method as
+above, order 10945 → 11112 → 10945, `benchmarks/depth_ab.py` + `analyze_ab.py`.
+
+| ctx | ms/pass 10945 (run 1 / run 2) | ms/pass **11112** | ratio vs faster baseline | prefill 10945 (1 / 2) | prefill **11112** |
+|---:|---:|---:|---:|---:|---:|
+| 2K | 21.12 / 21.17 | 21.28 | 1.008 | 675 / 675 | 664 |
+| 4K | 20.74 / 20.90 | 20.27 | 0.977 | 1,203 / 1,206 | 797† |
+| 8K | 20.93 / 21.03 | 20.38 | 0.974 | 1,748 / 1,718 | 1,772 |
+| 16K | 21.91 / 21.85 | 21.14 | 0.968 | 1,725 / 1,705 | 1,736 |
+| 32K | 24.56 / 24.59 | 23.48 | 0.956 | 1,611 / 1,585 | 1,633 |
+| 64K | 28.32 / 28.25 | 27.33 | 0.965 | 1,587 / 1,566 | 1,698 |
+| 128K | 37.61 / 39.12 | 36.00 | 0.957 | 1,445 / 1,080 | **1,748** |
+| 250K | 54.23 / 56.56 | 52.08 | 0.960 | 1,090 / 783 | **1,526** |
+
+† 4K prefill on 11112 read 763/831 on both runs against ~1,200 everywhere else
+— an outlier at one depth, not reproduced at 2K or 8K, cause unknown.
+
+**Decode: −2.5 to −4.5 % per forward pass from 4K up**, against whichever
+baseline run was faster. That is the fused hyper-connection and norm ops
+([#28901](https://github.com/ggml-org/llama.cpp/pull/28901),
+[#28896](https://github.com/ggml-org/llama.cpp/pull/28896)), not sparse FA —
+the 4-token MTP verify batch cannot reach the sparse kernel, and tokens per pass
+is unchanged. Small, but the first build-to-build decode gain since MTP landed,
+and it is not acceptance noise.
+
+**Prefill at depth is the real win: +21 % at 128K and +40 % at 250K** vs the
+faster baseline run (1.6–1.9x vs the slower one). Prefill batches are wide
+enough for [#28770](https://github.com/ggml-org/llama.cpp/pull/28770)'s
+8-column sparse-FA tiles. A cold 250K prompt now prefills in ~164 s instead of
+~229 s. Nothing below 64K, as the PR's own curve predicts.
+
+**The unexplained variance showed up again, mid-sweep, in the second baseline
+run only:** from its 128K/run 2 onward, prefill dropped to 770–830 and ms/pass
+rose ~4 % (39.12 vs 37.61, 56.56 vs 54.23) with the flags, prompts and page cache
+unchanged and the GPU at 57 °C / 2,617 MHz — the same phenomenon as Trap 11, now
+caught inside a controlled run. Both baseline runs are shown for that reason,
+and the ratios above use the faster one so the gain is not overstated.
+
+VRAM unchanged: 93,861 vs 93,883 MiB.
+
+**`--spec-draft-n-max 7` re-tested on 11112, because an 8-token verify batch is
+the one MTP shape the sparse-FA kernel specializes.** It loses: ms/pass 1.25–1.43x
+worse at 64K–250K, acceptance 25–39 %, tok/s 0.84x / 0.90x / 1.06x at 64K / 128K
+/ 250K, and it costs **+1.8 GiB VRAM** (95,663 MiB). Sparse FA does not rescue a
+wide verify batch. n-max 3 stays.
+
 ---
 
 ## MTP (speculative decoding)
@@ -163,11 +212,12 @@ the head**: baseline speed, no error. Always confirm with the log line
 `draft acceptance = 0.73939 (610 accepted / 825 generated), mean len = 2.48`.
 No acceptance line = no speculation.
 
-**Since 2026-09-13 production runs build 10945:** GitHub's merge of #28243 (the
-fork's `d1a92352c`) into master `ae9afff8`, pinned as `c83604f0b` and tagged
-`llama.cpp-qwen4exp:mtp-c83604f0`. Same speed as the fork, 1.5 GiB less VRAM (see
-the A/B above); vision and 4/4 tool scenarios re-verified on it. The fork build
-stays tagged `llama.cpp-qwen4exp:mtp` for rollback.
+**Since 2026-09-22 production runs build 11112:** GitHub's merge of #28243 head
+`6fcaa16f` into master `ec5a12b8`, pinned as `127368d8` and tagged
+`llama.cpp-qwen4exp:mtp-127368d8`. −3 % decode per pass, +21–40 % prefill at
+128K–250K over 10945 (A/B above); vision and 4/4 tool scenarios re-verified.
+Rollback: `:mtp-c83604f0` (10945, 2026-09-13, speed-neutral vs the fork, 1.5 GiB
+less VRAM) or `:mtp` (the fork's own `d1a92352c`, build 10802).
 
 `d1a92352c` (`danielhanchen/llama.cpp` branch `qwen4exp/mtp`) is what Unsloth's
 MTP guide points at. Worth +4 to +8 % over
@@ -368,7 +418,8 @@ params actually at IQ1_S.
 |---|---|
 | [`docker-compose.llama-177b-q4-mtp-rtx.yml`](docker-compose.llama-177b-q4-mtp-rtx.yml) | **Production.** Vision + MTP. Carries `restart: always` |
 | [`docker-compose.llama-177b-q4-rtx.yml`](docker-compose.llama-177b-q4-rtx.yml) | Fallback / multi-user. Vision on, MTP off. 88.4 GiB. Same port — mutually exclusive |
-| [`Dockerfile.llama-qwen4exp`](Dockerfile.llama-qwen4exp) | CUDA 13 / SM_120. `LLAMA_REPO` + `LLAMA_REF` select upstream master or the Unsloth MTP fork |
+| [`Dockerfile.llama-qwen4exp`](Dockerfile.llama-qwen4exp) | CUDA 13 / SM_120. `LLAMA_REPO` + `LLAMA_REF` select the commit; production pins the #28243 merge SHA |
+| [`benchmarks/depth_ab.py`](benchmarks/depth_ab.py) / [`analyze_ab.py`](benchmarks/analyze_ab.py) | The depth-sweep A/B used above: real prompts, no `ignore_eos`, `n_gen` asserted, ms per forward pass |
 
 Weights are **not** in this repo (~115 GB at
 `/home/despara/models/qwen3.8-flash-next/`):
@@ -381,19 +432,28 @@ hf download unsloth/Qwen3.8-Flash-Next-GGUF \
 
 ---
 
-## Upstream status (checked 2026-09-13)
+## Upstream status (checked 2026-09-22)
+
+Merged into master since build 10945 (`ae9afff8`, 2026-09-12):
+
+| PR | Merged | Claim | For this config |
+|---|---|---|---|
+| [#28770](https://github.com/ggml-org/llama.cpp/pull/28770) CUDA sparse FA for qwen4 | 2026-09-20 | tg 1.03–1.18x, pp 1.08–1.26x at 10K–100K (DGX Spark); auto-on once KV ≥ max(4096, 2·gather) | Only 1- and 8-token query batches are specialized (`ncols1 == 1 \|\| 8`); MTP n-max 3 verifies 4 tokens per pass → dense kernel. Author deferred 2/4 to follow-up work. **Measured below** |
+| [#28901](https://github.com/ggml-org/llama.cpp/pull/28901) hyper-connection fused ops | 2026-09-16 | pp 1.14x, tg 1.02x (Spark); CUDA included | Applies |
+| [#28896](https://github.com/ggml-org/llama.cpp/pull/28896) rms_norm + mul fusion | 2026-09-14 | pp +3 % | Applies |
+| [#28040](https://github.com/ggml-org/llama.cpp/pull/28040) O(log n) `get_prev_tokens` | 2026-09-01 | +3.9 % at 55K, +12 % at 132K, this card and quant | In every MTP build since `d1a92352c` |
+| [#28330](https://github.com/ggml-org/llama.cpp/pull/28330) indexer skips V cache | 2026-09-10 | ~6 GiB at 262K, reported | Measured 1.5 GiB here (build 10945) |
+
+Still open:
 
 | PR | State | Claim | For this config |
 |---|---|---|---|
-| [#28040](https://github.com/ggml-org/llama.cpp/pull/28040) (supersedes [#27992](https://github.com/ggml-org/llama.cpp/pull/27992)) | **merged 2026-09-01** | O(log n) `get_prev_tokens` — +3.9 % decode at 55K, +12.0 % at 132K, on this card and quant | In every MTP build since `d1a92352c` |
-| [#28330](https://github.com/ggml-org/llama.cpp/pull/28330) | **merged 2026-09-10** | QSA indexer allocates no V cache (it only reads keys) — ~6 GiB at 262K, reported | NOT in `d1a92352c`; in build 10945, **measured 1.5 GiB** here |
-| [#28243](https://github.com/ggml-org/llama.cpp/pull/28243) | open, draft | qwen4exp MTP; draft borrows the target's embeddings and lm head | What every MTP build here is made from |
-| [#28213](https://github.com/ggml-org/llama.cpp/pull/28213) | open | Gather-based QSA decode: +6 / +19 / +50 % at 31K / 62K / 130K (2x A6000, no MTP) | **No gain under MTP.** Gates on `n_tokens == n_stream`; MTP verify batches are 4 wide and fall back to the masked path. The multi-token version, [#28349](https://github.com/ggml-org/llama.cpp/pull/28349), closed unmerged |
-| [#28699](https://github.com/ggml-org/llama.cpp/pull/28699) | draft | Incremental pooled-key cache for the QSA indexer: +9.3 % decode at 63K / 114K | MTP-safe, but an unresolved M-RoPE assertion **fails on vision input** — unusable with the mmproj |
-| [#28770](https://github.com/ggml-org/llama.cpp/pull/28770) | open | CUDA sparse FA for qwen4: prefill 1.08x at 10K to 1.26x at 100K, decode +3 % | Reviewer: specializes only 1- and 8-token batches, "will cause trouble" with speculation |
-| [#28136](https://github.com/ggml-org/llama.cpp/pull/28136) | open, **merge conflicts** | `--lazy-mode on-direct`: parallel `pread()` for PLE rows, 2-3x cold prefill, -4-6 % warm | Stalled since 2026-09-06 |
-| [#28751](https://github.com/ggml-org/llama.cpp/pull/28751) | open | No scheduler re-reserve on `causal_attn` toggle: 1.27-7.6x multi-image prefill | Vision only; reviewer's concern is qwen4exp specifically |
+| [#28243](https://github.com/ggml-org/llama.cpp/pull/28243) qwen4exp MTP | open, **out of draft**, mergeable clean, head `6fcaa16f` (2026-09-21) | the MTP graph every build here is made from | 3 commits since `d1a92352c`: conflict fixes + review comments |
+| [#29166](https://github.com/ggml-org/llama.cpp/pull/29166) QSA per-block bias with a unified cache | draft, depends on #28699 | **correctness**: with `kv_unified` and >1 live sequence, block visibility is indexed by block number, not id — "the model stops seeing its last messages and reports the input as empty"; 2/4 → 4/4 | Production runs 4 slots on a unified cache and all 4 see traffic. If a request ever came back claiming an empty input under concurrent use, this is the cause. Not cherry-pickable until #28699 lands |
+| [#29030](https://github.com/ggml-org/llama.cpp/pull/29030) direct reads for lazy rows (supersedes [#28136](https://github.com/ggml-org/llama.cpp/pull/28136)) | open; ggerganov wants the problem stated better, design moving to libllama | cold pp2048 277 → 484 tok/s (+75 %), +11 % at 8K, tg unchanged; output byte-identical | Would cut cold TTFT on short prompts; nothing at depth |
+| [#28213](https://github.com/ggml-org/llama.cpp/pull/28213) gather-based QSA decode | open, untouched since 2026-09-10 | +6 / +19 / +50 % at 31K / 62K / 130K (2x A6000, no MTP) | Gates on `n_tokens == n_stream` → no gain under MTP; multi-token follow-up [#28349](https://github.com/ggml-org/llama.cpp/pull/28349) closed unmerged |
+| [#28699](https://github.com/ggml-org/llama.cpp/pull/28699) pooled-key cache for the QSA indexer | draft | +9.3 % decode at 63K / 114K | Vision M-RoPE assertion still unresolved, plus a new cross-sequence bug under a unified cache |
+| [#28751](https://github.com/ggml-org/llama.cpp/pull/28751) no scheduler re-reserve on `causal_attn` toggle | open | 1.27–7.6x multi-image prefill | Vision only |
 
-**Every decode-side win still open conflicts with MTP or with vision.** Until
-#28213 generalizes to multi-token batches or #28699 fixes M-RoPE, rebasing onto
-master is the only lever that applies to this config as-is.
+**Every open decode-side win still conflicts with MTP, vision, or the unified
+cache.** Rebasing onto master remains the only lever that applies as-is.
